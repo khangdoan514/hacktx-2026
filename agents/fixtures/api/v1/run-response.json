@@ -4,6 +4,7 @@
     "state": "SUCCEEDED",
     "agent_id": "vendor-orchestrator",
     "agent_version": "1.0.0",
+    "model_id": "meta/muse-spark-1.3-contributor",
     "input": {"task": "Compare fictional vendors for a small support team", "criteria": ["price", "accessibility"], "budget_usd": 1000},
     "output": {"recommendation": "Vendor A", "source_ids": ["vendor-a"]},
     "usage": {"input_tokens": 800, "output_tokens": 200, "cost_usd": 0.01},

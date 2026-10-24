@@ -57,6 +57,8 @@ func (m *memory) List(_ context.Context, id string, after uint64) ([]contracts.R
 
 type noTools struct{}
 
+func (noTools) Definitions() []contracts.ToolDefinition { return nil }
+
 func (noTools) Invoke(context.Context, contracts.AgentDefinition, contracts.AgentInvocation, contracts.ToolRequest) (contracts.ToolInvocation, error) {
 	return contracts.ToolInvocation{}, nil
 }
@@ -351,5 +353,29 @@ func TestConcurrencyLimitSerializesSpecialists(t *testing.T) {
 	run := waitRun(t, m, started.ID)
 	if run.State != contracts.StateSucceeded {
 		t.Fatalf("run failed: %+v", run)
+	}
+}
+
+func TestPerRunModelIDPropagatesAndValidates(t *testing.T) {
+	m := newMemory()
+	var seen string
+	f := modelFunc(func(_ context.Context, in contracts.ModelInput) (contracts.ModelResult, error) {
+		seen = in.Context.ModelID
+		return contracts.ModelResult{Action: contracts.ModelAction{Type: contracts.ActionFinish, Output: json.RawMessage(`{"ok":true}`)}, Usage: contracts.Usage{}}, nil
+	})
+	c, err := New(defs(), f, noTools{}, m, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := c.Start(context.Background(), contracts.StartRunRequest{AgentID: "root", AgentVersion: "1.0.0", ModelID: "openai/gpt-4o-mini", Input: json.RawMessage(`{}`), Limits: lim()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := waitRun(t, m, started.ID)
+	if run.State != contracts.StateSucceeded || run.ModelID != "openai/gpt-4o-mini" || seen != "openai/gpt-4o-mini" {
+		t.Fatalf("model propagation failed: run=%+v seen=%q", run, seen)
+	}
+	if _, err := c.Start(context.Background(), contracts.StartRunRequest{AgentID: "root", AgentVersion: "1.0.0", ModelID: "bad model", Input: json.RawMessage(`{}`), Limits: lim()}); err == nil {
+		t.Fatal("invalid model ID accepted")
 	}
 }

@@ -106,11 +106,14 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	if err := positive(req.Limits); err != nil {
 		return contracts.Run{}, err
 	}
+	if req.ModelID != "" && !contracts.ValidModelID(req.ModelID) {
+		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "invalid model ID"}
+	}
 	if err := Validate(d.InputSchema, req.Input); err != nil {
-		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "input does not match agent schema"}
+		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "input does not match agent schema: " + err.Error()}
 	}
 	t := now()
-	r := contracts.Run{ID: id("run-"), State: contracts.StatePending, AgentID: d.ID, Version: d.Version, Input: req.Input, Invocations: []contracts.AgentInvocation{}, ToolInvocations: []contracts.ToolInvocation{}, CreatedAt: t, UpdatedAt: t}
+	r := contracts.Run{ID: id("run-"), State: contracts.StatePending, AgentID: d.ID, Version: d.Version, ModelID: req.ModelID, Input: req.Input, Invocations: []contracts.AgentInvocation{}, ToolInvocations: []contracts.ToolInvocation{}, CreatedAt: t, UpdatedAt: t}
 	if err := c.store.Create(ctx, r); err != nil {
 		return contracts.Run{}, err
 	}
@@ -252,6 +255,32 @@ func validateAction(a contracts.ModelAction) error {
 	}
 	return nil
 }
+// delegates returns the allowlisted delegate definitions at the caller's
+// version so the model adapter can shape delegation input to their schemas.
+func (e *execution) delegates(d contracts.AgentDefinition) []contracts.AgentDefinition {
+	out := make([]contracts.AgentDefinition, 0, len(d.AllowedDelegates))
+	for _, id := range d.AllowedDelegates {
+		if child, ok := e.coord.defs[id+"@"+d.Version]; ok {
+			out = append(out, child)
+		}
+	}
+	return out
+}
+
+func (e *execution) allowedTools(d contracts.AgentDefinition) []contracts.ToolDefinition {
+	registered := map[string]contracts.ToolDefinition{}
+	for _, t := range e.coord.tools.Definitions() {
+		registered[t.ID] = t
+	}
+	out := make([]contracts.ToolDefinition, 0, len(d.AllowedTools))
+	for _, id := range d.AllowedTools {
+		if t, ok := registered[id]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func (e *execution) charge(u contracts.Usage) error {
 	if u.InputTokens < 0 || u.OutputTokens < 0 || u.CostUSD < 0 || math.IsNaN(u.CostUSD) || math.IsInf(u.CostUSD, 0) {
 		return actionError(contracts.ErrInvalidInput, "invalid model usage")
@@ -353,7 +382,7 @@ func (e *execution) invoke(inv contracts.AgentInvocation, d contracts.AgentDefin
 			return nil, err
 		}
 		e.emit("MODEL_STARTED", &inv.ID, nil)
-		result, err := e.coord.model.Next(e.ctx, contracts.ModelInput{Definition: d, Invocation: inv, Context: contracts.RunContext{RunID: e.run.ID, Request: inv.Input, Limits: e.limits}, History: history})
+		result, err := e.coord.model.Next(e.ctx, contracts.ModelInput{Definition: d, Invocation: inv, Context: contracts.RunContext{RunID: e.run.ID, ModelID: e.run.ModelID, Request: inv.Input, Limits: e.limits}, History: history, Delegates: e.delegates(d), Tools: e.allowedTools(d)})
 		if err != nil {
 			e.emit("MODEL_FAILED", &inv.ID, map[string]any{"code": e.fail(err).Code})
 			failure = err
@@ -378,7 +407,7 @@ func (e *execution) invoke(inv contracts.AgentInvocation, d contracts.AgentDefin
 				continue
 			}
 			if err := Validate(d.OutputSchema, a.Output); err != nil {
-				failure = actionError(contracts.ErrOutputSchemaInvalid, "agent output does not match schema")
+				failure = actionError(contracts.ErrOutputSchemaInvalid, "agent output does not match schema: "+err.Error())
 				return nil, failure
 			}
 			output = a.Output
@@ -419,7 +448,7 @@ func (e *execution) invoke(inv contracts.AgentInvocation, d contracts.AgentDefin
 				return nil, failure
 			}
 			if err := Validate(childDef.InputSchema, a.Delegation.Input); err != nil {
-				failure = actionError(contracts.ErrInvalidInput, "delegate input does not match schema")
+				failure = actionError(contracts.ErrInvalidInput, "delegate input does not match schema: "+err.Error())
 				return nil, failure
 			}
 			if err := e.takeDelegate(); err != nil {

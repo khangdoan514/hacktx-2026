@@ -115,7 +115,108 @@ func TestOpenAIHonorsDeadline(t *testing.T) {
 	}
 }
 
+func TestOpenRouterUsesReportedCost(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer router-secret" {
+			t.Error("missing bearer key")
+		}
+		var request struct {
+			Model string `json:"model"`
+			Usage struct {
+				Include bool `json:"include"`
+			} `json:"usage"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if request.Model != "provider/model" || !request.Usage.Include {
+			t.Fatalf("request=%+v", request)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"type\":\"FINISH\",\"output\":{\"ok\":true}}"}}],"usage":{"prompt_tokens":50,"completion_tokens":10,"cost":0.000123}}`))
+	}))
+	defer server.Close()
+	adapter, err := NewOpenRouter(OpenRouterConfig{APIKey: "router-secret", Model: "provider/model", Endpoint: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := adapter.Next(context.Background(), contracts.ModelInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action.Type != contracts.ActionFinish || result.Usage.InputTokens != 50 || result.Usage.OutputTokens != 10 || result.Usage.CostUSD != .000123 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestOpenRouterPerRunModelSelection(t *testing.T) {
+ var received []string
+ server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  var request struct { Model string `json:"model"` }
+  if err := json.NewDecoder(r.Body).Decode(&request); err != nil { t.Fatal(err) }
+  received = append(received, request.Model)
+  _, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"type\":\"FINISH\",\"output\":{}}"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0}}`))
+ }))
+ defer server.Close()
+ adapter, err := NewOpenRouter(OpenRouterConfig{APIKey:"key", Model:"meta/muse-spark-1.3-contributor", Endpoint:server.URL})
+ if err != nil { t.Fatal(err) }
+ if _, err = adapter.Next(context.Background(), contracts.ModelInput{}); err != nil { t.Fatal(err) }
+ if _, err = adapter.Next(context.Background(), contracts.ModelInput{Context: contracts.RunContext{ModelID:"anthropic/claude-sonnet-4.5"}}); err != nil { t.Fatal(err) }
+ if len(received)!=2 || received[0]!="meta/muse-spark-1.3-contributor" || received[1]!="anthropic/claude-sonnet-4.5" { t.Fatalf("models=%v", received) }
+ for _, bad := range []string{"bad model", "../bad\nkey", strings.Repeat("a", 129)} {
+  _, err := adapter.Next(context.Background(), contracts.ModelInput{Context: contracts.RunContext{ModelID:bad}})
+  if !hasCode(err, contracts.ErrInvalidInput) || len(received)!=2 { t.Fatalf("bad model %q err=%v requests=%v", bad, err, received) }
+ }
+ if _, err := NewOpenRouter(OpenRouterConfig{APIKey:"key", Model:"bad model"}); !hasCode(err, contracts.ErrInvalidInput) { t.Fatalf("bad default model err=%v", err) }
+}
+
+func TestOpenRouterRejectsMissingCostAndRedactsError(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+		code       contracts.ErrorCode
+	}{
+		{"missing cost", `{"choices":[{"message":{"content":"{\"type\":\"FINISH\",\"output\":{}}"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`, 200, contracts.ErrInvalidInput},
+		{"negative cost", `{"choices":[{"message":{"content":"{\"type\":\"FINISH\",\"output\":{}}"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":-1}}`, 200, contracts.ErrInvalidInput},
+		{"failure", `{"error":{"message":"router-secret"}}`, 429, contracts.ErrInternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			adapter, err := NewOpenRouter(OpenRouterConfig{APIKey: "router-secret", Model: "provider/model", Endpoint: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = adapter.Next(context.Background(), contracts.ModelInput{})
+			if !hasCode(err, tc.code) || strings.Contains(err.Error(), "router-secret") {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
 func hasCode(err error, code contracts.ErrorCode) bool {
 	runErr, ok := err.(*contracts.RunError)
 	return ok && runErr.Code == code
+}
+
+func TestParseActionToleratesChatter(t *testing.T) {
+	for _, content := range []string{
+		"{\"type\":\"FINISH\",\"output\":{\"ok\":true}} here is my reasoning",
+		"```json\n{\"type\":\"FINISH\",\"output\":{\"ok\":true}}\n```",
+		"Sure! {\"type\":\"FINISH\",\"output\":{\"ok\":true}} done.",
+	} {
+		action, err := parseAction(content)
+		if err != nil || action.Type != contracts.ActionFinish {
+			t.Fatalf("content=%q err=%v", content, err)
+		}
+	}
+	if _, err := parseAction("no json here"); err == nil {
+		t.Fatal("expected failure without JSON object")
+	}
+	if _, err := parseAction("{\"type\":\"FINISH\",\"output\":{},\"unknown\":1} trailing"); err == nil {
+		t.Fatal("expected strict field rejection")
+	}
 }

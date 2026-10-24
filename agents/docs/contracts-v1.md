@@ -9,6 +9,7 @@ The Go module is `github.com/khangdoan514/hacktx-2026/agents`; implementations i
 ## Identity, versions, and data
 
 - IDs are opaque, nonempty strings. They are never parsed for meaning. Agent/tool references use ID plus immutable version. The first pass uses `1.0.0`; publishing/version storage is future work.
+- `StartRunRequest.model_id`, `Run.model_id`, and `RunContext.model_id` are optional OpenRouter model selectors. Empty means the service default applies. A supplied value must pass `contracts.ValidModelID` (1–128 chars; letters, digits, `/._:-`); syntax violations are `INVALID_INPUT` before any provider call. Unknown provider-side IDs fail as provider errors, not validation.
 - JSON values at boundaries use `json.RawMessage`. Validate nonempty, well-formed JSON, then validate against the definition schema before use. No schema means no additional shape restriction; it does not skip JSON validity.
 - For the first pass schema validator, support JSON Schema `type`, `properties`, `required`, `items`, `enum`, and `additionalProperties`. Reject unsupported keywords explicitly rather than silently ignoring them. A later validator can expand coverage.
 - `Limits` are positive numbers on run submission. An agent definition may set stricter limits; effective limits are the minimum of run and definition values. Zero is invalid in submitted limits. Counters are shared across the entire run, including specialists.
@@ -21,6 +22,7 @@ The Go module is `github.com/khangdoan514/hacktx-2026/agents`; implementations i
 - A run or invocation starts `PENDING`, moves to `RUNNING`, then exactly one of `SUCCEEDED`, `FAILED`, or `CANCELLED`. Terminal states do not change. Start response may be `PENDING` or `RUNNING` depending on scheduling.
 - The root invocation has `ParentID == nil` and depth 0. A child has a parent ID and depth 1. The coordinator derives depth from the parent and never trusts an adapter-supplied depth.
 - `ModelAction` must have exactly one payload matching its `Type`: `FINISH` requires valid `Output`, `TOOL` requires `ToolCall`, and `DELEGATE` requires `Delegation`. Reject mismatches as `INVALID_INPUT` before any side effect.
+- `ModelInput` carries the agent's allowlisted `delegates` and `tools` definitions so a provider can shape inputs to their schemas. `ToolGateway.Definitions` exposes the registry; the coordinator filters it per agent.
 - The coordinator checks delegate allowlists, depth, budgets, and concurrency before dispatch. A depth-1 `DELEGATE` produces `DELEGATION_DEPTH_EXCEEDED`. Only depth 0 can delegate, and only to an allowlisted definition.
 - A `TOOL` action goes through `ToolGateway`. The gateway checks the agent's tool allowlist and the input schema before calling the tool. For v1, registered tools must declare `READ_ONLY`.
 - Each model turn, tool call, and delegate invocation consumes the corresponding run budget once. On timeout or cancellation, propagate `context.Context` and record a terminal outcome.

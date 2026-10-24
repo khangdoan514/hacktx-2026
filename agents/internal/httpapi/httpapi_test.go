@@ -90,6 +90,16 @@ func TestInvalidRequests(t *testing.T) {
 		{"GET", "/v1/agent-runs/run-1/events?after=-1", nil, 400},
 		{"GET", "/v1/agent-runs/run-1/events?after=1&after=2", nil, 400},
 	}
+	badModel := validRequest()
+	badModel.ModelID = "bad model"
+	if got := request(t, h, "POST", "/v1/agent-runs", badModel); got.Code != 400 {
+		t.Errorf("bad model_id: %d %s", got.Code, got.Body.String())
+	}
+	okModel := validRequest()
+	okModel.ModelID = "meta-llama/llama-3.3-70b-instruct:free"
+	if got := request(t, h, "POST", "/v1/agent-runs", okModel); got.Code != 202 {
+		t.Errorf("valid model_id: %d %s", got.Code, got.Body.String())
+	}
 	for _, tc := range cases {
 		got := request(t, h, tc.method, tc.path, tc.body)
 		if got.Code != tc.status {

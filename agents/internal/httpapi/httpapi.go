@@ -77,6 +77,10 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, contracts.ErrInvalidInput, "invalid run request")
 		return
 	}
+	if req.ModelID != "" && !contracts.ValidModelID(req.ModelID) {
+		writeError(w, http.StatusBadRequest, contracts.ErrInvalidInput, "invalid model ID")
+		return
+	}
 	if _, ok := h.agents[req.AgentID+"@"+req.AgentVersion]; !ok {
 		writeError(w, http.StatusNotFound, contracts.ErrNotFound, "agent version not found")
 		return
@@ -116,7 +120,7 @@ func (h *handler) listEvents(w http.ResponseWriter, r *http.Request, id string) 
 			return
 		}
 		n, err := strconv.ParseUint(vals[0], 10, 64)
-		if err != nil {
+		if err != nil || n > math.MaxInt64 {
 			writeError(w, http.StatusBadRequest, contracts.ErrInvalidInput, "invalid event cursor")
 			return
 		}

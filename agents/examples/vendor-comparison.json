@@ -1,6 +1,7 @@
 {
   "agent_id": "vendor-orchestrator",
   "agent_version": "1.0.0",
+  "model_id": "meta/muse-spark-1.3-contributor",
   "input": {
     "task": "Compare fictional vendors for a small support team",
     "criteria": ["price", "accessibility"],

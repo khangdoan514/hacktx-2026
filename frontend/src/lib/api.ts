@@ -23,7 +23,7 @@ export interface RunEvent {
   timestamp: string; data?: unknown;
 }
 export interface StartRequest {
-  agent_id: string; agent_version: string; input: unknown;
+  agent_id: string; agent_version: string; model_id?: string; input: unknown;
   limits: { max_delegations: number; max_concurrent_agents: number; max_tool_calls: number;
     max_model_turns: number; max_tokens: number; max_cost_usd: number; timeout_seconds: number };
 }

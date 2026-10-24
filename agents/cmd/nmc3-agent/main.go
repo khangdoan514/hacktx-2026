@@ -25,17 +25,27 @@ func main() {
 }
 
 func run() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return fmt.Errorf("DATABASE_URL is required")
+	var runs contracts.RunStore
+	var events contracts.EventSink
+	if os.Getenv("NMC3_STORE") == "postgres" {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		s, err := store.Open(ctx, os.Getenv("DATABASE_URL"))
+		if err != nil {
+			return fmt.Errorf("connect to Postgres: %w", err)
+		}
+		defer s.Close()
+		runs, events = s, s
+	} else {
+		// Supabase is the Pass 1 store. SUPABASE_URL defaults to the configured
+		// project; the server-side SUPABASE_SECRET_KEY stays out of git and
+		// out of the browser. Direct Postgres remains via NMC3_STORE=postgres.
+		s, err := store.NewSupabase(envDefault("SUPABASE_URL", "https://vocvwmiypifqnncxhfpj.supabase.co"), os.Getenv("SUPABASE_SECRET_KEY"), nil)
+		if err != nil {
+			return err
+		}
+		runs, events = s, s
 	}
-	s, err := store.Open(ctx, databaseURL)
-	if err != nil {
-		return fmt.Errorf("connect to Postgres: %w", err)
-	}
-	defer s.Close()
 	definitions := []contracts.AgentDefinition{}
 	if err := readJSON(envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"), &definitions); err != nil {
 		return err
@@ -80,15 +90,29 @@ func run() error {
 		if err != nil {
 			return err
 		}
+	case "openrouter":
+		// Default is Muse Spark 1.3 Contributor: verified on OpenRouter at
+		// $0.10/$0.20 per million tokens. Any OpenRouter ID (free OSS, GPT,
+		// Claude) may be supplied per run via StartRunRequest.model_id or
+		// OPENROUTER_MODEL; the full option list is
+		// examples/openrouter-models.json.
+		adapter, err = model.NewOpenRouter(model.OpenRouterConfig{
+			APIKey:   os.Getenv("OPENROUTER_API_KEY"),
+			Model:    envDefault("OPENROUTER_MODEL", "meta/muse-spark-1.3-contributor"),
+			Endpoint: os.Getenv("OPENROUTER_ENDPOINT"),
+		})
+		if err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("NMC3_MODEL_ADAPTER must be deterministic or openai")
+		return fmt.Errorf("NMC3_MODEL_ADAPTER must be deterministic, openrouter, or openai")
 	}
-	coordinator, err := runtime.New(definitions, adapter, gateway, s, s)
+	coordinator, err := runtime.New(definitions, adapter, gateway, runs, events)
 	if err != nil {
 		return err
 	}
 	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
-	server := &http.Server{Addr: addr, Handler: httpapi.New(coordinator, s, s, coordinator.Definitions()), ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Addr: addr, Handler: httpapi.New(coordinator, runs, events, coordinator.Definitions()), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s", addr)
 	return server.ListenAndServe()
 }

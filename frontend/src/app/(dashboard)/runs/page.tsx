@@ -1,21 +1,55 @@
 "use client";
 
-import { Alert, Button, Card, Col, Flex, Input, Row, Space, Spin, Tag, Timeline, Typography } from "antd";
+import { Alert, Button, Card, Col, Flex, Input, Row, Select, Space, Spin, Tag, Timeline, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { agentApi, type AgentRun, type RunEvent, type StartRequest } from "@/lib/api";
 
 const example: StartRequest = {
-  agent_id: "vendor-orchestrator", agent_version: "1.0.0",
+  agent_id: "vendor-orchestrator", agent_version: "1.0.0", model_id: "meta/muse-spark-1.3-contributor",
   input: { task: "Compare fictional vendors for a small support team", criteria: ["price", "accessibility"], budget_usd: 1000 },
   limits: { max_delegations: 2, max_concurrent_agents: 2, max_tool_calls: 4,
     max_model_turns: 8, max_tokens: 12000, max_cost_usd: 2, timeout_seconds: 60 },
 };
+const defaultModelId = "meta/muse-spark-1.3-contributor";
+const modelOptions = [
+  { label: "Meta Muse (cheap default first)", options: [
+    { label: "Muse Spark 1.3 Contributor (default)", value: "meta/muse-spark-1.3-contributor" },
+    { label: "Muse Spark 1.3", value: "meta/muse-spark-1.3" },
+    { label: "Muse Spark 1.2 Contributor", value: "meta/muse-spark-1.2-contributor" },
+  ] },
+  { label: "Free OSS ($0, rate-limited)", options: [
+    { label: "North Mini Code :free", value: "cohere/north-mini-code:free" },
+    { label: "Laguna S 2.1 :free", value: "poolside/laguna-s-2.1:free" },
+    { label: "Inkling Small :free", value: "thinkingmachines/inkling-small:free" },
+    { label: "Gemma 4 31B IT :free", value: "google/gemma-4-31b-it:free" },
+  ] },
+  { label: "Open weight (paid)", options: [
+    { label: "GPT OSS 20B", value: "openai/gpt-oss-20b" },
+    { label: "Llama 3.3 70B Instruct", value: "meta-llama/llama-3.3-70b-instruct" },
+    { label: "Qwen 3.8 27B", value: "qwen/qwen3.8-27b" },
+    { label: "DeepSeek V4.1 Flash", value: "deepseek/deepseek-v4.1-flash" },
+    { label: "Llama 4 Maverick", value: "meta-llama/llama-4-maverick" },
+  ] },
+  { label: "OpenAI GPT (paid)", options: [
+    { label: "GPT 6.1 Sol", value: "openai/gpt-6.1-sol" },
+    { label: "GPT 6 Luna", value: "openai/gpt-6-luna" },
+    { label: "GPT-4o mini", value: "openai/gpt-4o-mini" },
+    { label: "GPT-4o", value: "openai/gpt-4o" },
+  ] },
+  { label: "Anthropic Claude (paid)", options: [
+    { label: "Claude Sonnet 5.5", value: "anthropic/claude-sonnet-5.5" },
+    { label: "Claude Haiku 5.5", value: "anthropic/claude-haiku-5.5" },
+  ] },
+  { label: "Other", options: [{ label: "Custom OpenRouter model ID", value: "custom" }] },
+];
 const terminal = new Set(["SUCCEEDED", "FAILED", "CANCELLED"]);
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
 export default function RunsPage() {
   const [requestText, setRequestText] = useState(pretty(example));
+  const [modelId, setModelId] = useState(defaultModelId);
+  const [customModelId, setCustomModelId] = useState("");
   const [runId, setRunId] = useState("");
   const [lookupId, setLookupId] = useState("");
   const [run, setRun] = useState<AgentRun | null>(null);
@@ -47,6 +81,8 @@ export default function RunsPage() {
     setError(""); setLoading(true); setRun(null); setEvents([]);
     try {
       const request = JSON.parse(requestText) as StartRequest;
+      request.model_id = modelId === "custom" ? customModelId.trim() : modelId;
+      if (!request.model_id) throw new Error("Enter an OpenRouter model ID");
       const response = await agentApi.start(request);
       setRunId(response.run_id);
       setLookupId(response.run_id);
@@ -68,6 +104,10 @@ export default function RunsPage() {
       <Col xs={24} lg={12}>
         <Card title="Start a run" variant="borderless">
           <Typography.Paragraph type="secondary">Edit the versioned request JSON, then submit it to the Go agent API.</Typography.Paragraph>
+          <Typography.Text strong>Model</Typography.Text>
+          <Select aria-label="Model" value={modelId} onChange={setModelId} options={modelOptions} style={{ width: "100%", margin: "8px 0 12px" }} showSearch optionFilterProp="label" />
+          {modelId === "custom" && <Input aria-label="Custom OpenRouter model ID" placeholder="provider/model-id" value={customModelId} onChange={(event) => setCustomModelId(event.target.value)} style={{ marginBottom: 12 }} />}
+          <Typography.Paragraph type="secondary">The selected model overrides the JSON model_id when submitted.</Typography.Paragraph>
           <Input.TextArea aria-label="Run request JSON" value={requestText} onChange={(event) => setRequestText(event.target.value)} autoSize={{ minRows: 15, maxRows: 22 }} style={{ fontFamily: "monospace" }} />
           <Button type="primary" onClick={() => void start()} loading={loading} style={{ marginTop: 12 }}>Start run</Button>
         </Card>
