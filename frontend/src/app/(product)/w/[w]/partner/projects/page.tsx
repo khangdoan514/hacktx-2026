@@ -1,13 +1,12 @@
-import { RecordList } from "@/product/screens";
+"use client";
 
-export default async function Page({ params }: { params: Promise<{ w: string }> }) {
-  const { w } = await params;
-  return (
-    <RecordList
-      title="Shared projects"
-      path={`/workspaces/${w}/partner/projects`}
-      empty="Nothing here yet."
-      labelKey="name"
-    />
-  );
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+export default function Page() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/org");
+  }, [router]);
+  return null;
 }

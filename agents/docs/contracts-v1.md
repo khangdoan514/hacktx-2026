@@ -1,10 +1,10 @@
 # Shared contracts v1
 
-The source of truth is `agents/internal/contracts/`. `agents/fixtures/api/v1/` fixes the HTTP JSON shape for the first parallel implementation pass. Change either only through the integrator, with all fixtures and contract tests updated together. This is a first pass contract, not a claim that the wider NMC3 platform is complete.
+The source of truth is `internal/agents/contracts/`. `agents/fixtures/api/v1/` fixes the HTTP JSON shape for the first parallel implementation pass. Change either only through the integrator, with all fixtures and contract tests updated together. This is a first pass contract, not a claim that the wider NMC3 platform is complete.
 
 ## Package and ownership
 
-The Go module is `github.com/khangdoan514/hacktx-2026/agents`; implementations inside this module import `internal/contracts`. The integrator owns that package and the API fixtures. Package owners own only the paths listed in [parallel-work.md](parallel-work.md). A package may add private types but must not replace a shared type at a boundary.
+The Go module is `github.com/khangdoan514/hacktx-2026`. Implementations import `internal/agents/contracts`. The integrator owns that package and the API fixtures. Package owners own only the paths listed in [parallel-work.md](parallel-work.md). A package may add private types but must not replace a shared type at a boundary.
 
 ## Identity, versions, and data
 

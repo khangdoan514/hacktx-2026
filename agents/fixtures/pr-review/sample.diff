@@ -1,0 +1,14 @@
+diff --git a/billing/invoice.go b/billing/invoice.go
+--- a/billing/invoice.go
++++ b/billing/invoice.go
+@@ -1,4 +1,9 @@
+ package billing
+ 
+ func Charge(lines []Line) int {
+-    return 0
++    total := 0
++    for _, line := range lines {
++        total += line.Amount
++    }
++    return total
+ }

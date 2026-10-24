@@ -12,6 +12,7 @@ export default function ProductShell({ children }: { children: React.ReactNode }
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const isPublic = PUBLIC.some((pattern) => pattern.test(pathname));
+  const onDashboard = pathname.includes("/dashboards");
 
   useEffect(() => {
     if (!isPublic && !readToken()) {
@@ -30,12 +31,21 @@ export default function ProductShell({ children }: { children: React.ReactNode }
     <div className="min-h-screen bg-[#f6f7f9] text-gray-900">
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <Link href="/workspaces" className="text-sm font-semibold tracking-wide">
+          <Link href={onDashboard ? "/workspaces" : "/org"} className="text-sm font-semibold tracking-wide">
             NMC3
           </Link>
           <nav className="flex items-center gap-4 text-sm">
-            <Link href="/workspaces">Workspaces</Link>
-            <Link href="/account">Account</Link>
+            {onDashboard ? (
+              <>
+                <Link href="/workspaces">Workspaces</Link>
+                <Link href="/account">Account</Link>
+              </>
+            ) : (
+              <>
+                <Link href="/org">Organization</Link>
+                <Link href="/requests">Requests</Link>
+              </>
+            )}
             <button
               type="button"
               className="text-gray-600"

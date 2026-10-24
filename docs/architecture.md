@@ -3,36 +3,31 @@
 ```
 browser ──► Next.js
               │
-              ├── (dashboard) existing agent shell
-              └── (product) business routes at /sign-in and /w/...
+              ├── (dashboard) existing shell, proxied /api/health and /agent-api
+              └── NMC2 product routes at /sign-in, /org, and /requests
                     │
-                    ├── Supabase Auth access token, or local sign-in when explicitly enabled
-                    └── bearer /api/v1 ──► FastAPI
-                                              │
-                                              ├── Postgres schema app (business source of truth, RLS)
-                                              ├── private document bytes
-                                              └── optional Convex per-user hints
-                                                    └── product pages refetch FastAPI
+                    └── employee JWT ──► Go API (cmd/api)
+                                           │
+                                           ├── Postgres schema app
+                                           ├── Postgres schema nmc3
+                                           ├── private document bytes
+                                           └── cmd/worker leases agent runs
 ```
 
-- The frontend calls relative `/api/...` URLs (`frontend/src/lib/api.ts`). `frontend/next.config.ts` proxies them to `BACKEND_URL`.
-- `/api/health` is liveness. `/api/ready` checks the database. Business routes live under `/api/v1`.
-- FastAPI verifies the bearer JWT, then sets a transaction-local user id and `SET LOCAL ROLE app_runtime` so Postgres RLS applies. `app_runtime` must not own protected tables and must not bypass RLS.
-- Business migrations in `supabase/migrations` are the history for schema `app`. Agent run tables are not in that schema. A future Go service would own its own schema, such as `nmc3`, and FastAPI does not write those rows.
-- Convex replaces Supabase Realtime for these business invalidation hints only. There is no second live-delivery path. Hints are optional. If `CONVEX_HTTP_URL` is unset, product pages poll FastAPI. This checkout does not mount a Convex browser subscription. Convex accepts Supabase RS256 or ES256 tokens via `CONVEX_JWT_ISSUER`, `CONVEX_JWT_AUDIENCE`, and `CONVEX_JWT_JWKS`. The local HS256 test issuer is not a Convex provider.
+- Business commands are under `/api/v1`. Agent inspection is under `/v1/agent-runs`, `/v1/agent-runs/{id}/events`, and `/v1/agents`. Both require the same employee session. `GET /api/health` does not.
+- Next.js proxies `/api/*` to the Go API and `/v1/*` to the same API. The dashboard's `/agent-api/*` proxy is unchanged.
+- The API verifies a Supabase RS256 or ES256 token against the configured issuer, audience, and JWKS. Local HS256 is available only when `ENVIRONMENT` is `local` or `test`, and never with the secret `dev-only-change-me`.
+- Each employee transaction runs as `app_runtime` (`NOLOGIN`, `NOBYPASSRLS`) with transaction-local `app.user_id` and `app.user_email`. The role does not own the tables.
+- Schema `app` holds the NMC2 organization, requests, specifications, approvals, handovers, catalog releases, and files. Schema `nmc3` holds runs, events, and the worker queue. Older business tables remain in place.
+- Live updates are an authorized server-sent event stream plus polling. Convex is no longer in the tree.
+- `AGENT_EXECUTION_MODE=dummy` is server configuration. A run stores that mode and the adapter version `dummy-1`. Depth 0 may call two allowlisted depth-1 specialists. Specialists cannot delegate. The vendor, catalog, and analysis fixtures remain. The product example is PR review over `agents/fixtures/pr-review/sample.diff`. Findings may cite only lines in that diff. Publishing a catalog release requires a passing evaluation and does not allocate hardware or grant a write tool.
 
 ## Verification boundary
 
-Supabase CLI 2.122 `start` still starts containers, and this environment has no Docker. The native local runtime was not available to run. Tests use plain Postgres plus a test JWT issuer. That covers schema, RLS, and FastAPI behavior. It does not verify Supabase Auth, session refresh, Storage authorization, or migrations against Supabase-managed schemas.
+Supabase CLI `start` needs Docker, which is not available here. Tests use plain Postgres. JWT verification was tested with a local JWKS fixture, not with a hosted Supabase project. Session refresh was not run. Document bytes are on local disk. Supabase Storage authorization was not run.
 
-## Planned agent service
+The record of the replaced FastAPI and Convex behavior is in [implemented/](implemented/). The direction is recorded in [adr/go-internal-platform.md](adr/go-internal-platform.md).
 
-The Go agent service is specified under `agents/`. Its first HTTP contract (`POST /v1/agent-runs` and the related reads) is not implemented here and has no authentication in that first pass. This application does not call it and does not send company or partner context to it. See [agents/README.md](../agents/README.md) and [agents/docs/storage.md](../agents/docs/storage.md).
+## Dashboard boundary
 
-## Frontend ownership proposal
-
-This is a proposal, not an agreement. `agents/docs/parallel-work.md` still assigns package F ownership of `frontend/` as a whole. That claim is not overridden by this document. Both teams still need to accept a narrower split.
-
-Proposed paths for the business app: `frontend/src/app/(product)/` and `frontend/src/product/`. There is no `(product)/page.tsx`, so `/` stays the dashboard overview. Proposed paths for the agent UI: `frontend/src/app/(dashboard)/` and the dashboard components.
-
-Shared files that any split has to cover: `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/lib/api.ts`, and `frontend/src/lib/mock-data.ts`. `mock-data.ts` is an empty compatibility shim so the dashboard typechecks. The dashboard owner should replace it. It does not preserve previous sample content.
+This phase does not change the dashboard shell, its overview, agents, workflows, or runs pages, or the product dashboard routes. `frontend/src/lib/mock-data.ts` remains the compatibility shim those pages import.

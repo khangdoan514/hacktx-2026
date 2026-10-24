@@ -1,13 +1,12 @@
-import { SimpleCreate } from "@/product/screens";
+"use client";
 
-export default async function Page({ params }: { params: Promise<{ w: string }> }) {
-  const { w } = await params;
-  return (
-    <SimpleCreate
-      title="Partners"
-      path={`/workspaces/${w}/partners`}
-      field="name"
-      placeholder="Partner organization"
-    />
-  );
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+export default function Page() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/org");
+  }, [router]);
+  return null;
 }

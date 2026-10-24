@@ -26,7 +26,7 @@ The shared package compiles and its fixture test validates the wire examples. Pa
 | C. Tool gateway and data | `agents/internal/tools/`, `agents/fixtures/` | Shared contracts | Tool registry, schema and allowlist checks, read-only fictional catalog tool, fixture data. |
 | D. Run store and events | `agents/internal/store/`, agent schema migrations | Shared contracts; Supabase project config | Supabase Postgres run/event store, ordered append/read, concurrency safety, completed-run persistence across API restart. |
 | E. HTTP API | `agents/internal/httpapi/`, `agents/cmd/nmc3-agent/` | Shared contracts; store interface | Run submission/status/events/agent listing endpoints, request validation, typed errors, server configuration. Can use fakes until runtime is ready. |
-| F. Examples and application | `agents/examples/`, `agents/script/`, `frontend/` | API fixture; real API for final integration | Sample request, replay script, minimal start/run-inspector UI, local setup notes. Mock responses are acceptable until E is integrated. |
+| F. Examples and application | `agents/examples/`, `agents/script/`, and the Runs inspector only | API fixture; real API for final integration | Sample request, replay script, and the Runs inspector. Mock responses are acceptable until E is integrated. Package F does not own all of `frontend/`. |
 
 Package A should **not** implement model adapters, tools, storage, or HTTP handlers. Package E should call the coordinator interface, not duplicate runtime rules. Package F should not implement a second agent engine in the frontend or FastAPI service.
 
@@ -80,4 +80,25 @@ Use one of these with a coding agent. Include the current shared-contract revisi
 
 > Implement package E from `agents/docs/parallel-work.md`. Work in `agents/internal/httpapi/` and `agents/cmd/nmc3-agent/`. Implement the frozen `/v1` HTTP contract against fakes first, with tests. Report exported APIs and integration needs.
 
-> Implement package F from `agents/docs/parallel-work.md`. Work in `agents/examples/`, `agents/script/`, and `frontend/`. Build the sample run, replay script, and minimal UI against the frozen mock API fixture; switch to the live API at integration. Report any contract mismatch.
+> Implement package F from `agents/docs/parallel-work.md`. Work in `agents/examples/`, `agents/script/`, and the Runs inspector. Build the sample run and replay script against the frozen mock API fixture; switch to the live API at integration. Report any contract mismatch.
+
+## Frontend ownership proposal
+
+This section is a proposal until the other team accepts it. It is not an agreement, and it does not move files by itself.
+
+Package F does not own the whole `frontend/` tree. The dashboard currently in progress stays with that work:
+
+- `frontend/src/app/(dashboard)/`
+- `frontend/src/app/(product)/w/[w]/projects/[p]/dashboards/`
+- `frontend/src/components/AppShell.tsx`
+- `frontend/src/theme/theme.ts`
+- `frontend/src/components/PageHeader.tsx`
+- `frontend/src/components/StatusTag.tsx`
+- `frontend/src/components/WorkflowTile.tsx`
+- `frontend/src/components/BackendStatus.tsx`
+- `frontend/src/lib/mock-data.ts`
+- `frontend/src/app/layout.tsx`
+- `frontend/src/app/providers.tsx`
+- `FRONTEND.md`, `docs/frontend-design.md`, and `docs/design/`
+
+Shared files that both sides still have to keep building: `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/lib/api.ts`, `frontend/src/lib/mock-data.ts`, and `frontend/next.config.ts`. `mock-data.ts` stays a shim while those dashboard pages import it. `apiGet("/health")` must keep fetching `/api/health`. The existing `/api/:path*` proxy stays in place.

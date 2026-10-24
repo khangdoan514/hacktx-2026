@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/internal/agents/contracts"
 )
 
 // Supabase calls service-role-only RPCs. The secret must never reach a browser.

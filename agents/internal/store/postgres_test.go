@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/internal/agents/contracts"
 )
 
 func TestTransitions(t *testing.T) {

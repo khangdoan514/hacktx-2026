@@ -1,46 +1,45 @@
 # hacktx-2026
 
-| Folder      | What                                         |
-|-------------|----------------------------------------------|
-| `frontend/` | Next.js (App Router, TypeScript, Tailwind)   |
-| `backend/`  | FastAPI                                      |
-| `agents/`   | Go agent contracts and product docs            |
-| `ml/`       | Notebooks, training scripts, model artifacts |
-| `db/`       | SQL migrations and seed data                 |
-| `script/`   | Dev helper scripts                           |
-| `docs/`     | Project documentation                        |
+NMC3 is the internal tool for NMC2. Employees request a capability from Software/AI, clarify it, review an exact specification revision, run the PR Review Assistant, approve, and hand the result over. There is one organization. Hardware and Software are the divisions, and AI is a team inside Software.
+
+| Folder | What |
+| --- | --- |
+| `frontend/` | Next.js client |
+| `cmd/` and `internal/` | Go API and worker |
+| `agents/` | Agent fixtures, examples, and notes |
+| `ml/` | Notebooks and training scripts, separate from this service |
+| `supabase/` | SQL migrations |
+| `docs/` | Architecture and the record of the replaced FastAPI behavior |
 
 ## Quick start
 
-Requires Node 22+ and Python 3.11+.
-
-Business data lives in Supabase Postgres (`supabase/migrations`, schema `app`). Copy `backend/.env.example` and set `DATABASE_URL`. For a local Postgres without the Supabase CLI, apply `supabase/bootstrap_local.sql` and then the migrations. That path does not prove Supabase Auth, session refresh, or Storage policies.
-
-`ALLOW_LOCAL_AUTH=true` enables email/password sign-in at `/sign-in` only when `ENVIRONMENT` is `local` or `test`. The product still runs if `CONVEX_URL` is empty; pages poll FastAPI. Convex hints replace Supabase Realtime for those invalidations only.
-
-`frontend/src/lib/mock-data.ts` is an empty compatibility shim so the dashboard imports resolve. The dashboard owner should replace that file. It does not contain sample agents, runs, or workflows.
+Requires Node 22+ and Go 1.22+.
 
 ```bash
-./script/setup.sh   # install deps, create .env files
-./script/dev.sh     # backend on :8000, frontend on :3000
+./script/setup.sh
+cp .env.example .env
 ```
 
-Open http://localhost:3000 – the page shows a message fetched from the backend.
-API docs: http://localhost:8000/docs
+For a local Postgres without the Supabase CLI, create a database and set `DATABASE_URL`. With `ENVIRONMENT=local`, the API applies `supabase/bootstrap_local.sql` and `supabase/migrations` on startup and seeds three employees:
 
-## Running separately
+- `ada.hardware@nmc2.test`
+- `bao.ai@nmc2.test`
+- `cam.review@nmc2.test`
+
+The local password is `local-demo-pass`. `ALLOW_LOCAL_AUTH=true` works only when `ENVIRONMENT` is `local` or `test`. Production refuses that flag, a missing issuer/audience/JWKS URL, the secret `dev-only-change-me`, and a development issuer.
 
 ```bash
-# backend
-cd backend && source .venv/bin/activate
-uvicorn app.main:app --app-dir src --reload
-
-# frontend
-cd frontend && npm run dev
+./script/dev.sh
 ```
 
-See [docs/architecture.md](docs/architecture.md) for how they connect.
+The API listens on `:8000` and Next.js on `:3000`. Open `/sign-in` for the NMC2 workflow. `/` remains the dashboard shell. `GET /api/health` stays available for that shell.
 
-## NMC3 agent first pass
+Agent runs use `AGENT_EXECUTION_MODE=dummy`. The mode and adapter version are stored on the run. This build does not call a model provider and does not substitute dummy output for a failed provider call.
 
-The agent contracts and Pass 1 notes are in [agents/README.md](agents/README.md). Business screens stay separate: open `/sign-in` after the API and database are up. `/` remains the dashboard shell.
+## Verification boundary
+
+Auth token checks were exercised with a local JWKS fixture. Session refresh against a hosted Supabase project was not run. Private files are stored on local disk through the API. Supabase Storage authorization was not run. Plain Postgres covers schema, RLS, and the Go commands. It is not proof of Supabase Auth or Storage.
+
+`ml/` is unchanged and is not part of the API.
+
+See [docs/architecture.md](docs/architecture.md).
