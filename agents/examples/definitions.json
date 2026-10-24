@@ -1,0 +1,299 @@
+[
+  {
+    "id": "vendor-orchestrator",
+    "version": "1.0.0",
+    "name": "Vendor comparison orchestrator",
+    "role": "orchestrator",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget_usd": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "recommendation": {
+          "type": "string"
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "specialist_results": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "recommendation",
+        "source_ids",
+        "specialist_results"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": [
+      "catalog-specialist",
+      "accessibility-specialist"
+    ],
+    "limits": {
+      "max_delegations": 2,
+      "max_concurrent_agents": 2,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  },
+  {
+    "id": "catalog-specialist",
+    "version": "1.0.0",
+    "name": "Catalog specialist",
+    "role": "specialist",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ids",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [
+      "catalog.search"
+    ],
+    "allowed_delegates": [],
+    "limits": {
+      "max_delegations": 2,
+      "max_concurrent_agents": 2,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  },
+  {
+    "id": "accessibility-specialist",
+    "version": "1.0.0",
+    "name": "Accessibility specialist",
+    "role": "specialist",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ids",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [
+      "catalog.search"
+    ],
+    "allowed_delegates": [],
+    "limits": {
+      "max_delegations": 2,
+      "max_concurrent_agents": 2,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  },
+  {
+    "id": "denial-orchestrator",
+    "version": "1.0.0",
+    "name": "Depth denial demonstration",
+    "role": "orchestrator",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget_usd": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "recommendation": {
+          "type": "string"
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "specialist_results": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "required": [
+        "recommendation",
+        "source_ids",
+        "specialist_results"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": [
+      "denial-specialist"
+    ],
+    "limits": {
+      "max_delegations": 2,
+      "max_concurrent_agents": 2,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  },
+  {
+    "id": "denial-specialist",
+    "version": "1.0.0",
+    "name": "Depth denial specialist",
+    "role": "specialist",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ids",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": [
+      "catalog-specialist"
+    ],
+    "limits": {
+      "max_delegations": 2,
+      "max_concurrent_agents": 2,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  }
+]
