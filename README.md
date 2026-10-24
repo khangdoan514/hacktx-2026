@@ -11,7 +11,9 @@
 
 ## Quick start
 
-Requires Node 18+ and Python 3.11+.
+Requires Node 22+ and Python 3.11+.
+
+Business data lives in Supabase Postgres (`supabase/migrations`). Copy `backend/.env.example` and set `DATABASE_URL`. For a local Postgres without the Supabase CLI, apply `supabase/bootstrap_local.sql` and then the migrations. `ALLOW_LOCAL_AUTH=true` enables email/password sign-in at `/sign-in` when Supabase Auth is not running. Leave `CONVEX_URL` empty unless you want live hints; the product still works by polling.
 
 ```bash
 ./script/setup.sh   # install deps, create .env files

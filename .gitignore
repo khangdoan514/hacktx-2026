@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -223,6 +223,12 @@ __marimo__/
 node_modules/
 .next/
 .env*.local
+
+# Local upload bytes and Supabase CLI state
+backend/var/
+.supabase/
+convex/node_modules/
+convex/.env.local
 
 # ML artifacts
 ml/data/*

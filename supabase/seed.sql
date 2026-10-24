@@ -1,0 +1,2 @@
+-- Demo business rows are created through the application.
+-- This seed does not insert accounts, conversations, or generated activity.

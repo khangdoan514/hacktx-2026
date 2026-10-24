@@ -1,6 +1,3 @@
--- Initial schema. Add tables here as the project grows.
-CREATE TABLE IF NOT EXISTS users (
-    id         SERIAL PRIMARY KEY,
-    email      TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Superseded. Do not apply this file.
+-- Schema history lives in supabase/migrations.
+-- The starter serial users table is intentionally not created.

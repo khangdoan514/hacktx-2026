@@ -15,4 +15,9 @@ cd "$ROOT/frontend"
 npm install
 [ -f .env.local ] || cp .env.example .env.local
 
+echo "==> convex tests"
+cd "$ROOT/convex"
+npm install
+
 echo "Done. Run ./script/dev.sh to start both servers."
+echo "Apply supabase/bootstrap_local.sql and supabase/migrations before using /sign-in against local Postgres."
