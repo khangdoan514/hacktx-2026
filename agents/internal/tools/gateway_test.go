@@ -45,6 +45,7 @@ func TestGatewayAuthorizationAndSchemas(t *testing.T) {
 		{"denied", contracts.AgentDefinition{}, `{"id":"x"}`, contracts.ErrToolNotAllowed, false},
 		{"malformed", agent, `{"id":42}`, contracts.ErrInvalidInput, false},
 		{"extra", agent, `{"id":"x","secret":"x"}`, contracts.ErrInvalidInput, false},
+		{"secret key", agent, `{"id":"x","secret=never-show":"x"}`, contracts.ErrInvalidInput, false},
 		{"success", agent, `{"id":"x"}`, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,6 +59,9 @@ func TestGatewayAuthorizationAndSchemas(t *testing.T) {
 				var re *contracts.RunError
 				if !errors.As(err, &re) || re.Code != tc.code || got.Error == nil || got.FinishedAt == nil {
 					t.Fatalf("got %+v %v", got, err)
+				}
+				if tc.name == "secret key" && got.Error.Message != "invalid tool input" {
+					t.Fatalf("input key leaked: %s", got.Error.Message)
 				}
 			}
 			if (f.calls.Load() > before) != tc.called {

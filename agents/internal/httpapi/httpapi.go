@@ -102,6 +102,9 @@ func (h *handler) getRun(w http.ResponseWriter, r *http.Request, id string) {
 	if run.Invocations == nil {
 		run.Invocations = []contracts.AgentInvocation{}
 	}
+	if run.ToolInvocations == nil {
+		run.ToolInvocations = []contracts.ToolInvocation{}
+	}
 	writeJSON(w, http.StatusOK, contracts.RunResponse{Run: run})
 }
 

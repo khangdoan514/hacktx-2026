@@ -360,11 +360,13 @@ func (e *execution) invoke(inv contracts.AgentInvocation, d contracts.AgentDefin
 			return nil, err
 		}
 		if err := e.charge(result.Usage); err != nil {
+			e.emit("MODEL_FAILED", &inv.ID, map[string]any{"code": e.fail(err).Code})
 			failure = err
 			return nil, err
 		}
 		a := result.Action
 		if err := validateAction(a); err != nil {
+			e.emit("MODEL_FAILED", &inv.ID, map[string]any{"code": e.fail(err).Code})
 			failure = err
 			return nil, err
 		}

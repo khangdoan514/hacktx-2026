@@ -80,7 +80,7 @@ func (g *Gateway) Invoke(ctx context.Context, agent contracts.AgentDefinition, i
 	def := handler.Definition()
 	result.ToolVersion = def.Version
 	if err := ValidateJSON(def.InputSchema, request.Input); err != nil {
-		return fail(contracts.ErrInvalidInput, "invalid tool input: "+err.Error())
+		return fail(contracts.ErrInvalidInput, "invalid tool input")
 	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(def.TimeoutSeconds)*time.Second)
 	defer cancel()
