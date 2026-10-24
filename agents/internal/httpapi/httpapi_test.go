@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/khangdoan514/hacktx-2026/internal/agents/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 )
 
 type fakeCoordinator struct{ run contracts.Run }

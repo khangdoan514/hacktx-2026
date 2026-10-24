@@ -53,31 +53,15 @@ export function SignInScreen() {
     event.preventDefault();
     setError("");
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-      let token = "";
-      if (supabaseUrl && supabaseKey) {
-        const { createClient } = await import("@supabase/supabase-js");
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        const result = create
-          ? await supabase.auth.signUp({ email, password })
-          : await supabase.auth.signInWithPassword({ email, password });
-        if (result.error || !result.data.session) {
-          throw new Error(result.error?.message || "Sign-in did not return a session");
-        }
-        token = result.data.session.access_token;
-      } else {
-        const session = await api<{ access_token: string }>("/auth/local-session", {
-          method: "POST",
-          body: JSON.stringify({
-            email,
-            password,
-            create,
-            display_name: displayName || undefined,
-          }),
-        });
-        token = session.access_token;
-      }
+      const session = await api<{ access_token: string }>("/auth/local-session", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+          display_name: displayName || undefined,
+        }),
+      });
+      const token = session.access_token;
       writeToken(token);
       const next = new URLSearchParams(window.location.search).get("next") || "/workspaces";
       router.push(next.startsWith("/") && !next.startsWith("//") ? next : "/workspaces");

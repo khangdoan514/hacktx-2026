@@ -32,7 +32,7 @@ The local password is `local-demo-pass`. `ALLOW_LOCAL_AUTH=true` works only when
 ./script/dev.sh
 ```
 
-The API listens on `:8000` and Next.js on `:3000`. Open `/sign-in` for the NMC2 workflow. `/` remains the dashboard shell. `GET /api/health` stays available for that shell.
+The API listens on `:8000` and Next.js on `:3000`. `/` is the current console from `main`. Its run list and New run action call this API through `/agent-api`. `/sign-in`, `/org`, and `/requests` are the NMC2 request workflow and do not replace those console routes. `GET /api/health` stays available.
 
 Agent runs use `AGENT_EXECUTION_MODE=dummy`. The mode and adapter version are stored on the run. This build does not call a model provider and does not substitute dummy output for a failed provider call.
 

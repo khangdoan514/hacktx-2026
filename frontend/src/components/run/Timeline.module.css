@@ -1,0 +1,20 @@
+.lanes { padding: 14px 20px 16px; border-top: 1px solid var(--line); }
+.ln { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; height: 26px; }
+.ln > span { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track { position: relative; height: 100%; }
+.track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); }
+.bar { position: absolute; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px; background: var(--ink-2); min-width: 4px; }
+.barRun { background: var(--accent); }
+.barErr { background: var(--err); }
+.ev { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--surface); border: 2px solid var(--ink-2); }
+.ev.run { border-color: var(--accent); }
+.ev.ok { border-color: var(--ok); }
+.ev.err { border: 0; background: transparent; }
+.ev.err::before { content: ""; position: absolute; inset: 0; border-radius: 2px; background: var(--err); transform: rotate(45deg) scale(.9); }
+.axis { display: grid; grid-template-columns: 140px minmax(0, 1fr); margin-top: 6px; }
+.ticks { position: relative; height: 16px; }
+.ticks span { position: absolute; transform: translateX(-50%); font: 400 10.5px var(--mono); color: var(--ink-3); }
+.ticks span:first-child { transform: none; }
+@media (max-width: 720px) {
+  .ln, .axis { grid-template-columns: 100px minmax(0, 1fr); }
+}

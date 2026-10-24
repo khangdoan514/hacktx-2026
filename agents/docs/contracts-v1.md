@@ -1,10 +1,10 @@
 # Shared contracts v1
 
-The source of truth is `internal/agents/contracts/`. `agents/fixtures/api/v1/` fixes the HTTP JSON shape for the first parallel implementation pass. Change either only through the integrator, with all fixtures and contract tests updated together. This is a first pass contract, not a claim that the wider NMC3 platform is complete.
+The source of truth is `agents/internal/contracts/`. `agents/fixtures/api/v1/` fixes the HTTP JSON shape for the first parallel implementation pass. Change either only through the integrator, with all fixtures and contract tests updated together. This is a first pass contract, not a claim that the wider NMC3 platform is complete.
 
 ## Package and ownership
 
-The Go module is `github.com/khangdoan514/hacktx-2026`. Implementations import `internal/agents/contracts`. The integrator owns that package and the API fixtures. Package owners own only the paths listed in [parallel-work.md](parallel-work.md). A package may add private types but must not replace a shared type at a boundary.
+The Go module is `github.com/khangdoan514/hacktx-2026/agents`; implementations inside this module import `internal/contracts`. The integrator owns that package and the API fixtures. Package owners own only the paths listed in [parallel-work.md](parallel-work.md). A package may add private types but must not replace a shared type at a boundary.
 
 ## Identity, versions, and data
 
@@ -23,6 +23,8 @@ The Go module is `github.com/khangdoan514/hacktx-2026`. Implementations import `
 - The root invocation has `ParentID == nil` and depth 0. A child has a parent ID and depth 1. The coordinator derives depth from the parent and never trusts an adapter-supplied depth.
 - `ModelAction` must have exactly one payload matching its `Type`: `FINISH` requires valid `Output`, `TOOL` requires `ToolCall`, and `DELEGATE` requires `Delegation`. Reject mismatches as `INVALID_INPUT` before any side effect.
 - `ModelInput` carries the agent's allowlisted `delegates` and `tools` definitions so a provider can shape inputs to their schemas. `ToolGateway.Definitions` exposes the registry; the coordinator filters it per agent.
+- `Run.opencode_session_id` links a run to its executing OpenCode session; empty for runs that predate the OpenCode backend.
+- `RunEvent.source` marks provenance: `nmc3` for coordinator-owned events, `opencode` for events mapped from an OpenCode session. Sequence and ordering rules are unchanged.
 - The coordinator checks delegate allowlists, depth, budgets, and concurrency before dispatch. A depth-1 `DELEGATE` produces `DELEGATION_DEPTH_EXCEEDED`. Only depth 0 can delegate, and only to an allowlisted definition.
 - A `TOOL` action goes through `ToolGateway`. The gateway checks the agent's tool allowlist and the input schema before calling the tool. For v1, registered tools must declare `READ_ONLY`.
 - Each model turn, tool call, and delegate invocation consumes the corresponding run budget once. On timeout or cancellation, propagate `context.Context` and record a terminal outcome.

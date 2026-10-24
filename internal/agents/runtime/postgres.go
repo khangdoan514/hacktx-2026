@@ -211,6 +211,41 @@ func (s *Store) List(ctx context.Context, runID string, after uint64) ([]contrac
 	return events, rows.Err()
 }
 
+func (s *Store) ListRuns(ctx context.Context) ([]contracts.Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, owned, err := txOf(ctx, s.Pool)
+	if err != nil {
+		return nil, err
+	}
+	if owned {
+		defer tx.Rollback(ctx)
+	}
+	rows, err := tx.Query(ctx, `SELECT snapshot FROM nmc3.runs ORDER BY created_at DESC LIMIT 40`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := []contracts.Run{}
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var record envelope
+		if err := json.Unmarshal(raw, &record); err != nil {
+			return nil, err
+		}
+		runs = append(runs, record.Run)
+	}
+	if owned {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return runs, rows.Err()
+}
+
 func (s *Store) Enqueue(ctx context.Context, runID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

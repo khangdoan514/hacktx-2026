@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/khangdoan514/hacktx-2026/internal/agents/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 )
 
 // New returns the versioned agent API. The coordinator owns execution; this

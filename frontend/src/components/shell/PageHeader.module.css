@@ -1,0 +1,7 @@
+.head { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+.l { flex: 1 1 420px; min-width: 0; }
+.crumbs { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font: 400 12.5px var(--mono); color: var(--ink-3); }
+.crumbs a:hover { color: var(--ink); }
+.head h1 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-weight: 500; font-size: 30px; line-height: 1.15; letter-spacing: -.025em; color: var(--ink); }
+.sub { margin-top: 6px; font-size: 15px; color: var(--ink-2); }
+.r { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

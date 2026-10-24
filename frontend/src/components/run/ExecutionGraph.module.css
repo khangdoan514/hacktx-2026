@@ -1,0 +1,44 @@
+.stage { position: relative; overflow: hidden; background: var(--stage); background-image: radial-gradient(var(--dot) 1px, transparent 1.3px); background-size: 22px 22px; }
+.canvas { position: relative; transform-origin: 0 0; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.colh { position: absolute; top: 18px; font: 500 10.5px var(--mono); color: var(--ink-3); letter-spacing: .02em; }
+
+.edge { fill: none; stroke: var(--line-2); stroke-width: 1.5; transition: stroke .4s; }
+.edge.on { stroke: color-mix(in srgb, var(--accent) 35%, transparent); }
+.edge.done { stroke: color-mix(in srgb, var(--ok) 55%, var(--line-2)); }
+.edge.deny { stroke: var(--err); stroke-dasharray: 3 5; }
+.edge.fail { stroke: var(--err); }
+.flow { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; opacity: 0; transition: opacity .3s; }
+.flow.on { opacity: 1; }
+
+.node { position: absolute; display: grid; grid-template-columns: 38px minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 16px; background: var(--surface); box-shadow: var(--node-sh); cursor: pointer; text-align: left; transition: border-color .4s, opacity .4s, box-shadow .4s var(--ease), transform .3s var(--ease); }
+.node:hover { transform: translateY(-1px); border-color: var(--ink-3); }
+.ico { grid-row: span 2; width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); position: relative; transition: background .4s, color .4s, border-color .4s; }
+.node b { font-size: 14.5px; font-weight: 500; color: var(--ink); letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 19px; }
+.badge { position: absolute; right: -5px; bottom: -5px; width: 16px; height: 16px; border-radius: 50%; display: none; place-items: center; background: var(--ok); color: #fff; border: 2px solid var(--surface); }
+.node[data-st="PENDING"] { opacity: .5; box-shadow: none; border-style: dashed; }
+.node[data-st="RUNNING"] { border-color: color-mix(in srgb, var(--accent) 40%, var(--line-2)); box-shadow: var(--node-sh), 0 0 0 5px var(--accent-soft); }
+.node[data-st="RUNNING"] .ico { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.node[data-st="RUNNING"] .now { color: var(--accent); }
+.node[data-st="RUNNING"]::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; background: conic-gradient(from var(--a), transparent 0 62%, var(--accent) 88%, transparent 100%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: spin 2.4s linear infinite; pointer-events: none; }
+@keyframes spin { to { --a: 360deg; } }
+.node[data-st="SUCCEEDED"] { border-color: color-mix(in srgb, var(--ok) 35%, var(--line-2)); }
+.node[data-st="SUCCEEDED"] .ico { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.node[data-st="SUCCEEDED"] .badge { display: grid; }
+.node[data-st="FAILED"], .node[data-st="CANCELLED"] { border-color: color-mix(in srgb, var(--err) 45%, var(--line-2)); }
+.node[data-st="FAILED"] .ico, .node[data-st="CANCELLED"] .ico { color: var(--err); background: var(--err-soft); border-color: transparent; }
+.node[data-st="FAILED"] .now, .node[data-st="CANCELLED"] .now { color: var(--err); font-family: var(--mono); font-size: 11.5px; }
+.you { grid-template-columns: 1fr; padding: 0; border-radius: 50%; place-items: center; cursor: default; font: 500 12px var(--mono); color: var(--ink); }
+.you:hover { transform: none; border-color: var(--line-2); }
+
+.tool { position: absolute; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 0 12px 0 7px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); box-shadow: var(--node-sh); transition: opacity .45s var(--ease), transform .45s var(--ease), border-color .3s; }
+.tool.hide { opacity: 0; transform: translateX(-10px) scale(.98); pointer-events: none; }
+.t { grid-row: span 2; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font: 600 12px var(--mono); background: var(--accent-soft); color: var(--accent); }
+.nm { font: 500 12px var(--mono); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.rs { font: 400 11px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.tool.running { border-color: color-mix(in srgb, var(--accent) 50%, var(--line-2)); }
+.tool.running .rs { color: var(--accent); }
+.tool.deny { border-color: color-mix(in srgb, var(--err) 50%, var(--line-2)); background: color-mix(in srgb, var(--err-soft) 100%, var(--surface)); }
+.tool.deny .t { background: transparent; border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); color: var(--err); }
+.tool.deny .nm, .tool.deny .rs { color: var(--err); }

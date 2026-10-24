@@ -1,0 +1,25 @@
+.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--line); }
+.summary div { background: var(--surface); padding: 14px 18px; }
+.summary small { display: block; font: 400 11px var(--mono); color: var(--ink-3); }
+.summary b { font: 400 24px var(--mono); color: var(--ink); letter-spacing: -.02em; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.agent { margin-top: 2px; display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 0; font-size: 12.5px; color: var(--ink-3); cursor: pointer; }
+.agent:hover { color: var(--ink); }
+.cases { list-style: none; margin: 0; padding: 0; }
+.cases li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 20px; }
+.cases b { display: block; font-size: 13px; font-weight: 500; color: var(--ink); }
+.cases code { font: 400 11px var(--mono); color: var(--ink-3); }
+.res { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; border: 1.5px dashed var(--line-2); color: #fff; }
+.pass { background: var(--ok); border: 0; }
+.fail { background: var(--err); border: 0; }
+.running { border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.hist { display: flex; align-items: flex-end; gap: 16px; padding: 12px 20px 14px; border-top: 1px solid var(--line); }
+.hist small { font: 400 11px var(--mono); color: var(--ink-3); padding-bottom: 18px; }
+.bars { display: flex; gap: 14px; align-items: flex-end; }
+.bars > div { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.bars i { display: block; width: 22px; min-height: 3px; border-radius: 4px 4px 1px 1px; background: var(--ink-3); }
+.bars > div { height: 58px; justify-content: flex-end; }
+.bars i.full { background: var(--ok); }
+.bars span { font-size: 10px; color: var(--ink-3); }
+@media (max-width: 640px) { .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid { grid-template-columns: minmax(0, 1fr); } }
