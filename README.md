@@ -4,6 +4,7 @@
 |-------------|----------------------------------------------|
 | `frontend/` | Next.js (App Router, TypeScript, Tailwind)   |
 | `backend/`  | FastAPI                                      |
+| `agents/`   | Go agent contracts and product docs            |
 | `ml/`       | Notebooks, training scripts, model artifacts |
 | `db/`       | SQL migrations and seed data                 |
 | `script/`   | Dev helper scripts                           |
@@ -33,3 +34,7 @@ cd frontend && npm run dev
 ```
 
 See [docs/architecture.md](docs/architecture.md) for how they connect.
+
+## NMC3 agent first pass
+
+The main project focus is the agent and orchestration service. Start with [agents/README.md](agents/README.md) for the end-to-end product specification, first-pass scope, and later delivery passes. The current quick start runs only the existing frontend and FastAPI scaffold; it does not start an agent runtime yet.

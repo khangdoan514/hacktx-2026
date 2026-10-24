@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "DELEGATION_DEPTH_EXCEEDED",
+    "message": "Specialist invocations cannot delegate to another agent"
+  }
+}
