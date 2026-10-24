@@ -37,4 +37,4 @@ See [docs/architecture.md](docs/architecture.md) for how they connect.
 
 ## NMC3 agent first pass
 
-The main project focus is the agent and orchestration service. Start with [agents/README.md](agents/README.md) for the end-to-end product specification, first-pass scope, and later delivery passes. The current quick start runs only the existing frontend and FastAPI scaffold; it does not start an agent runtime yet.
+The main project focus is the agent and orchestration service. Start with [agents/README.md](agents/README.md) for the Pass 1 setup, product specification, and later delivery passes.

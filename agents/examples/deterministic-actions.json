@@ -1,0 +1,215 @@
+{
+  "vendor-orchestrator": [
+    {
+      "action": {
+        "type": "DELEGATE",
+        "delegation": {
+          "agent_id": "catalog-specialist",
+          "input": {
+            "criteria": [
+              "price",
+              "accessibility"
+            ],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    },
+    {
+      "action": {
+        "type": "DELEGATE",
+        "delegation": {
+          "agent_id": "accessibility-specialist",
+          "input": {
+            "criteria": [
+              "price",
+              "accessibility"
+            ],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    },
+    {
+      "action": {
+        "type": "FINISH",
+        "output": {
+          "recommendation": "Vendor A",
+          "source_ids": [
+            "vendor-a"
+          ],
+          "specialist_results": [
+            {
+              "agent_id": "catalog-specialist",
+              "source_ids": [
+                "vendor-a"
+              ],
+              "summary": "Within budget"
+            },
+            {
+              "agent_id": "accessibility-specialist",
+              "source_ids": [
+                "vendor-a"
+              ],
+              "summary": "Accessible"
+            }
+          ]
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    }
+  ],
+  "catalog-specialist": [
+    {
+      "action": {
+        "type": "TOOL",
+        "tool_call": {
+          "tool_id": "catalog.search",
+          "input": {
+            "criteria": [
+              "price",
+              "accessibility"
+            ],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    },
+    {
+      "action": {
+        "type": "FINISH",
+        "output": {
+          "source_ids": [
+            "vendor-a"
+          ],
+          "summary": "Vendor A is within the fictional budget."
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    }
+  ],
+  "accessibility-specialist": [
+    {
+      "action": {
+        "type": "TOOL",
+        "tool_call": {
+          "tool_id": "catalog.search",
+          "input": {
+            "criteria": [
+              "price",
+              "accessibility"
+            ],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    },
+    {
+      "action": {
+        "type": "FINISH",
+        "output": {
+          "source_ids": [
+            "vendor-a"
+          ],
+          "summary": "Vendor A lists accessible support features."
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    }
+  ],
+  "denial-orchestrator": [
+    {
+      "action": {
+        "type": "DELEGATE",
+        "delegation": {
+          "agent_id": "denial-specialist",
+          "input": {
+            "criteria": [
+              "price",
+              "accessibility"
+            ],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    },
+    {
+      "action": {
+        "type": "FINISH",
+        "output": {
+          "recommendation": "No recommendation: depth denial recorded",
+          "source_ids": [],
+          "specialist_results": [
+            {
+              "error": "DELEGATION_DEPTH_EXCEEDED"
+            }
+          ]
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    }
+  ],
+  "denial-specialist": [
+    {
+      "action": {
+        "type": "DELEGATE",
+        "delegation": {
+          "agent_id": "catalog-specialist",
+          "input": {
+            "criteria": [
+              "price",
+              "accessibility"
+            ],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
+    }
+  ]
+}

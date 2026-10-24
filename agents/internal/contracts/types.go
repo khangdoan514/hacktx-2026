@@ -43,11 +43,20 @@ func (e *RunError) Error() string { return string(e.Code) + ": " + e.Message }
 type JSONSchema = json.RawMessage
 
 type Limits struct {
-	MaxDelegations      int `json:"max_delegations"`
-	MaxConcurrentAgents int `json:"max_concurrent_agents"`
-	MaxToolCalls        int `json:"max_tool_calls"`
-	MaxModelTurns       int `json:"max_model_turns"`
-	TimeoutSeconds      int `json:"timeout_seconds"`
+	MaxDelegations      int     `json:"max_delegations"`
+	MaxConcurrentAgents int     `json:"max_concurrent_agents"`
+	MaxToolCalls        int     `json:"max_tool_calls"`
+	MaxModelTurns       int     `json:"max_model_turns"`
+	MaxTokens           int     `json:"max_tokens"`
+	MaxCostUSD          float64 `json:"max_cost_usd"`
+	TimeoutSeconds      int     `json:"timeout_seconds"`
+}
+
+// Usage is cumulative for a run and per-turn for a model result.
+type Usage struct {
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
 }
 
 type AgentDefinition struct {
@@ -74,7 +83,9 @@ type ToolDefinition struct {
 }
 
 type RunContext struct {
-	RunID     string          `json:"run_id"`
+	RunID string `json:"run_id"`
+	// ModelID is the resolved per-run model (request override or default).
+	ModelID   string          `json:"model_id,omitempty"`
 	Request   json.RawMessage `json:"request"`
 	Artifacts json.RawMessage `json:"artifacts,omitempty"`
 	Limits    Limits          `json:"limits"`
@@ -118,14 +129,35 @@ type RunEvent struct {
 }
 
 type Run struct {
-	ID          string            `json:"id"`
-	State       State             `json:"state"`
-	AgentID     string            `json:"agent_id"`
-	Version     string            `json:"agent_version"`
-	Input       json.RawMessage   `json:"input"`
-	Output      json.RawMessage   `json:"output,omitempty"`
-	Error       *RunError         `json:"error,omitempty"`
-	Invocations []AgentInvocation `json:"invocations"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID      string `json:"id"`
+	State   State  `json:"state"`
+	AgentID string `json:"agent_id"`
+	Version string `json:"agent_version"`
+	// ModelID records the resolved model for inspection; empty means the
+	// deterministic adapter or service default applied.
+	ModelID         string            `json:"model_id,omitempty"`
+	Input           json.RawMessage   `json:"input"`
+	Output          json.RawMessage   `json:"output,omitempty"`
+	Error           *RunError         `json:"error,omitempty"`
+	Usage           Usage             `json:"usage"`
+	Invocations     []AgentInvocation `json:"invocations"`
+	ToolInvocations []ToolInvocation  `json:"tool_invocations"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+}
+
+// ValidModelID accepts OpenRouter-style "provider/name" IDs (with an optional
+// ":variant" suffix such as ":free"). It is a syntax check only; the provider
+// decides whether the model exists.
+func ValidModelID(id string) bool {
+	if len(id) == 0 || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '_' || c == ':' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
