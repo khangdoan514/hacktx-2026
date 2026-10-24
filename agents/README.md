@@ -20,7 +20,12 @@ This directory is the home of the **general-purpose Go agent and orchestration s
 
 ## Current status
 
-The Pass 1 runtime, adapters, read-only catalog gateway, Supabase API backed Postgres store, HTTP API, and website client are implemented. Live Supabase, provider, and browser acceptance must pass before calling the pass complete. The FastAPI scaffold is not in the agent request path.
+The custom Go execution engine (runtime, model adapters, tool gateway) was
+removed in favor of OpenCode; the implementation remains in git history. See
+[the OpenCode adoption plan](docs/opencode-adoption.md). The Go service
+currently serves persisted run history from Supabase and the versioned `/v1`
+shapes are unchanged; run submission returns a typed error until the OpenCode
+execution backend lands. The FastAPI scaffold is not in the agent request path.
 
 ## Local setup
 

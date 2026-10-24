@@ -1,5 +1,11 @@
 package main
 
+// Transitional entrypoint: the custom execution engine (runtime, model, and
+// tool packages) was removed in favor of OpenCode; see
+// agents/docs/opencode-adoption.md. The full implementation remains in git
+// history. This binary serves persisted run history from Supabase until the
+// OpenCode execution backend lands; run submission is disabled.
+
 import (
 	"context"
 	"encoding/json"
@@ -7,21 +13,24 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/httpapi"
-	"github.com/khangdoan514/hacktx-2026/agents/internal/model"
-	"github.com/khangdoan514/hacktx-2026/agents/internal/runtime"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
-	"github.com/khangdoan514/hacktx-2026/agents/internal/tools"
 )
 
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// disabled rejects run submission while history stays readable.
+type disabled struct{}
+
+func (disabled) Start(context.Context, contracts.StartRunRequest) (contracts.Run, error) {
+	return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent execution is disabled during the OpenCode migration"}
 }
 
 func run() error {
@@ -37,83 +46,25 @@ func run() error {
 		defer s.Close()
 		runs, events = s, s
 	} else {
-		// Supabase is the Pass 1 store. SUPABASE_URL defaults to the configured
-		// project; the server-side SUPABASE_SECRET_KEY stays out of git and
-		// out of the browser. Direct Postgres remains via NMC3_STORE=postgres.
-		s, err := store.NewSupabase(envDefault("SUPABASE_URL", "https://vocvwmiypifqnncxhfpj.supabase.co"), os.Getenv("SUPABASE_SECRET_KEY"), nil)
+		// The Supabase project ref is fixed for this deployment so a local
+		// checkout works with only the server-side secret configured.
+		// Agents/.env (gitignored) provides SUPABASE_SECRET_KEY; the browser
+		// never receives it. Direct Postgres remains via NMC3_STORE=postgres.
+		supabaseURL := envDefault("SUPABASE_URL", "https://vocvwmiypifqnncxhfpj.supabase.co")
+		s, err := store.NewSupabase(supabaseURL, os.Getenv("SUPABASE_SECRET_KEY"), nil)
 		if err != nil {
 			return err
 		}
 		runs, events = s, s
 	}
+	// Definitions still feed GET /v1/agents; execution no longer reads them.
 	definitions := []contracts.AgentDefinition{}
 	if err := readJSON(envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"), &definitions); err != nil {
 		return err
 	}
-	catalog, err := tools.NewCatalog()
-	if err != nil {
-		return err
-	}
-	gateway, err := tools.NewGateway(catalog)
-	if err != nil {
-		return err
-	}
-	registeredTools := map[string]bool{}
-	for _, tool := range gateway.Definitions() {
-		registeredTools[tool.ID] = true
-	}
-	for _, definition := range definitions {
-		for _, toolID := range definition.AllowedTools {
-			if !registeredTools[toolID] {
-				return fmt.Errorf("agent %s references unknown tool %s", definition.ID, toolID)
-			}
-		}
-	}
-	var adapter contracts.ModelAdapter
-	switch envDefault("NMC3_MODEL_ADAPTER", "deterministic") {
-	case "deterministic":
-		steps := map[string][]contracts.ModelResult{}
-		if err := readJSON(envDefault("NMC3_DETERMINISTIC_FILE", "examples/deterministic-actions.json"), &steps); err != nil {
-			return err
-		}
-		adapter = model.NewDeterministic(steps)
-	case "openai":
-		inputRate, err := positiveFloatEnv("OPENAI_INPUT_USD_PER_MILLION")
-		if err != nil {
-			return err
-		}
-		outputRate, err := positiveFloatEnv("OPENAI_OUTPUT_USD_PER_MILLION")
-		if err != nil {
-			return err
-		}
-		adapter, err = model.NewOpenAI(model.OpenAIConfig{APIKey: os.Getenv("OPENAI_API_KEY"), Model: os.Getenv("OPENAI_MODEL"), Endpoint: os.Getenv("OPENAI_ENDPOINT"), InputUSDPerMillion: inputRate, OutputUSDPerMillion: outputRate})
-		if err != nil {
-			return err
-		}
-	case "openrouter":
-		// Default is Muse Spark 1.3 Contributor: verified on OpenRouter at
-		// $0.10/$0.20 per million tokens. Any OpenRouter ID (free OSS, GPT,
-		// Claude) may be supplied per run via StartRunRequest.model_id or
-		// OPENROUTER_MODEL; the full option list is
-		// examples/openrouter-models.json.
-		adapter, err = model.NewOpenRouter(model.OpenRouterConfig{
-			APIKey:   os.Getenv("OPENROUTER_API_KEY"),
-			Model:    envDefault("OPENROUTER_MODEL", "meta/muse-spark-1.3-contributor"),
-			Endpoint: os.Getenv("OPENROUTER_ENDPOINT"),
-		})
-		if err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("NMC3_MODEL_ADAPTER must be deterministic, openrouter, or openai")
-	}
-	coordinator, err := runtime.New(definitions, adapter, gateway, runs, events)
-	if err != nil {
-		return err
-	}
 	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
-	server := &http.Server{Addr: addr, Handler: httpapi.New(coordinator, runs, events, coordinator.Definitions()), ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("NMC3 API listening on %s", addr)
+	server := http.Server{Addr: addr, Handler: httpapi.New(disabled{}, runs, events, definitions), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("NMC3 API listening on %s (history only; execution disabled)", addr)
 	return server.ListenAndServe()
 }
 
@@ -133,12 +84,4 @@ func readJSON(path string, value any) error {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	return nil
-}
-
-func positiveFloatEnv(key string) (float64, error) {
-	v, err := strconv.ParseFloat(os.Getenv(key), 64)
-	if err != nil || v <= 0 {
-		return 0, fmt.Errorf("%s must be a positive rate", key)
-	}
-	return v, nil
 }
