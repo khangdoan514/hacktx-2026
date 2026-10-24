@@ -170,6 +170,20 @@ def update_member(conn, actor, workspace_id: str, user_id: str, access_role: str
         recipients=[user_id],
         preview="Workspace membership changed",
     )
+    if status == "removed":
+        emit(
+            conn,
+            actor_id=actor.user_id,
+            action="access.revoked",
+            workspace_id=workspace_id,
+            project_id=None,
+            resource_type="workspace_membership",
+            resource_id=user_id,
+            revision=None,
+            recipients=[user_id],
+            preview="Workspace access removed",
+            extra={"scope": "workspace"},
+        )
     return dump(dict(row))
 
 
@@ -707,7 +721,30 @@ def add_partner_contact(conn, actor, partner_id: str, name: str, email: str) -> 
 
 def suspend_partner(conn, actor, partner_id: str) -> dict:
     partner = one(conn, "SELECT * FROM app.partner_organizations WHERE id = %s", (partner_id,), "Partner not found")
+    revoked = conn.execute(
+        """
+        SELECT pm.user_id, pm.project_id
+        FROM app.project_memberships pm
+        JOIN app.partner_contacts c ON c.user_id = pm.user_id
+        WHERE c.partner_id = %s AND pm.access_role = 'partner' AND pm.status = 'active'
+        """,
+        (partner_id,),
+    ).fetchall()
     conn.execute("SELECT app.suspend_partner(%s)", (partner_id,))
+    for pair in revoked:
+        emit(
+            conn,
+            actor_id=actor.user_id,
+            action="access.revoked",
+            workspace_id=partner["workspace_id"],
+            project_id=pair["project_id"],
+            resource_type="project_membership",
+            resource_id=pair["user_id"],
+            revision=None,
+            recipients=[str(pair["user_id"])],
+            preview="Partner access suspended",
+            extra={"scope": "project"},
+        )
     emit(
         conn,
         actor_id=actor.user_id,

@@ -800,6 +800,27 @@ def create_approval(conn, actor, project_id: str, body: dict) -> dict:
     return dump(dict(row))
 
 
+TASK_DECISIONS = {
+    "approved": "done",
+    "changes_requested": "changes_requested",
+    "rejected": "changes_requested",
+}
+REQUIREMENT_DECISIONS = {
+    "approved": "accepted",
+    "changes_requested": "changes_requested",
+    "rejected": "changes_requested",
+}
+
+
+def _apply_target(conn, approval, decision: str) -> None:
+    if decision not in TASK_DECISIONS:
+        raise AppError(409, "invalid_state", "That decision is not allowed")
+    conn.execute(
+        "SELECT app.apply_approval_target(%s, %s)",
+        (approval["id"], decision),
+    )
+
+
 def decide_approval(conn, actor, approval_id: str, expected: int, decision: str, comment: str, idempotency_key: str | None, target_revision: int) -> dict:
     body = {"decision": decision, "comment": comment, "expected_version": expected, "target_revision": target_revision}
     begun = idempotency_begin(conn, actor.user_id, f"approval:{approval_id}", idempotency_key, body)
@@ -821,6 +842,7 @@ def decide_approval(conn, actor, approval_id: str, expected: int, decision: str,
         raise AppError(409, "conflict", "The approval targets a different revision", {"target_revision": current["target_revision"]})
     if int(current["version"]) != int(expected):
         raise AppError(409, "conflict", "The record changed. Reload and try again.", {"version": current["version"]})
+    _apply_target(conn, current, decision)
     row = conn.execute(
         """
         UPDATE app.approval_requests

@@ -141,6 +141,7 @@ def emit(
     revision: int | None,
     recipients: list[str],
     preview: str,
+    extra: dict | None = None,
 ) -> None:
     audience = [str(item) for item in recipients if str(item) != str(actor_id)]
     conn.execute(
@@ -180,6 +181,7 @@ def emit(
                     "preview": preview[:240],
                     "target_type": resource_type,
                     "target_id": str(resource_id),
+                    "extra": extra or {},
                 }
             ),
         ),

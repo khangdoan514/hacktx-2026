@@ -19,7 +19,11 @@ browser ──► Next.js
 - `/api/health` is liveness. `/api/ready` checks the database. Business routes live under `/api/v1`.
 - FastAPI verifies the bearer JWT, then sets a transaction-local user id and `SET LOCAL ROLE app_runtime` so Postgres RLS applies. `app_runtime` must not own protected tables and must not bypass RLS.
 - Business migrations in `supabase/migrations` are the history for schema `app`. Agent run tables are not in that schema. A future Go service would own its own schema, such as `nmc3`, and FastAPI does not write those rows.
-- Convex replaces Supabase Realtime for these business invalidation hints only. There is no second live-delivery path. Hints are optional. If Convex is unset, product pages poll FastAPI. Hints are per authenticated user, and losing project access deletes them.
+- Convex replaces Supabase Realtime for these business invalidation hints only. There is no second live-delivery path. Hints are optional. If `CONVEX_HTTP_URL` is unset, product pages poll FastAPI. This checkout does not mount a Convex browser subscription. Convex accepts Supabase RS256 or ES256 tokens via `CONVEX_JWT_ISSUER`, `CONVEX_JWT_AUDIENCE`, and `CONVEX_JWT_JWKS`. The local HS256 test issuer is not a Convex provider.
+
+## Verification boundary
+
+Supabase CLI 2.122 `start` still starts containers, and this environment has no Docker. The native local runtime was not available to run. Tests use plain Postgres plus a test JWT issuer. That covers schema, RLS, and FastAPI behavior. It does not verify Supabase Auth, session refresh, Storage authorization, or migrations against Supabase-managed schemas.
 
 ## Planned agent service
 

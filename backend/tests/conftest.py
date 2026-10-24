@@ -12,10 +12,12 @@ os.environ["DATABASE_URL"] = DSN
 os.environ["JWT_SECRET"] = "test-secret-test-secret-test-secret"
 os.environ["JWT_ISSUER"] = "http://127.0.0.1/test-auth"
 os.environ["JWT_AUDIENCE"] = "authenticated"
+os.environ["ENVIRONMENT"] = "test"
 os.environ["ALLOW_LOCAL_AUTH"] = "true"
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="nmc3-storage-")
 os.environ["CONVEX_URL"] = ""
-os.environ["CONVEX_DEPLOY_KEY"] = ""
+os.environ["CONVEX_HTTP_URL"] = ""
+os.environ["CONVEX_HINT_SECRET"] = ""
 
 
 def _admin():
@@ -31,7 +33,8 @@ def _rebuild() -> None:
         conn.execute("CREATE DATABASE hacktx_test OWNER ubuntu")
     with psycopg.connect(DSN, autocommit=True) as conn:
         conn.execute((ROOT / "supabase" / "bootstrap_local.sql").read_text())
-        conn.execute((ROOT / "supabase" / "migrations" / "20261024120000_app_baseline.sql").read_text())
+        for path in sorted((ROOT / "supabase" / "migrations").glob("*.sql")):
+            conn.execute(path.read_text())
 
 
 _rebuild()

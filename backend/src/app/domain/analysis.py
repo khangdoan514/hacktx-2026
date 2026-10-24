@@ -8,6 +8,7 @@ from app.core.errors import AppError
 from app.core.serialize import dump
 from app.domain.calc import capacity_margin
 from app.domain.common import emit, ensure_open, limit_of, one, require_project, require_workspace
+from app.domain.dashboard_contract import authorize_sources, human_provenance, prepare_definition
 
 REQUIRED_COLUMNS = (
     "partner_id",
@@ -25,10 +26,6 @@ REQUIRED_COLUMNS = (
     "currency",
     "extra_allocation",
 )
-ALLOWED_WIDGETS = {"metric_number", "capacity_table", "margin_table"}
-UNSAFE_TOKENS = ("<script", "javascript:", "eval(", "text/html")
-
-
 def create_dataset(conn, actor, workspace_id: str, name: str, description: str) -> dict:
     require_workspace(conn, workspace_id, {"owner", "administrator", "member"})
     row = conn.execute(
@@ -431,40 +428,41 @@ def get_analysis(conn, analysis_id: str) -> dict:
     return payload
 
 
-def _validate_definition(conn, project, definition: dict) -> None:
-    if definition.get("schema_version") != 1:
-        raise AppError(422, "invalid_definition", "Unsupported dashboard schema")
-    blob = str(definition).lower()
-    if any(token in blob for token in UNSAFE_TOKENS):
-        raise AppError(422, "unsafe_definition", "Dashboard definitions cannot contain executable content")
-    widgets = definition.get("widgets")
-    if not isinstance(widgets, list) or not widgets:
-        raise AppError(422, "invalid_definition", "Add at least one widget")
-    for widget in widgets:
-        if not isinstance(widget, dict) or widget.get("type") not in ALLOWED_WIDGETS:
-            raise AppError(422, "unsupported_widget", "Widget type is not in the catalog")
-        for banned in ("sql", "script", "html", "code"):
-            if banned in widget:
-                raise AppError(422, "unsafe_definition", "Widget configuration is not allowed")
-        metric_id = widget.get("metric_version_id")
-        if widget["type"] == "metric_number":
-            if not metric_id:
-                raise AppError(422, "invalid_definition", "metric_number needs a metric version")
-            found = conn.execute(
-                """
-                SELECT id FROM app.metric_versions
-                WHERE id = %s AND state = 'accepted' AND workspace_id = %s
-                """,
-                (metric_id, project["workspace_id"]),
-            ).fetchone()
-            if not found:
-                raise AppError(422, "invalid_definition", "Metric version is not an accepted version you can use")
+def _checked_definition(conn, project, raw: dict) -> tuple[dict, dict]:
+    definition = prepare_definition(raw)
+    manifest = authorize_sources(conn, project, definition)
+    return definition, manifest
+
+
+def _insert_revision(conn, actor, dashboard, project, definition, manifest, revision_no: int, base_revision: int | None):
+    provenance = human_provenance(actor.user_id, manifest["source_refs"])
+    provenance_manifest = {**manifest, "target_revision": revision_no}
+    return conn.execute(
+        """
+        INSERT INTO app.dashboard_revisions (
+            dashboard_id, workspace_id, project_id, revision, base_revision,
+            definition, state, actor_user_id, applied_by, provenance
+        ) VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s)
+        RETURNING *
+        """,
+        (
+            dashboard["id"],
+            project["workspace_id"],
+            project["id"],
+            revision_no,
+            base_revision,
+            Json(definition),
+            actor.user_id,
+            actor.user_id,
+            Json({**provenance, "context_manifest": provenance_manifest}),
+        ),
+    ).fetchone()
 
 
 def create_dashboard(conn, actor, project_id: str, title: str, definition: dict) -> dict:
     project = require_project(conn, project_id, {"owner", "contributor"})
     ensure_open(project)
-    _validate_definition(conn, project, definition)
+    checked, manifest = _checked_definition(conn, project, definition)
     dashboard = conn.execute(
         """
         INSERT INTO app.dashboards (workspace_id, project_id, title, created_by)
@@ -473,17 +471,10 @@ def create_dashboard(conn, actor, project_id: str, title: str, definition: dict)
         """,
         (project["workspace_id"], project_id, title.strip(), actor.user_id),
     ).fetchone()
-    revision = conn.execute(
-        """
-        INSERT INTO app.dashboard_revisions (
-            dashboard_id, workspace_id, project_id, revision, definition, state, actor_user_id
-        ) VALUES (%s, %s, %s, 1, %s, 'draft', %s)
-        RETURNING *
-        """,
-        (dashboard["id"], project["workspace_id"], project_id, Json(definition), actor.user_id),
-    ).fetchone()
+    revision = _insert_revision(conn, actor, dashboard, project, checked, manifest, 1, None)
     payload = dump(dict(dashboard))
     payload["revision"] = dump(dict(revision))
+    payload["context_manifest"] = {**manifest, "target_revision": 1}
     return payload
 
 
@@ -491,36 +482,22 @@ def add_dashboard_revision(conn, actor, dashboard_id: str, definition: dict, bas
     dashboard = one(conn, "SELECT * FROM app.dashboards WHERE id = %s", (dashboard_id,), "Dashboard not found")
     project = require_project(conn, str(dashboard["project_id"]), {"owner", "contributor"})
     ensure_open(project)
-    _validate_definition(conn, project, definition)
+    checked, manifest = _checked_definition(conn, project, definition)
     latest = conn.execute(
         "SELECT MAX(revision) AS revision FROM app.dashboard_revisions WHERE dashboard_id = %s",
         (dashboard_id,),
     ).fetchone()
-    if base_revision is not None and int(base_revision) != int(latest["revision"]):
+    if base_revision is None or int(base_revision) != int(latest["revision"]):
         raise AppError(
             409,
             "conflict",
             "The dashboard changed. Reload and edit the latest revision.",
             {"revision": latest["revision"]},
         )
-    row = conn.execute(
-        """
-        INSERT INTO app.dashboard_revisions (
-            dashboard_id, workspace_id, project_id, revision, base_revision, definition, state, actor_user_id
-        ) VALUES (%s, %s, %s, %s, %s, %s, 'draft', %s)
-        RETURNING *
-        """,
-        (
-            dashboard_id,
-            dashboard["workspace_id"],
-            dashboard["project_id"],
-            latest["revision"] + 1,
-            base_revision,
-            Json(definition),
-            actor.user_id,
-        ),
-    ).fetchone()
-    return dump(dict(row))
+    row = _insert_revision(conn, actor, dashboard, project, checked, manifest, latest["revision"] + 1, base_revision)
+    payload = dump(dict(row))
+    payload["context_manifest"] = {**manifest, "target_revision": row["revision"]}
+    return payload
 
 
 def publish_dashboard(conn, actor, revision_id: str) -> dict:
@@ -534,16 +511,24 @@ def publish_dashboard(conn, actor, revision_id: str) -> dict:
     ensure_open(project)
     if revision["state"] == "published":
         return dump(dict(revision))
-    _validate_definition(conn, project, revision["definition"])
+    _checked_definition(conn, project, revision["definition"])
+    latest = conn.execute(
+        "SELECT MAX(revision) AS revision FROM app.dashboard_revisions WHERE dashboard_id = %s",
+        (revision["dashboard_id"],),
+    ).fetchone()
+    if int(latest["revision"]) != int(revision["revision"]):
+        raise AppError(409, "conflict", "Only the current revision can be published", {"revision": latest["revision"]})
     row = conn.execute(
         """
         UPDATE app.dashboard_revisions
-        SET state = 'published'
-        WHERE id = %s AND state = 'draft'
+        SET state = 'published', published_by = %s
+        WHERE id = %s AND state = 'draft' AND revision = %s
         RETURNING *
         """,
-        (revision_id,),
+        (actor.user_id, revision_id, revision["revision"]),
     ).fetchone()
+    if not row:
+        raise AppError(409, "conflict", "The dashboard revision changed")
     emit(
         conn,
         actor_id=actor.user_id,

@@ -2,7 +2,9 @@ import threading
 from uuid import uuid4
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.core.auth import encode_token
 from app.main import app
@@ -311,12 +313,24 @@ def test_approval_self_and_concurrent():
         headers=owner_headers,
         json={"user_id": reviewer, "access_role": "reviewer"},
     )
+    requirement = client.post(
+        f"/api/v1/projects/{created['id']}/requirements",
+        headers=owner_headers,
+        json={"title": "Capacity requirement", "body": "Add capacity"},
+    )
+    assert requirement.status_code == 201, requirement.text
+    submitted = client.post(
+        f"/api/v1/requirements/{requirement.json()['id']}/submit-review",
+        headers=owner_headers,
+        json={"expected_version": 1},
+    )
+    assert submitted.status_code == 200, submitted.text
     approval = client.post(
         f"/api/v1/projects/{created['id']}/approvals",
         headers=owner_headers,
         json={
             "target_type": "requirement",
-            "target_id": str(uuid4()),
+            "target_id": requirement.json()["id"],
             "target_revision": 1,
             "reviewer_id": reviewer,
         },
@@ -342,6 +356,127 @@ def test_approval_self_and_concurrent():
     for thread in threads:
         thread.join()
     assert sorted(results) == [200, 409]
+    fetched = client.get(f"/api/v1/requirements/{requirement.json()['id']}", headers=owner_headers)
+    assert fetched.json()["state"] == "accepted"
+    assert fetched.json()["accepted_revision"] == 1
+    with psycopg.connect(DSN) as conn:
+        decisions = conn.execute(
+            "SELECT count(*) FROM app.approval_decisions WHERE approval_id = %s",
+            (approval_id,),
+        ).fetchone()[0]
+        events = conn.execute(
+            "SELECT count(*) FROM app.outbox_events WHERE resource_id = %s AND kind = 'approval.approved'",
+            (approval_id,),
+        ).fetchone()[0]
+    assert decisions == 1
+    assert events == 1
+
+
+def test_approval_rolls_back_when_target_changes():
+    owner, owner_headers = make_user("owner2@example.com")
+    reviewer, reviewer_headers = make_user("reviewer2@example.com")
+    workspace_id = workspace(owner_headers)
+    invited = client.post(
+        f"/api/v1/workspaces/{workspace_id}/invitations",
+        headers=owner_headers,
+        json={"email": "reviewer2@example.com", "access_role": "member"},
+    )
+    client.post(f"/api/v1/invitations/{invited.json()['token']}/accept", headers=reviewer_headers)
+    created = project(owner_headers, workspace_id)
+    client.post(
+        f"/api/v1/projects/{created['id']}/members",
+        headers=owner_headers,
+        json={"user_id": reviewer, "access_role": "reviewer"},
+    )
+    requirement = client.post(
+        f"/api/v1/projects/{created['id']}/requirements",
+        headers=owner_headers,
+        json={"title": "Editable", "body": "First"},
+    ).json()
+    client.post(
+        f"/api/v1/requirements/{requirement['id']}/submit-review",
+        headers=owner_headers,
+        json={"expected_version": 1},
+    )
+    approval = client.post(
+        f"/api/v1/projects/{created['id']}/approvals",
+        headers=owner_headers,
+        json={
+            "target_type": "requirement",
+            "target_id": requirement["id"],
+            "target_revision": 1,
+            "reviewer_id": reviewer,
+        },
+    ).json()
+    revised = client.post(
+        f"/api/v1/requirements/{requirement['id']}/revisions",
+        headers=owner_headers,
+        json={"expected_version": 2, "body": "Changed during review", "acceptance_criteria": "still required"},
+    )
+    assert revised.status_code == 201, revised.text
+    denied = client.post(
+        f"/api/v1/approvals/{approval['id']}/approve",
+        headers=reviewer_headers,
+        json={"expected_version": 1, "target_revision": 1, "comment": "too late"},
+    )
+    assert denied.status_code == 409
+    fetched = client.get(f"/api/v1/requirements/{requirement['id']}", headers=owner_headers)
+    assert fetched.json()["state"] == "in_review"
+    with psycopg.connect(DSN) as conn:
+        decisions = conn.execute(
+            "SELECT count(*) FROM app.approval_decisions WHERE approval_id = %s",
+            (approval["id"],),
+        ).fetchone()[0]
+        approved_events = conn.execute(
+            "SELECT count(*) FROM app.outbox_events WHERE resource_id = %s AND kind = 'approval.approved'",
+            (approval["id"],),
+        ).fetchone()[0]
+    assert decisions == 0
+    assert approved_events == 0
+
+
+def test_runtime_role_and_connection_isolation():
+    with psycopg.connect(DSN) as conn:
+        bypass = conn.execute("SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app_runtime'").fetchone()[0]
+        owners = conn.execute(
+            """
+            SELECT DISTINCT pg_get_userbyid(cls.relowner)
+            FROM pg_class cls
+            JOIN pg_namespace namespace ON namespace.oid = cls.relnamespace
+            WHERE namespace.nspname = 'app' AND cls.relkind = 'r'
+            """
+        ).fetchall()
+    assert bypass is False
+    assert owners
+    assert all(row[0] != "app_runtime" for row in owners)
+    owner, owner_headers = make_user("pool-a@example.com")
+    other, other_headers = make_user("pool-b@example.com")
+    workspace_a = workspace(owner_headers, "Pool A")
+    hidden = project(owner_headers, workspace_a, "Secret")
+    workspace(other_headers, "Pool B")
+    conn = psycopg.connect(DSN)
+    try:
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE app_runtime")
+            conn.execute("SELECT set_config('app.user_id', %s, true)", (owner,))
+            conn.execute("SELECT set_config('app.user_email', 'pool-a@example.com', true)")
+            visible = {str(row[0]) for row in conn.execute("SELECT id FROM app.projects").fetchall()}
+            assert hidden["id"] in visible
+        with conn.transaction():
+            conn.execute("SET LOCAL ROLE app_runtime")
+            conn.execute("SELECT set_config('app.user_id', %s, true)", (other,))
+            conn.execute("SELECT set_config('app.user_email', 'pool-b@example.com', true)")
+            visible = {str(row[0]) for row in conn.execute("SELECT id FROM app.projects").fetchall()}
+            assert hidden["id"] not in visible
+    finally:
+        conn.close()
+
+
+def test_local_auth_refused_in_production():
+    from app.core.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(allow_local_auth=True, environment="production")
 
 
 def test_handoff_snapshot_is_immutable():
@@ -470,6 +605,8 @@ def test_calculation_dashboard_and_documents():
         json={"title": "Manual", "definition": definition},
     )
     assert dashboard.status_code == 201, dashboard.text
+    assert dashboard.json()["revision"]["provenance"]["actor_type"] == "human"
+    assert dashboard.json()["context_manifest"]["restrictions"] == ["current_project_membership"]
     published = client.post(
         f"/api/v1/dashboard-revisions/{dashboard.json()['revision']['id']}/publish",
         headers=headers,
@@ -482,6 +619,26 @@ def test_calculation_dashboard_and_documents():
         json={"base_revision": 1, "definition": {"schema_version": 1, "widgets": [{"type": "script"}]}},
     )
     assert unsafe.status_code == 422
+    claimed = client.post(
+        f"/api/v1/projects/{created['id']}/dashboards",
+        headers=headers,
+        json={"title": "Claimed", "definition": {**definition, "actor_type": "integration"}},
+    )
+    assert claimed.status_code == 422
+    assert claimed.json()["code"] == "forbidden_actor"
+    stale = client.post(
+        f"/api/v1/dashboards/{dashboard.json()['id']}/revisions",
+        headers=headers,
+        json={"base_revision": 0, "definition": definition},
+    )
+    assert stale.status_code == 409
+    restricted = client.post(
+        f"/api/v1/projects/{created['id']}/dashboards",
+        headers=headers,
+        json={"title": "Restricted", "definition": {**definition, "restrictions": ["other-workspace"]}},
+    )
+    assert restricted.status_code == 201, restricted.text
+    assert "other-workspace" not in restricted.json()["context_manifest"]["restrictions"]
     assert client.get(f"/api/v1/projects/{created['id']}/assistance-requests", headers=headers).status_code == 404
     document = client.post(
         f"/api/v1/projects/{created['id']}/documents",
@@ -501,4 +658,31 @@ def test_calculation_dashboard_and_documents():
     assert downloaded.content == b"evidence"
     stranger, stranger_headers = make_user("stranger@example.com")
     assert client.get(f"/api/v1/document-versions/{version_id}/download", headers=stranger_headers).status_code == 404
-    _ = stranger
+    other_workspace = workspace(stranger_headers, "Other metrics")
+    foreign_metric = client.post(
+        f"/api/v1/workspaces/{other_workspace}/metrics",
+        headers=stranger_headers,
+        json={"name": "Foreign"},
+    ).json()
+    foreign_version = client.post(
+        f"/api/v1/metrics/{foreign_metric['id']}/versions",
+        headers=stranger_headers,
+        json={"formula": "gross_margin", "state": "accepted"},
+    ).json()
+    denied = client.post(
+        f"/api/v1/projects/{created['id']}/dashboards",
+        headers=headers,
+        json={
+            "title": "Borrowed",
+            "definition": {
+                "schema_version": 1,
+                "widgets": [{"type": "metric_number", "metric_version_id": foreign_version["id"]}],
+            },
+        },
+    )
+    assert denied.status_code == 422
+    assert denied.json()["code"] == "inaccessible_source"
+    from app.jobs.worker import dispatch_outbox
+
+    assert dispatch_outbox() >= 0
+    assert client.get(f"/api/v1/projects/{created['id']}", headers=headers).status_code == 200

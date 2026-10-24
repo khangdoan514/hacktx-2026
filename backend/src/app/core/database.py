@@ -14,6 +14,8 @@ _KNOWN = {
     "workspace_mismatch": (422, "workspace_mismatch", "Record does not belong to that workspace"),
     "forbidden": (403, "forbidden", "You cannot do that"),
     "not_found": (404, "not_found", "Record not found"),
+    "invalid_target": (409, "invalid_target", "This approval target is not supported"),
+    "conflict": (409, "conflict", "The target changed or is not awaiting this decision"),
 }
 
 
