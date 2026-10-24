@@ -1,0 +1,7 @@
+{
+  "agents": [
+    {"id": "vendor-orchestrator", "version": "1.0.0", "name": "Vendor Orchestrator"},
+    {"id": "catalog-specialist", "version": "1.0.0", "name": "Catalog Specialist"},
+    {"id": "analysis-specialist", "version": "1.0.0", "name": "Analysis Specialist"}
+  ]
+}

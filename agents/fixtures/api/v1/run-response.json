@@ -1,0 +1,28 @@
+{
+  "run": {
+    "id": "run-sample-001",
+    "state": "SUCCEEDED",
+    "agent_id": "vendor-orchestrator",
+    "agent_version": "1.0.0",
+    "input": {"task": "Compare fictional vendors for a small support team", "criteria": ["price", "accessibility"], "budget_usd": 1000},
+    "output": {"recommendation": "Vendor A", "source_ids": ["vendor-a"]},
+    "invocations": [
+      {
+        "id": "inv-001", "run_id": "run-sample-001", "parent_id": null,
+        "agent_id": "vendor-orchestrator", "agent_version": "1.0.0",
+        "depth": 0, "state": "SUCCEEDED", "input": {"task": "Compare fictional vendors for a small support team"},
+        "output": {"recommendation": "Vendor A", "source_ids": ["vendor-a"]},
+        "started_at": "2026-10-24T12:00:00Z", "finished_at": "2026-10-24T12:00:02Z"
+      },
+      {
+        "id": "inv-002", "run_id": "run-sample-001", "parent_id": "inv-001",
+        "agent_id": "catalog-specialist", "agent_version": "1.0.0",
+        "depth": 1, "state": "SUCCEEDED", "input": {"criteria": ["price", "accessibility"]},
+        "output": {"source_ids": ["vendor-a"]},
+        "started_at": "2026-10-24T12:00:00Z", "finished_at": "2026-10-24T12:00:01Z"
+      }
+    ],
+    "created_at": "2026-10-24T12:00:00Z",
+    "updated_at": "2026-10-24T12:00:02Z"
+  }
+}

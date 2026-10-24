@@ -1,0 +1,11 @@
+{
+  "run_id": "run-sample-001",
+  "events": [
+    {"sequence": 1, "run_id": "run-sample-001", "type": "RUN_STARTED", "timestamp": "2026-10-24T12:00:00Z", "data": {"agent_id": "vendor-orchestrator"}},
+    {"sequence": 2, "run_id": "run-sample-001", "invocation_id": "inv-001", "type": "AGENT_STARTED", "timestamp": "2026-10-24T12:00:00Z", "data": {"depth": 0}},
+    {"sequence": 3, "run_id": "run-sample-001", "invocation_id": "inv-002", "type": "AGENT_STARTED", "timestamp": "2026-10-24T12:00:00Z", "data": {"depth": 1}},
+    {"sequence": 4, "run_id": "run-sample-001", "invocation_id": "inv-002", "type": "AGENT_SUCCEEDED", "timestamp": "2026-10-24T12:00:01Z"},
+    {"sequence": 5, "run_id": "run-sample-001", "invocation_id": "inv-001", "type": "AGENT_SUCCEEDED", "timestamp": "2026-10-24T12:00:02Z"},
+    {"sequence": 6, "run_id": "run-sample-001", "type": "RUN_SUCCEEDED", "timestamp": "2026-10-24T12:00:02Z"}
+  ]
+}
