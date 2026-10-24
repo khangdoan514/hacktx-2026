@@ -11,6 +11,8 @@
     "max_concurrent_agents": 2,
     "max_tool_calls": 4,
     "max_model_turns": 8,
+    "max_tokens": 12000,
+    "max_cost_usd": 2,
     "timeout_seconds": 60
   }
 }

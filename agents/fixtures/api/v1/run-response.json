@@ -6,6 +6,7 @@
     "agent_version": "1.0.0",
     "input": {"task": "Compare fictional vendors for a small support team", "criteria": ["price", "accessibility"], "budget_usd": 1000},
     "output": {"recommendation": "Vendor A", "source_ids": ["vendor-a"]},
+    "usage": {"input_tokens": 800, "output_tokens": 200, "cost_usd": 0.01},
     "invocations": [
       {
         "id": "inv-001", "run_id": "run-sample-001", "parent_id": null,
@@ -22,6 +23,13 @@
         "started_at": "2026-10-24T12:00:00Z", "finished_at": "2026-10-24T12:00:01Z"
       }
     ],
+    "tool_invocations": [{
+      "id": "tool-001", "run_id": "run-sample-001", "agent_invocation_id": "inv-002",
+      "tool_id": "catalog.search", "tool_version": "1.0.0",
+      "input": {"criteria": ["price", "accessibility"]},
+      "output": {"vendors": [{"id": "vendor-a"}], "source_ids": ["vendor-a"]},
+      "started_at": "2026-10-24T12:00:00Z", "finished_at": "2026-10-24T12:00:01Z"
+    }],
     "created_at": "2026-10-24T12:00:00Z",
     "updated_at": "2026-10-24T12:00:02Z"
   }

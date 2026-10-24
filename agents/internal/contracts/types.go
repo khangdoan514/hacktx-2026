@@ -43,11 +43,20 @@ func (e *RunError) Error() string { return string(e.Code) + ": " + e.Message }
 type JSONSchema = json.RawMessage
 
 type Limits struct {
-	MaxDelegations      int `json:"max_delegations"`
-	MaxConcurrentAgents int `json:"max_concurrent_agents"`
-	MaxToolCalls        int `json:"max_tool_calls"`
-	MaxModelTurns       int `json:"max_model_turns"`
-	TimeoutSeconds      int `json:"timeout_seconds"`
+	MaxDelegations      int     `json:"max_delegations"`
+	MaxConcurrentAgents int     `json:"max_concurrent_agents"`
+	MaxToolCalls        int     `json:"max_tool_calls"`
+	MaxModelTurns       int     `json:"max_model_turns"`
+	MaxTokens           int     `json:"max_tokens"`
+	MaxCostUSD          float64 `json:"max_cost_usd"`
+	TimeoutSeconds      int     `json:"timeout_seconds"`
+}
+
+// Usage is cumulative for a run and per-turn for a model result.
+type Usage struct {
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
 }
 
 type AgentDefinition struct {
@@ -118,14 +127,16 @@ type RunEvent struct {
 }
 
 type Run struct {
-	ID          string            `json:"id"`
-	State       State             `json:"state"`
-	AgentID     string            `json:"agent_id"`
-	Version     string            `json:"agent_version"`
-	Input       json.RawMessage   `json:"input"`
-	Output      json.RawMessage   `json:"output,omitempty"`
-	Error       *RunError         `json:"error,omitempty"`
-	Invocations []AgentInvocation `json:"invocations"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID              string            `json:"id"`
+	State           State             `json:"state"`
+	AgentID         string            `json:"agent_id"`
+	Version         string            `json:"agent_version"`
+	Input           json.RawMessage   `json:"input"`
+	Output          json.RawMessage   `json:"output,omitempty"`
+	Error           *RunError         `json:"error,omitempty"`
+	Usage           Usage             `json:"usage"`
+	Invocations     []AgentInvocation `json:"invocations"`
+	ToolInvocations []ToolInvocation  `json:"tool_invocations"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
 }

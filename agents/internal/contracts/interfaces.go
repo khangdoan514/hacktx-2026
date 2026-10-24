@@ -46,7 +46,12 @@ type ActionResult struct {
 }
 
 type ModelAdapter interface {
-	Next(ctx context.Context, input ModelInput) (ModelAction, error)
+	Next(ctx context.Context, input ModelInput) (ModelResult, error)
+}
+
+type ModelResult struct {
+	Action ModelAction `json:"action"`
+	Usage  Usage       `json:"usage"`
 }
 
 type Tool interface {
