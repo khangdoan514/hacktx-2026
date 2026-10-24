@@ -227,6 +227,7 @@ node_modules/
 # Local upload bytes and Supabase CLI state
 backend/var/
 .supabase/
+supabase/.temp/
 convex/node_modules/
 convex/.env.local
 
