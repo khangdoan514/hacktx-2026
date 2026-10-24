@@ -1,31 +1,28 @@
-# Frontend design brief
+# Frontend design
 
-Source notes from the team, plus how they map to the code.
+The NMC³ Console in `frontend/` is the website in a CLI, SDK and website stack. The CLI and SDK are for developers. The website is for less technical users such as business analysts. Every page has a **CLI · SDK** button that shows the code equivalent of what it does.
 
-## Notes
+It is organized around the five problems teams hit when they build agents:
 
-- Modern corporate aesthetic
-- Dashboard focus
-- Use an existing UI library: [Ant Design](https://ant.design/)
-- References:
-  - Dots (OpenAI agent platform) – https://openai.com/index/introducing-dots/
-  - Muse (Meta agent platform)
-  - Apple Shortcuts
-- Use taste skills / awesome design resources
+| Need | Page |
+|---|---|
+| Evaluate | `/evaluate`: suites, pass rate by version, run a suite |
+| Trigger | `/triggers`: API, schedule, webhook, Slack and CLI |
+| Budget | `/budgets`: monthly and daily caps, spend by agent and model |
+| Guardrails | `/guardrails`: runtime rules and policies, plus a feed of blocked actions |
+| Prompt observation | `/prompts`, plus the **Prompts** tab in the agent drawer |
 
-## How this is applied
+The live run (`/`) and run replays (`/runs/[id]`) draw execution literally: caller → orchestrator → specialists → tool calls. A lane timeline replaces the text event log. Clicking any agent opens a drawer with its **Spec**, its **Activity** (every past invocation, success rate, tools used and blocked actions) and its **Prompts**.
 
-| Idea | Where |
-|------|-------|
-| Ant Design v6 + App Router SSR styles | `src/app/providers.tsx` (`AntdRegistry` + `ConfigProvider`) |
-| Corporate theme tokens (neutral greys, one indigo accent, soft radii) | `src/theme/theme.ts` |
-| Dashboard shell: sidebar nav + top bar | `src/components/AppShell.tsx`, `src/app/(dashboard)/layout.tsx` |
-| Agent-platform pages (Dots / Muse) | `/` overview, `/agents`, `/runs` |
-| Apple Shortcuts-style colorful action tiles | `/workflows`, `src/components/WorkflowTile.tsx` |
+## Visual language
 
-## Principles
+- Geist and Geist Mono. Neutral surfaces with hairline borders, one blue accent, green for done and red only for blocked or failed.
+- The running agent has an animated light around its border, and active edges carry a moving dash.
+- Light and dark themes. The design tokens are in `src/app/globals.css`, and component styles are in CSS modules beside each component.
+- Minimal text: short labels, details in tooltips and drawers.
 
-- Calm, neutral surfaces; color only for status and workflow tiles.
-- Generous whitespace, 8px spacing grid, 12px card radius.
-- Ant Design components first; Tailwind only for small layout tweaks.
-- Placeholder data lives in `src/lib/mock-data.ts` until backend endpoints exist.
+## Extending
+
+Agents, tools, budgets, guardrails, triggers and eval suites are declared in `frontend/src/config/`. The graph lays itself out from the agent tree, so adding an agent there makes it appear everywhere. See `frontend/README.md`.
+
+Data is simulated in the browser following the v1 contracts in `agents/internal/contracts`. The `docs/design/relay-console.html` prototype is the earlier single-file version of this design.

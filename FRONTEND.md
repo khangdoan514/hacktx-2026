@@ -1,454 +1,460 @@
 # FRONTEND.md — NMC³ Console design spec
 
-This document describes the NMC³ Console frontend design completely enough that another engineer or AI agent can rebuild it from scratch and get the same result.
+This document specifies the NMC³ Console well enough that another engineer or AI agent can rebuild it and get the same result.
 
-- **Reference implementation:** `docs/design/relay-console.html`. It is one self-contained HTML file with inline CSS and JS. When this document and that file disagree, the file wins.
-- **Status:** design prototype. All data is simulated in the browser and nothing calls the backend yet.
-- **Later target:** port into `frontend/` (Next.js 15, App Router). See [§17](#17-porting-to-the-nextjs-app).
+- **Reference implementation:** `docs/design/relay-console.html`. It is one self-contained file. When this document and that file disagree, **the file wins**, so send both.
+- **Status:** design prototype. All data is simulated in the browser. Porting notes are in §12.
 
 ---
 
-## 1. Product context
+## 1. Product and design brief
 
-**NMC³** is an AI consultant agent platform. A user submits a *brief* (a problem to explore). A pipeline of agents then:
+**Challenge (HackTX)**:
 
-1. researches what already exists using **SerpAPI** (Google Search, Scholar, Patents, Trends, News),
-2. generates candidate ideas on **NMC² compute**,
-3. filters them for originality,
-4. has critic agents debate them,
-5. returns a ranked shortlist as a consultant brief.
+> Building an AI agent often involves repeating the same setup: connecting tools, configuring models, writing instructions, and adding monitoring. How can a platform make that setup reusable so people can focus on what their agent should accomplish? Design and prototype a platform that lets users quickly create AI agents for enterprise grade use.
 
-Background on the name:
+**NMC³** is that platform, running on **NMC²** compute (https://nmc2.com, an HPC/GPU cloud with an HPC site in Spartanburg, SC). Always write it with superscripts: NMC³, NMC².
 
-- **NMC²** (https://nmc2.com) is an HPC / GPU cloud and compute company with an HPC site in Spartanburg, SC.
-- **NMC³** is the consultant layer that runs on NMC². The extra "C" stands for **Consultant**.
-- Always write the name with superscripts: **NMC³** and **NMC²**. In HTML that is `NMC<sup>3</sup>`, or the Unicode characters ³ and ².
+**The idea**: setup is done **once** as shared *building blocks* in four kinds:
 
-**What the screen must communicate:**
+- **Tools**: connectors such as Web search (SerpAPI), Slack, Drive and the data warehouse.
+- **Models**: hosted on NMC².
+- **Instructions**: policies and playbooks.
+- **Monitoring**: tracing, PII redaction, budgets, approvals, evals and SLOs.
 
-- Several flows run at once.
-- Agents make visible decisions: route, merge, keep/prune, send back, escalate to a human.
-- The platform runs on real infrastructure (GPUs, search quota).
+Workspace defaults (model, base policies, core monitors) are inherited by every agent. To create an agent, the user describes its goal or picks a template, and the platform assembles the agent from blocks: inherited defaults plus suggestions matched to the goal. One click deploys it.
 
-**Hard design constraints from the product owner:**
+The overview also shows **live runs** and **decisions**, which is the monitoring layer. The flagship example agent is the **Idea Consultant**, which searches the web, generates ideas on NMC² GPUs, filters them for novelty, has critics debate them, and ranks the result.
+
+**SerpAPI** powers the Idea Consultant's **Scout** step (Google Search, Scholar, Patents, Trends, News). It must be **visible where it's used**: in the Scout column of the river, in live captions, in decisions, in the agent setup card, in one KPI and in the sidebar quota. It should not be a separate stats panel.
+
+**Keep the overview to four things**: the header with Create agent, a 4-number strip, Live runs, and Decisions next to the agent setup card. The block library, the deployed-agents table and compute details belong on their own pages, not the overview.
+
+**Owner's constraints**
 
 | Do | Don't |
 |---|---|
-| Left **sidebar** navigation | Top-nav-only layout |
-| Multiple concurrent flows, visible agent decisions | A single linear pipeline |
-| Glassmorphism, soft ambient background | Gradients/glow on every element |
-| **Light and dark theme** plus a toggle button | Single theme |
-| One accent color, monochrome UI | Rainbow of category colors |
-| Metrics about ideas, novelty, sources, decisions, GPUs | **Anything that looks like financial services**: revenue, $ KPIs, refunds, invoices, budgets |
-| Compact stat tiles | A big "hero" metric card (e.g. a large "Today's throughput" panel) |
-| Large light-weight headings (weight 400) | Uppercase titles, bold-everything, dense tiny labels |
-| Effects and animation, tasteful | Static page |
+| Left sidebar | Top-nav-only layout |
+| Several concurrent flows, with visible decisions | One linear pipeline |
+| Light **and** dark theme, plus a toggle | Single theme |
+| A creative but professional flow visualization (the **idea river**) | Toy-like 3D objects, orbiting cameras, gimmicks |
+| A professional, engineered look | Anything that looks "vibe-coded": glass on every card, glows everywhere, many accent colors, chips and icons on everything, a decorative hero object |
+| Platform metrics: agents, time to deploy, runs, SerpAPI searches | Financial-services look; too many panels at once; SerpAPI either hidden or given its own stats panel |
+| Compact KPIs in one strip | Big hero metric cards |
 
-**Visual reference:** the "AI Fashion Ecommerce Dashboard" shot by taqwah on Muzli/Dribbble. Copy its qualities, not its content:
+**Design direction: NMC² language**
 
-- light grey canvas, white rounded cards with no borders,
-- huge regular-weight headings,
-- one lavender accent,
-- black pill for the active tab,
-- hatched or tick-mark chart styling,
-- lots of whitespace.
+- Black and white with very high contrast.
+- Hairline dividers instead of shadows and blur.
+- Sharp geometry and flat surfaces.
+- One electric blue accent: `#2b9cfc` from nmc2.com.
+- One "prism light" moment: a soft spectral glow cut by a hard polygon edge, placed only in the flow stage.
+- Light film grain over the page.
+- Glass (backdrop blur) is used **only** on the sticky top bar. Overlays are solid.
+- **The page's one bold element is the Live runs river.** Everything else stays quiet.
 
 ---
 
-## 2. Tech and dependencies
-
-The reference file is plain HTML, CSS and JS with no framework.
-
-| Dependency | How it's loaded | Used for |
-|---|---|---|
-| Inter Tight 300–700 | Google Fonts `<link>` | All UI text |
-| Geist Mono 400, 500 | Google Fonts `<link>` | IDs, scores, numbers in tables |
-| Lucide icons **0.469.0** | `<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js">` | Every icon |
-
-Font link:
+## 2. Dependencies
 
 ```html
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300..700&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
 ```
 
-Icons are written as `<i data-lucide="name"></i>`. Lucide replaces them with `<svg class="lucide lucide-name">`, keeping any extra class on the `<i>`. After inserting dynamic HTML, call `lucide.createIcons()` again. The reference wraps this in a helper `icons()` and builds icon markup with `ic(name)`.
-
-No other libraries are used. Charts, the flow board and the GPU grid are hand-built HTML/SVG.
+- **IBM Plex Sans** for UI and **IBM Plex Mono** for data, IDs, times and status text. The engineering feel suits HPC.
+- **Lucide icons:** write `<i data-lucide="name">` and call `lucide.createIcons()` after inserting HTML. Icons are 16px with stroke 1.5. Use them sparingly: only in nav, buttons and agent rows.
+- **No 3D library.** The flow visualization is hand-drawn on a 2D `<canvas>`.
 
 ---
 
-## 3. Design tokens
+## 3. Tokens
 
-Define every token on bare `:root` (light). Redefine only the tokens in two dark blocks:
+Put the light values on bare `:root`. Redefine them in `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {…} }` and again in `:root[data-theme="dark"] {…}`. Both dark blocks set `color-scheme: dark`.
 
-- `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { … } }`
-- `:root[data-theme="dark"] { … }`
-
-Both dark blocks also set `color-scheme: dark`. This gives three states: system default, forced light, forced dark.
-
-### 3.1 Color
-
-| Token | Light | Dark | Role |
+| Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bg` | `#eceef4` | `#0a0a11` | Page background (always set on `html` and `body`) |
-| `--orb-1` | `#dccbff` | `#3f2596` | Ambient blob 1 (lavender) |
-| `--orb-2` | `#c9d7ff` | `#17307e` | Ambient blob 2 (periwinkle) |
-| `--orb-3` | `#d4f1ec` | `#0d4a46` | Ambient blob 3 (mint) |
-| `--glass` | `rgba(255,255,255,.58)` | `rgba(26,26,38,.55)` | Card glass fill |
-| `--glass-strong` | `rgba(255,255,255,.82)` | `rgba(34,34,48,.8)` | Raised glass (selected seg button, dialog) |
-| `--glass-border` | `rgba(255,255,255,.8)` | `rgba(255,255,255,.08)` | Glass edge |
-| `--glass-hi` | `inset 0 1px 0 rgba(255,255,255,.95)` | `inset 0 1px 0 rgba(255,255,255,.07)` | Top highlight (box-shadow) |
-| `--shadow` | `0 1px 1px rgba(20,18,40,.03), 0 18px 40px -20px rgba(70,48,140,.22)` | `0 18px 40px -20px rgba(0,0,0,.7)` | Card shadow |
-| `--node-bg` | `#fbfbfe` | `#1d1d29` | Solid fill of flow nodes |
-| `--ink` | `#111118` | `#f3f2f8` | Primary text |
-| `--ink-2` | `#4a4a57` | `#b9b8c7` | Body text |
-| `--ink-3` | `#8b8b99` | `#7d7c8e` | Muted text |
-| `--line` | `rgba(17,17,26,.09)` | `rgba(255,255,255,.09)` | Hairlines, idle borders |
-| `--chip` | `rgba(17,17,26,.045)` | `rgba(255,255,255,.06)` | Icon-button and chip fill |
-| `--chip-hover` | `rgba(17,17,26,.08)` | `rgba(255,255,255,.11)` | Hover fill, meter track |
-| `--solid` / `--solid-fg` | `#111118` / `#fff` | `#f3f2f8` / `#111118` | Primary buttons, active nav pill, toast (inverts in dark) |
-| `--accent` | `#7c5cf5` | `#a98bfb` | The single accent (lavender) |
-| `--accent-2` | `#6d8bf5` | `#8ea3ff` | Gradient partner (periwinkle) |
-| `--accent-soft` | `rgba(124,92,245,.12)` | `rgba(169,139,251,.16)` | Tints, focus ring |
-| `--l1` | `#7c5cf5` | `#a98bfb` | Flow lane 1 identity |
-| `--l2` | `#3f7cf0` | `#7fa2ff` | Flow lane 2 identity |
-| `--l3` | `#0f9d8f` | `#3fd6c6` | Flow lane 3 identity |
-| `--ok` | `#1f9d6b` | `#3ddc97` | Success state |
-| `--warn` | `#d4831a` | `#f5b14c` | Needs attention, sent back, escalation |
-| `--err` | `#e5484d` | `#ff6b70` | Error (reserved) |
+| `--bg` | `#f4f4f2` | `#050506` | Page and sidebar background |
+| `--surface` | `#ffffff` | `#0b0b0d` | Panels, inputs |
+| `--surface-2` | `#f8f8f6` | `#0f0f12` | Nested surfaces |
+| `--line` | `#e4e4e0` | `#1c1c20` | All hairlines and panel borders |
+| `--line-2` | `#d4d4cf` | `#2a2a30` | Button borders, stronger rules |
+| `--ink` / `--ink-2` / `--ink-3` | `#0b0b0c` / `#3f4045` / `#8a8b90` | `#f4f4f5` / `#b4b5bb` / `#6f7077` | Text: primary, body, muted |
+| `--hover` | `rgba(11,11,12,.035)` | `rgba(255,255,255,.035)` | Row and button hover |
+| `--solid` / `--solid-fg` | `#0b0b0c` / `#fff` | `#fff` / `#050506` | Primary button, avatar, toast (inverts) |
+| `--accent` | `#0a6fd6` | `#2b9cfc` | The one accent (NMC² blue) |
+| `--accent-soft` | `rgba(10,111,214,.09)` | `rgba(43,156,252,.13)` | Focus ring, new-row flash |
+| `--f1` `--f2` `--f3` | `#0a6fd6` `#0b9e8f` `#6a4fe0` | `#2b9cfc` `#4aeadc` `#b7a8ff` | Flow identities (blue, NMC² cyan, lavender), used only to say "this belongs to flow X" |
+| `--ok` / `--warn` / `--err` | `#00965f` / `#e2620c` / `#d92d20` | `#00d084` / `#ff7a1a` / `#ff5a4e` | Status. NMC² green and orange |
+| `--glass` | `rgba(244,244,242,.74)` | `rgba(5,5,6,.72)` | Top bar background (with `blur(16px) saturate(160%)`) |
+| `--stage-bg` | `#fbfbfa` | `#070709` | River canvas background |
+| `--shard-o` | `.4` | `.85` | Prism-light strength |
+| `--grain-o` | `.035` | `.06` | Film-grain opacity |
+| `--pop` | `0 30px 80px -24px rgba(0,0,0,.28), 0 0 0 1px var(--line)` | the same with `.8` alpha | Dialog, toast, drawer |
+| `--r` | `12px` | | Panel radius. Buttons use 8px, chips 6–7px |
+| `--ease` | `cubic-bezier(0.16, 1, 0.3, 1)` | | All motion |
 
-Color rules:
+**Type scale (IBM Plex)**
 
-- Most pixels are neutral.
-- The accent appears in icons, meters, score bars and focus states.
-- Lane colors (`--l1..3`) appear **only** to identify which flow something belongs to: lane dot, node border, edge, particles, decision icon tile, idea-row dot.
-- Status colors appear only on dots and small labels.
-
-### 3.2 Type
-
-| Token | Value |
+| Element | Style |
 |---|---|
-| `--font` | `"Inter Tight", "Helvetica Neue", Helvetica, Arial, sans-serif` |
-| `--mono` | `"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace` |
+| `h1` | 300 weight, `clamp(36px, 4.2vw, 54px)`, line-height 1, tracking −.035em |
+| Panel title | 15px / 500 |
+| Panel caption | 13px, `--ink-3` |
+| Body | 14px / 1.5 |
+| KPI value | 300 weight, 32px, tracking −.03em, tabular numbers, unit in 14px muted |
+| Mono labels | 11–12px Plex Mono: eyebrow, times, flow codes, status text, counts |
+| Scores | Mono 18px |
 
-Body text is 14px with line-height 1.45, letter-spacing `-.005em`, and `-webkit-font-smoothing: antialiased`.
+Don't use uppercase labels or letter-spacing on body text.
 
-| Role | Size / weight / tracking |
-|---|---|
-| Page title `h1` | `clamp(30px, 3.4vw, 40px)` / 400 / `-.035em`, line-height 1.05 |
-| Card title `h2` | 22px / 400 / `-.03em` |
-| Stat value | 28px / 400 / `-.04em`, tabular numbers; unit in an `<em>` at 15px muted |
-| Card meta / subtitles | 13px, `--ink-3` |
-| Node main text | 12.5px / 500; node sub text 11px muted |
-| Table body | 13.5px; scores in mono 12px |
-| Small labels | 11–12.5px, never uppercase, never letter-spaced |
-
-Use `font-variant-numeric: tabular-nums` on every changing number.
-
-### 3.3 Shape, motion, misc
-
-| Token | Value |
-|---|---|
-| `--r` | `20px` (card radius) |
-| `--ease` | `cubic-bezier(0.16, 1, 0.3, 1)` (every UI transition) |
-
-Other radii:
-
-- inputs and stat tiles: 16px
-- top bar: 18px
-- icon buttons: 10px
-- small buttons: 8px
-- flow nodes: 13px (gates are hexagons; see §7.3)
-
-Register `@property --ang { syntax: "<angle>"; initial-value: 0deg; inherits: false; }`. It drives the rotating conic border on running nodes.
+**Flow code chip** (`.code`): mono 11.5px text in `--fc` (the lane color) after a 6px square rotated 45° (a small diamond) in the same color. Flows are identified **everywhere** by codes like `F-1041`.
 
 ---
 
-## 4. Global primitives
+## 4. Global effects
 
-1. **Ambient field.** A `div.ambient` is fixed at `inset:0` with `z-index:-1` and `pointer-events:none`. It contains three `<i>` blobs:
-   - Each blob is round, uses `filter: blur(90px)` and `opacity:.85`, and runs `drift` 30s ease-in-out infinite alternate. The keyframe goes to `translate3d(4vw,3vh,0) scale(1.08)`.
-   - Blob 1: 50vw square at left −10vw, top −20vw, `--orb-1`.
-   - Blob 2: 44vw at right −12vw, top 25vh, `--orb-2`, delay −10s.
-   - Blob 3: 36vw at left 30vw, bottom −20vw, `--orb-3`, delay −18s.
-2. **`.glass`**:
-
-   ```css
-   .glass {
-     background: var(--glass);
-     border: 1px solid var(--glass-border);
-     border-radius: var(--r);
-     backdrop-filter: blur(28px) saturate(170%); /* also the -webkit- version */
-     box-shadow: var(--glass-hi), var(--shadow);
-   }
-   ```
-
-   Every card, the sidebar, the top bar and the brief bar use it.
-3. **`.ibtn`**: 36×36 icon button, radius 10, no border, `--chip` fill, `--ink-2` icon.
-   - Hover: `--chip-hover`, `--ink`, translateY(−1px).
-   - Active: scale(.95).
-4. **`.btn`**: 36px tall, padding 0 14px, radius 10, `--chip` fill, weight 500.
-   - Hover: translateY(−1px). Active: scale(.97).
-   - `.solid`: `--solid` background with `--solid-fg` text. Hover adds `0 10px 24px -10px` of accent at 70%.
-   - `.sm`: 30px tall, 12.5px text, radius 8.
-   - `.text`: transparent, muted.
-5. **Status dot `.dot`**: 7px circle.
-   - Variants: `.ok`, `.run` (accent), `.warn`, `.idle` (opacity .5).
-   - `.live` adds an `::after` ping ring: `inset:-4px`, currentColor, keyframes scale .4→1.8 and opacity .5→0, 2s, infinite.
-   - A status is always a dot plus plain text, never a filled badge.
-6. **`kbd`**: mono 11px, chip background, radius 5.
-7. **Focus**: `:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }`.
-8. **Lucide icons**: 17px default, `stroke-width: 1.6`.
-9. **Entrance**: `.rise` runs keyframes from `translateY(14px)` and opacity .3 over .8s with `--ease`, fill `both`. Stagger it with an inline `--d` delay (0–430ms). Content never starts at opacity 0.
-10. **Reduced motion**: under `prefers-reduced-motion: reduce`, set every animation to .001ms and 1 iteration, and every transition to .001ms. The JS also skips the typing placeholder, the particles and the theme reveal.
+- **Film grain**: `body::after`, fixed, z-index 200, `pointer-events:none`, `opacity: var(--grain-o)`, `mix-blend-mode: overlay`. Background is an inline SVG `feTurbulence` (fractalNoise, baseFrequency .9, 2 octaves) on a 160px tile.
+- **Brand mark**: a 30px rounded square (radius 7) in `--solid` with "N³" in 11.5px/600. Its top-right corner is a 15px triangle (`clip-path: polygon(0 0,100% 0,100% 100%)`) filled with the NMC² spectrum, `linear-gradient(135deg,#ff6900,#c8e06a 25%,#4aeadc 50%,#2b9cfc 75%,#8f7cf6)`.
+- **Status dot**: 6px. Classes `ok` / `run` (accent) / `warn` / `idle` (opacity .45). `.live` adds an expanding ring (`::after`, 2.2s).
+- **Entrance**: `.rise` animates from `translateY(10px)` and opacity .25 over .9s, staggered with `--d` from 0 to 340ms. Content is never fully invisible.
+- **Theme toggle**: a moon/sun button in the top bar. It stores the choice in `localStorage["nmc3-theme"]`, mirrors the effective theme in `<html data-eff>`, and switches with a circular reveal from the button via the View Transitions API (650ms). Shortcut ⌘/Ctrl+Shift+L.
+- **Reduced motion**: every animation and transition becomes about 0ms. The river redraws every 500ms without particles.
 
 ---
 
-## 5. Page structure
+## 5. Layout
 
 ```
-body
-├─ .ambient (3 blobs)
-├─ .shell  (grid: 252px sidebar | 1fr main, gap 16, padding 14 + safe-area)
-│  ├─ aside.side.glass          ← sidebar (§6.1)
-│  ├─ .backdrop                 ← mobile drawer scrim
-│  └─ .main (flex column, gap 16)
-│     ├─ header.top.glass       ← top bar (§6.2)
-│     ├─ section.head           ← page title + actions (§6.3)
-│     ├─ section.brief.glass    ← "new brief" input (§6.4)
-│     ├─ section.stats          ← 5 stat tiles (§6.5)
-│     └─ main.grid (12 cols, gap 16)
-│        ├─ Live flows      span 12   (§7)
-│        ├─ Decisions       span 5    (§8)
-│        ├─ Idea board      span 7    (§9)
-│        ├─ Agents          span 4    (§10)
-│        ├─ NMC² compute    span 4    (§11)
-│        └─ SerpAPI sources span 4    (§12)
-├─ dialog#palette  (⌘K command palette, §13.4)
-└─ .toasts         (bottom-center toasts, §13.5)
+.app  grid: 232px | 1fr
+├─ aside.side          flat, --bg, right hairline, sticky 100vh
+├─ .scrim              (mobile drawer)
+└─ .main
+   ├─ header.top       sticky 56px glass bar, bottom hairline
+   └─ .page            max-width 1440, padding 36px 28px 64px, column gap 20
+      ├─ section.head  2-col grid: title block | "Create an agent" form (320–520px)
+      ├─ section.kpis  one bordered strip, 4 cells
+      ├─ section.panel Live runs (idea river + Steps board)
+      └─ .row (12-col, gap 20): Decisions c7 | Idea Consultant setup c5
+dialog#builder        agent builder (§7.3)
 ```
 
-Cards use `.card.glass` with padding 22px 24px and are flex columns. A card header `.card-h` is a flex row with:
+**Panel** (`.panel`): `--surface` background, 1px `--line` border, radius 12, no shadow.
 
-- left: `h2` plus a `.meta` line,
-- right: `.right`, with controls pushed right by `margin-left:auto`.
+- Header `.ph`: min-height 60, padding 16px 20px, bottom hairline. Contents: `h2` title, `.cap` caption, and controls in `.right`.
+- Tabs (`.tabs button`): 28px tall, muted text. The pressed tab gets `--hover` fill and an inset 1px `--line` ring.
+
+**Responsive**
+
+| Width | Changes |
+|---|---|
+| ≤ 1280 | KPI strip shows 3 cells. Decisions and the setup card each go full width. |
+| ≤ 960 | Sidebar becomes a drawer (`translateX(-102%)`, slides in, with a scrim). Escape closes it. The hamburger appears, the header stacks, and search collapses to an icon |
+| ≤ 640 | Page gutter 16px. KPIs in 2 columns. All panels full width. Legend and breadcrumbs hidden |
+
+### 5.1 Sidebar
+
+- **Brand**: the mark, then "NMC³" (15px/600) with "Agent platform on NMC²" (11.5px muted).
+- **Workspace button**: 36px, 1px line border, a mono "HX" tile, "HackTX workspace" and a `chevrons-up-down` icon.
+- **Nav links**: 34px tall, 13.5px, radius 7. The current link has `--surface` fill, a 1px line ring, weight 500, and a 2px accent bar at the far left edge. Counts are right-aligned mono 11.5px muted.
+  - Overview `layout-grid`
+  - Agents `bot` (12, live)
+  - Runs `workflow` (3, live)
+  - Decisions `git-fork`: "1 waiting" in warn, shown only while a run waits
+  - Building blocks `blocks` (24)
+  - Group label "Infrastructure", followed by: NMC² compute `server`, SerpAPI `search`, Settings `settings-2`.
+- **Footer**: "NMC² · Spartanburg {GPU %}" and "SerpAPI searches {n} / 5,000", both live. Each has a 2px `--ink` bar.
+
+### 5.2 Top bar
+
+- Contents: menu button (mobile), breadcrumbs "HackTX workspace / **Overview**", search (300px, 1px line border, "Search flows, ideas, agents", `⌘K` kbd), theme toggle, bell, and a 30px round `--ink` avatar reading "KD" in mono.
+- All icon buttons are 34px and transparent, with a `--hover` fill on hover.
+- **⌘K** opens a solid command palette (`<dialog>`, radius 12, `--pop`). Groups:
+  - **Actions**: Start a new brief, Adjust novelty threshold, Switch theme.
+  - **Flows**: one per lane; choosing one selects that lane.
+  - **Agents**: the first four.
+  - Navigate with the arrow keys and Enter.
+
+### 5.3 Header
+
+- **Left column**:
+  - Mono eyebrow: live dot + "Live" · "Fri 24 Oct · 08:14 CT" · "NMC² us-southeast".
+  - `h1` "Agents".
+  - Lede (15px): "**12** agents in production · **3** runs in flight." plus either "Agents made **1,092** decisions today." or, while a run waits, a warn link (nowrap) "**F-1042 is waiting on your decision**."
+- **Right column**: a `<form>` labeled "Create an agent".
+  - A bordered input row with a "Build agent →" solid button. The placeholder types through: "Triage support tickets and draft replies in our tone", "Review vendor contracts and flag risky clauses", "Answer metrics questions from our data warehouse", "Watch status pages and page on-call when latency spikes".
+  - **Template chips**: "Start from" followed by Idea consultant · Support copilot · Contract reviewer · Data analyst. Each chip is 26px tall with a 1px line border and radius 6, and opens the builder with its goal.
+  - Submitting opens the builder (§7.3).
+
+### 5.4 KPI strip
+
+- One bordered container split into 5 cells by 1px vertical hairlines (no separate cards).
+- Each cell: label (12.5px muted), value (32px/300), and a footer row with a mono caption on the left and a 72×20 sparkline on the right.
+- Sparkline: 1.2px `--ink-3` line, a 2.2px `--ink` end dot, and a draw-on animation over 1.4s.
+
+| Label | Value | Caption | Sparkline data |
+|---|---|---|---|
+| Agents in production | `12` (live, +1 per deploy) | +2 this week (ok) | 6,7,7,8,9,10,10,12 |
+| Median time to deploy | `4`m`10`s | vs ~2 days by hand | 9,8.1,7,6.2,5.5,5,4.6,4.2 |
+| Runs in flight | `3` + "/ 6 slots" (live) | 1,284 today | 2,3,3,2,3,4,3,3 |
+| Searches via SerpAPI | `1,846` (live, sum of engine counts) | of 5,000 today | 180,260,240,310,350,330,390,420 |
+
+The strip has 4 equal cells.
 
 ---
 
-## 6. Shell components
+## 6. Live runs: the idea river
 
-### 6.1 Sidebar (`aside.side.glass`)
+**Concept.** Each brief is a ribbon flowing left to right through the 8 steps.
 
-- Sticky at `top: 14px + safe-area`, `height: calc(100vh - 28px)`, padding 16px 12px, flex column, `overflow-y:auto`.
-- **Brand row**:
-  - A 32px black rounded square (`--solid`, radius 10) with white "N³" in 12px bold.
-  - Beside it, "NMC<sup>3</sup>" in 17px/600 and the caption "Consultant on NMC² compute" in 11.5px muted.
-- **Workspace switcher**:
-  - A 40px chip button: a 22px gradient tile reading "HX" (accent-2→accent, 140°), the text "HackTX workspace", and a `chevrons-up-down` icon.
-- **Nav items**: 38px tall, radius 10, `--ink-2` text, 17px icon, gap 11.
-  - The current item (`aria-current="page"`) is a **black pill**: `--solid` background, `--solid-fg` text.
-  - Items, in order:
-    - Overview `layout-dashboard` (current)
-    - Flows `workflow`, with a tag showing a live dot and "3"
-    - Ideas `lightbulb`, tag "9"
-    - Decisions `git-fork`, with a warn-tinted tag "1" that only shows while a flow is waiting on the user
-    - Agents `bot`
-  - Then the group label "Infrastructure" (12px muted), followed by:
-    - Sources · SerpAPI `search`
-    - Compute · NMC² `cpu`
-    - Settings `settings`
-- **Footer**: pinned with `margin-top:auto` above a top hairline. It holds two meters (5px track, accent-2→accent gradient fill):
-  - "NMC² GPU load" with a %
-  - "SerpAPI quota" showing "1,846 / 5,000"
-  - Both update live.
+- **Width is data.** The ribbon's half-width at a step is `2.2 + sqrt(n / 64) × maxHW`, where n is the number of things alive there:
 
-### 6.2 Top bar (`header.top.glass`)
+  | Step | brief | scout | map | ideate | novelty | consult | decide | deliver |
+  |---|---|---|---|---|---|---|---|---|
+  | n | 1 | results | clusters × 2 | ideas | kept | kept | 3 | 3 |
 
-- Sticky, 60px tall, radius 18, padding 0 12px 0 18px.
-- Left: a hamburger `.ibtn` (mobile only), then breadcrumbs reading "HackTX workspace / **Overview**".
-- Right:
-  - A search button: 280px chip, `search` icon, "Search flows, ideas, agents" and a `⌘K` kbd. It opens the palette.
-  - A bell `.ibtn`.
-  - The **theme toggle** `.ibtn` (§13.1).
-  - The avatar: a 36px tile with radius 10, an accent gradient and the initials "KD".
+  So it swells while Scout finds sources, pinches while Map clusters them, swells again while Ideate generates, and pinches at the Novelty and Decide gates.
+- **The ribbon's tip is the current step.**
+- **Particles are individual ideas** flowing inside the ribbon. At a gate, rejected ideas visibly drop out and fall away.
+- **Decisions are visible.** A sent-back flow retracts its tip and draws an orange loop back to Ideate. A flow waiting on the user pulses orange at the Decide gate.
 
-### 6.3 Page head
+The look is a precise, Sankey-like data drawing with no decorative objects.
 
-- `h1`: "Idea flows".
-- Sub line: "**3** flows running · **4** briefs queued · agents made **1,092** decisions today". The three numbers are live.
-- Actions on the right: a "Thresholds" `.btn` with `sliders-horizontal` icon, and a "New brief" `.btn.solid` with `plus` icon. New brief focuses the brief input.
+**Header**:
 
-### 6.4 Brief bar (`section.brief.glass`)
+- Title "Live runs", caption "Idea Consultant · band width is how many ideas are alive at each step".
+- Legend:
+  - "Ideas in flight": an 18×8 rounded bar with a transparent → accent gradient and an accent hairline.
+  - "Decision gate": a 1.5px dashed vertical tick.
+  - "Pruned": two small grey dots, offset.
+  - "Sent back": a dashed warn line.
+- Tabs **River / Steps**, saved in `localStorage["nmc3-flow-view"]`. River is the default.
 
-- Radius 16, padding 8px 8px 8px 16px.
-- Contents, left to right: a `sparkles` icon in accent, then a text input (15.5px, no border), two option chips, and "Start flow →" `.btn.solid`.
-  - Option chips: "Google, Scholar, Patents" and "Novelty ≥ 0.70".
-- The placeholder types itself out and erases:
-  - 34ms per character while typing, 16ms per 2 characters while erasing, with a 2.2s pause when complete.
-  - It cycles through: "Affordable heat pumps for older apartment buildings", "Reduce food waste in university dining halls", "Faster permits for backyard housing units", "Safer night commutes for gig workers".
-  - While focused or filled, it shows "What problem should NMC³ explore?".
-- On focus, add `0 0 0 4px var(--accent-soft)` to the shadow.
-- Enter or Start: if empty, focus the input. Otherwise clear it, add 1 to the queued count, and toast "Brief queued. It starts when a flow slot frees up."
+### 6.1 Container and layers
 
-### 6.5 Stat tiles (`.stats`)
+`.river` is 480px tall with `--stage-bg`. Layers, back to front:
 
-- A 5-column grid with gap 12.
-- Each tile is `.stat.glass` with radius 16 and padding 16px 18px. It shows a small label with an accent icon, a big value, and a caption.
+1. `.prism` (z 0): the NMC² prism shard in the top-right corner, `right:-3%; top:-40%`, 28% × 80%, opacity `--shard-o × .35`.
+   - `clip-path: polygon(30% 6%, 100% 20%, 92% 56%, 56% 96%)`.
+   - Its inner `<i>` (`inset:-25%`, `blur(44px)`) stacks radial gradients `#ecd8ff`, `#a6dcff`, `#2b9cfc`, `#3b6dfc`, and drifts with a hue-rotate over 28s.
+2. `<canvas>` (z 1), full size, sized for device pixel ratio (max 2).
+3. `.rv-labels` (z 2): an HTML label layer with `pointer-events:none`.
+4. `.river-foot`: mono 11.5px. Left: live dot + "Streaming from NMC² · 64 GPUs". Right: "Click a flow to follow its decisions".
 
-| Label (icon) | Value | Caption |
+### 6.2 Geometry (recompute on resize)
+
+```
+LW (label column) = 220px (140px when width ≤ 900); CSS var --lw
+TOP = 70, BOT = 40
+x0 = LW + 20; colW = (W − x0 − 24) / 8; laneH = (H − TOP − BOT) / 3
+maxHW = min(30, laneH × .23)
+lane center   yc(i) = TOP + laneH × (i + .5)
+column start  colX(j) = x0 + j × colW
+gate x        gateX(j) = colX(j) + .22 × colW   (j = 4 Novelty, 6 Decide)
+width at x: c = floor((x − x0)/colW), loc = fraction; w = lerp(hw[c−1], hw[c], smoothstep((loc − .08) / .32))
+```
+
+**Per-step width while running**: `lerp(final[j−1], final[j], easeOutCubic(p))`, so the ribbon visibly grows or shrinks during the step. Done steps use `final[j]`. Steps not yet reached aren't drawn.
+
+**Tip position** (in step units, 0–8):
+
+- running: `stage + min(p, .98)`
+- waiting: `stage + .3` (parked at the gate)
+- delivered: `8`
+
+The drawn tip eases toward its target by `min(1, dt × 3.2)` per frame. That's what makes a sent-back flow retract smoothly from Novelty to Ideate.
+
+- On first paint, the tip **starts at its target** (no animation from zero).
+- When a lane is recycled (new flow code), the tip resets to 0.
+
+### 6.3 Drawing order per frame
+
+1. **Grid**:
+   - A 1px `--line` vertical rule at LW.
+   - Horizontal `--line` rules between lanes.
+   - Step column dividers at `colX(1..7)` in `--line-2` at 55%.
+   - Gate lines at `gateX(4)` and `gateX(6)`: dashed `[3, 4]` in `--ink-3` at 55%, spanning all lanes.
+2. **Hover/selected lane wash**: lane color at .03 (hover) or .05 (selected) over that lane's rectangle.
+3. **Sent-back loop** (while the 2D board's loop element has `.on` or `.was`):
+   - A cubic curve from (gateX(4), top of the ribbon) up to `yc − .46 × laneH`, then down onto Ideate (`colX(3) + colW/2`).
+   - Dashed `[4, 5]` with an animated dash offset, 1.5px, warn color at .95 (on) or .3 (was).
+   - While on: 3 warn dots run along the curve, and the HTML tag "Sent back · not novel enough" shows at the arc's apex.
+4. **Ribbon**: sampled every 3px from x0 to the tip.
+   - Ends are rounded: a circular taper over 18px at the start and 14px at the tip.
+   - Fill: horizontal gradient from lane color at .03, to .16 (dark) or .11 (light) until 120px before the tip, to .34 (dark) or .24 (light) at the tip.
+   - Top and bottom edges: 1px strokes fading from lane color at .05 to .75 at the tip.
+5. **Particles**: 70 per lane.
+   - Each has: x, a lateral position v ∈ [−1, 1], speed 34–84 px/s, radius .9–2.2, phase, and two prune rolls `pr` and `pr2` ∈ [0, 1).
+   - Position: `y = yc + v × w(x) × .78 + sin(2.2t + phase) × 1.1`. Fade in over the first 30px and out over the last 24px before the tip.
+   - When a particle reaches the tip, it respawns near x0.
+   - **Pruning**: when a particle crosses `gateX(4)` and `pr > keep`, it starts falling. While Novelty runs, `keep = 1 − (1 − kept/ideas) × p`; once done, `keep = kept/ideas`. Decide does the same with `pr2` and `3/kept`.
+   - A falling particle turns `--ink-3`, accelerates downward (vy from −12, gravity 140 px/s²), drifts right at 10 px/s, fades over 1.1s, then respawns.
+6. **Tip marker**: a solid dot (r 4.2) plus an expanding ring (r 5→19, fading, 1.25s cycle).
+   - Color: lane color, **warn** while waiting (faster pulse), or **ok** when delivered (r 6 with a check mark drawn inside).
+7. **Gate highlight**: while a lane's gate is running, a 2px vertical segment in the lane color spans `yc ± (maxHW + 10)` at the gate. While waiting, it's warn, pulsing between opacity .2 and .9.
+
+When another lane is selected, multiply every alpha in this lane by .2.
+
+### 6.4 HTML labels
+
+| Label | Position | Content |
 |---|---|---|
-| Flows running (`workflow`) | `3` + `<em>of 6 slots</em>` (live) | 4 briefs in queue |
-| Ideas generated (`lightbulb`) | `214`, live | +38 in the last hour (green) |
-| Passed novelty (`git-fork`) | `14` + `<em>%</em>` | 31 of 214 cleared 0.70 |
-| Sources read (`search`) | `3,912`, live | via SerpAPI today |
-| Brief to shortlist (`timer`) | `6<em>m</em> 40<em>s</em>` | 1m 12s faster than last week (green) |
+| Step headers ×8 | Centered on each column, top 16px | Mono "01"–"08", step name (12.5px/500), sub (11px muted). Gate headers get a small accent hexagon |
+| Lane label ×3 | x 20px, centered on `yc(i)`, width `--lw − 40px` | Flow code chip, title (13.5px/500), sub line `{client} · N/8`, **"Waiting on your call"** (warn) or "Delivered", and a 2px meter in the lane color showing tip / 8 |
+| Tip chip | Above the ribbon at the tip (x clamped to [x0 + 70, W − 90]), anchored bottom-center | Surface background, 1px line ring and shadow, mono 11.5px/500, with a lane-color dot. Text `{agent} · {live status}` (e.g. "Novelty Judge · scoring"). While waiting: warn styling, text "Your call · break a tie", clickable (scrolls to Decisions and re-flashes the escalation item). Delivered: ok dot, "Delivered to {client}" |
+| Step captions | Under the ribbon at `yc + maxHW + 14`, centered per column; only for **done** steps 2–8 | Mono 11px muted with a bold ink-2 value: "42 results", "6 clusters", "24 ideas", "**7 kept** · 17 pruned", "2 rounds", "**top 3**", "brief ready" |
+
+Dimmed lanes put all their labels at opacity .25.
+
+### 6.5 Interaction and performance
+
+- **Hover**: picks the lane under the pointer (by y). The cursor becomes a pointer and the lane gets a wash.
+- **Click**: `selectLane(i)` toggles. It's shared with the Steps view and the Decisions filter.
+- **Rendering**: `requestAnimationFrame` runs only while the canvas is on screen, the tab is visible and the River tab is active.
+- **Theme**: palette tokens are re-read when `<html data-eff>` changes.
+
+### 6.6 Steps view (alternative and fallback)
+
+A clean 2D board, 980px minimum width:
+
+- **Columns**: step headers.
+- **Lanes**: 92px rows with labels in a 184px left area. Each label shows the flow code, title, client and a 2px progress bar.
+- **Nodes**: 48px tall. Steps have rounded corners; gates are hexagons (`clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%)`). The 1px border shell color follows the state: idle = line-2 at .4 opacity, done = lane at 50%, running = lane plus a 4px halo, waiting = blinking warn.
+- **Edges**: SVG lines. Active edges are dashed and animated, with 2 SMIL `animateMotion` particles. The sent-back loop is a dashed warn curve with the label "Sent back: not novel enough".
+
+## 7. Lower panels
+
+### 7.1 Decisions (c7): a timeline
+
+- **Header**: title "Decisions", caption "What the agents decided, and why", and filter tabs: **All** plus one per flow (the code chip).
+- **List**: `ol.tl`, max-height 560, scrolls, newest first, capped at 40 items.
+- **Each item** is a 3-column grid (58px time | 22px rail | body):
+  - **Time**: mono `HH:MM:SS` (24h).
+  - **Rail**: a 1px `--line` vertical line, with a 9px ring dot in the flow color. Pivot and escalate items get a filled warn dot.
+  - **Body** (bottom hairline):
+    - Top line: flow code chip, agent name (muted), and an outcome label pushed right in mono 11px. Outcome colors: Keep = ok; Send back and Needs you = warn; Route and Decide = accent; Merge, Challenge and Deliver = ink-2.
+    - "What": 14px/500 ink.
+    - "Why": 13px ink-2, max 72ch.
+    - Meta (mono 11.5px muted): `conf 0.86`, a 40×2 bar (warn below .70), `N sources`, and the flow's short name.
+  - **Escalations** add the buttons **Approve ranking** (solid sm) and **Run another round** (sm). They disappear once resolved.
+- **New items** animate in from translateY(−4px) with an accent-soft wash over 1.2s. Items seeded on load don't animate.
+
+### 7.2 Idea Consultant: "How this agent is built" (c5)
+
+This card shows the reusable-setup idea on one concrete agent, and shows exactly where SerpAPI is used.
+
+- **Header**: "Idea Consultant", caption "How this agent is built", and an "Open in builder" sm button that opens the builder with the Idea consultant template.
+- **Body**: groups labeled in mono 11px (Model, Tools, Instructions, Monitoring).
+- **Rows** are a grid (30px icon tile | name + purpose | step tag) with padding 9px 20px. The step tag is mono 11.5px: "02 Scout", "08 Deliver" and so on, or "inherited".
+
+| Group | Row | Purpose | Step tag |
+|---|---|---|---|
+| Model | claude-opus-5-5 (cpu) | Hosted on NMC² GPUs | 04 Ideate |
+| Tools | **SerpAPI · Google Search** (globe) | Finds competitors and existing products · **{Google+Trends+News} searches today** | **02 Scout** |
+| Tools | **SerpAPI · Scholar & Patents** (book-open) | Checks research and prior art · **{Scholar+Patents} searches today** | **02 Scout** |
+| Tools | Slack (message-square) | Posts the finished brief | 08 Deliver |
+| Instructions | Enterprise base policy (shield) | Same for every agent | inherited |
+| Instructions | Consultant brief format (file-text) | Shapes the deliverable | 08 Deliver |
+| Monitoring | Tracing, PII redaction, budget (activity) | Same for every agent | inherited |
+| Monitoring | Human approval (user-check) | Pauses at the Decide gate | 07 Decide |
+
+- **SerpAPI rows** get a 2px accent bar on the left, an accent icon border and color, and an accent step tag. Their search counts update live as Scout steps finish (+6 per engine used).
+- **Hovering any row with a step** highlights that step's column in the river (an accent wash at .06 light / .09 dark). This links "what the agent is built from" to "where it runs".
+- **Footer**: "9 shared blocks · 4 inherited from the workspace".
+
+### 7.3 Agent builder (`dialog#builder`, the core interaction)
+
+**Opens from**: the header form, a template chip, "New agent", or the palette action "Create an agent".
+
+**Layout**:
+
+- Width `min(720px, 100% − 32px)`, radius 12, `--pop` shadow.
+- **Head**: mono eyebrow ("{Template} template" or "Custom agent" · "Assembled from your workspace"), an editable name input (28px/300), and the goal (14px ink-2). Below it, a 2px progress line that fills to 100% over .9s on open.
+- **Body**: four sections (Model, Tools, Instructions, Monitoring). Each is a 116px label column (mono title plus a note: "Workspace default", "Matched to the goal", "Policies are inherited", "On for every agent") next to the block chips.
+  - Sections reveal one after another, 160ms + n × 170ms, from opacity .15 and translateY(6px).
+- **Chips**: 32px tall, 1px line-2 border, radius 7. Each has the block icon, the name, and a mono tag:
+  - "inherited" in muted text for workspace defaults,
+  - "suggested" in accent with an accent-tinted border for goal matches.
+  - Clicking toggles a chip off (opacity .4, tag gets "· off").
+- **Instructions section**: also shows a generated instruction preview in a mono box: "Goal: {goal}.\nWork from approved sources only, cite what you use, and ask a person before any external action."
+- **Footer**: mono meta "{N} shared blocks · 0 set up by hand", then Cancel (ghost), "Deploy to staging", and "Deploy agent →" (solid).
+
+**Assembly rules** (regex on the lowercase goal; all matches are merged):
+
+| Match | Tools | Instructions | Monitors | Model |
+|---|---|---|---|---|
+| support · ticket · customer · refund · reply | Zendesk, Slack | Brand voice, Escalation | Human approval, Quality evals | sonnet |
+| contract · clause · legal · vendor · document · pdf · policy | Drive, E-signature | Escalation | Human approval, Quality evals | sonnet |
+| metric · data · warehouse · sql · report · dashboard · kpi | Data warehouse, Sheets | – | Quality evals, Latency SLO | sonnet |
+| email · inbox · mail | Gmail | Brand voice | Human approval | haiku |
+| idea · market · research · competitor · patent · trend · original | Web search, Scholar & patents, Slack | Consultant brief, Escalation | Quality evals | opus |
+| incident · on-call · outage · latency · status page · alert | PagerDuty, Slack, Web search | Escalation | Latency SLO | haiku |
+| *(no match)* | Drive, Slack | – | – | sonnet |
+
+The first match decides the model. Inherited blocks are always added: Enterprise base policy, Data privacy rules, Tracing, PII redaction, Cost budget.
+
+**Naming**: the template name, or the first 3 non-stopwords of the goal in Title Case.
+
+**Deploying**: close the dialog and increment the agent count everywhere. Toast "Deploying {name}. It will be live in a few seconds.", then "{name} is live" after 2.6s. "Deploy to staging" only toasts. The block catalog (`BLOCKS`) and its usage counts live in JS for the builder's chips.
 
 ---
 
-## 7. Live flows board (the centerpiece)
+## 8. Simulation (shared by every view)
 
-The card header has:
+### 8.1 Stages
 
-- title "Live flows",
-- meta "Each row is one client brief moving through the NMC³ pipeline. Click a row to follow its decisions.",
-- a legend on the right: "Agent step" (rounded outline), "Decision gate" (small hexagon), "Sent back" (dashed warn line).
+| # | key | Label · sub | Base duration (ms) | Gate |
+|---|---|---|---|---|
+| 0 | brief | Brief · Intake | 1500 | |
+| 1 | scout | Scout · **SerpAPI** (column sub shown in accent, weight 500) | 3600 | |
+| 2 | map | Map · Landscape | 2600 | |
+| 3 | ideate | Ideate · NMC² GPUs | 4600 | |
+| 4 | novelty | Novelty · Gate | 2600 | yes |
+| 5 | panel | Consult · 3 critics | 5200 | |
+| 6 | decide | Decide · Gate | 2600 | yes |
+| 7 | deliver | Deliver · Brief | 1600 | |
 
-Below that is `.flows-wrap`, with `overflow-x:auto` and negative margins to the card edges. Inside it is `.flows`, a `position:relative` canvas with `min-width:980px`. The canvas holds absolutely positioned column headers, lane rows and nodes, plus an SVG overlay (`svg.edges`, full size, `pointer-events:none`) for edges and particles.
+Lane speed multipliers: `[1, 1.12, .92]`. Flow codes start at F-1041 and increment on every recycle.
 
-### 7.1 Pipeline stages (columns)
+### 8.2 Lane state machine
 
-| # | key | Column label | Sub | Icon | Agent(s) | Base duration | Gate? |
-|---|---|---|---|---|---|---|---|
-| 0 | brief | Brief | Intake | `file-text` | Intake | 1500ms | |
-| 1 | scout | Scout | SerpAPI | `search` | Scout | 3600 | |
-| 2 | map | Map | Landscape | `map` | Cartographer | 2600 | |
-| 3 | ideate | Ideate | NMC² GPUs | `sparkles` | Ideator | 4600 | |
-| 4 | novelty | Novelty | Decision | `git-fork` | Novelty Judge | 2600 | **yes** |
-| 5 | panel | Consult | 3 critics | `messages-square` | Market / Feasibility / Risk critics | 5200 | |
-| 6 | decide | Decide | Decision | `scale` | Lead Consultant | 2600 | **yes** |
-| 7 | deliver | Deliver | Brief | `send` | Lead Consultant (and Intake) | 1600 | |
+- **Lane state**: `{ i, color, code, s: scenario, states[8], mains[8], subs[8], stage, t, dur, p, pivoted, escalated, waiting, done }`.
+- **Tick** every 120ms: `p = (now − t) / dur`. Live counters update during the stage: Scout shows `"{n} via SerpAPI"`, Ideate shows `"{n} ideas"`, Consult switches from "round 1/2" to "round 2/2" halfway. When p ≥ 1, the stage finishes.
+- **Running text** (main / sub):
+  - brief: reading / client
+  - scout: searching / engines joined by " · "
+  - map: clustering / `{results} sources`
+  - ideate: generating / 16 GPUs
+  - novelty: scoring / bar 0.70
+  - panel: round 1/2 / 3 critics
+  - decide: ranking / nov × feas
+  - deliver: writing / consultant brief
+- **When each stage finishes** (done text, then the decision logged):
 
-A lane runs each stage for `base × SPEED[lane]`, where `SPEED = [1, 1.12, .92]`.
-
-### 7.2 Geometry (recompute on resize with `ResizeObserver` on `.flows-wrap`)
-
-```
-W       = max(wrap.clientWidth − 48, 980)
-LANE_H  = 92, HEAD_H = 44, LABEL_W = 184
-H       = HEAD_H + lanes × LANE_H + 8
-colW    = (W − LABEL_W) / 8
-nodeW   = min(colW − 12, 128); node height 50
-column j header: left = LABEL_W + j·colW, width colW, height 40
-lane i: top = HEAD_H + i·LANE_H, height LANE_H − 6, center cy = top + (LANE_H−6)/2
-node (i,j): x = LABEL_W + j·colW + (colW − nodeW)/2, y = cy − 25
-edge j→j+1: straight line M(x_j+nodeW, cy) L(x_{j+1}, cy), id "e{i}-{j}"
-loop (Novelty→Ideate): M(cx4, y) C(cx4, y−22) (cx3, y−22) (cx3, y)  — arcs above the lane
-loop label: centered between cx3 and cx4 at y−18, text "Sent back: not novel enough"
-```
-
-- Column headers are centered: label in 13px/500 `--ink` with a 14px icon (the icon is accent-colored for gate columns), and the sub text in 12px muted below it.
-- A **lane row** (`.lane`) spans the full width, has radius 16, and sets `--lc` to its lane color.
-  - Hover: `--chip` background.
-  - Selected (`.sel`): background `color-mix(lc 7%)` and an inset 1px ring at `color-mix(lc 25%)`.
-  - When another lane is selected, this lane gets `.dim` (opacity .38) and its nodes go to opacity .35.
-  - Clicking a lane toggles the selection (§8.3).
-- The **lane label** (left, 176px wide) has three lines:
-  - a lane-color dot with the title (13.5px/500, wraps to 2 lines),
-  - the client name (12px muted, ellipsis),
-  - a 3px progress bar in the lane color (done steps ÷ 8) followed by text: "Step N of 8", "Needs you" or "Delivered".
-
-### 7.3 Nodes
-
-- Each node is a `.node` (`pointer-events:none`) that acts as the border: a 1px padding shell whose `background` is the border color. Inside it is `.in`, filled with solid `--node-bg` at radius 12.
-- Content:
-  - `.m` (main) row: a 12px state glyph `.g` followed by the main text.
-  - `.s` (sub) row: 11px muted text.
-- **Gate nodes** (`.gate`) apply this to both the shell and `.in`, with radius 0 and inner padding 0 15px:
-
-  ```css
-  clip-path: polygon(15px 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 15px 100%, 0 50%);
-  ```
-
-  That turns them into hexagonal "decision gates".
-- States (`data-state`):
-
-| State | Shell (border) | Glyph `.g` | Other |
-|---|---|---|---|
-| idle | `--line` | 1.5px dashed ring | opacity .45, empty text |
-| running | `conic-gradient(from var(--ang), lc 15% 0 50%, lc 80%, lc 15% 100%)`, animated `--ang` 0→360deg in 1.8s linear infinite | spinning ring (2px, top colored lane, .8s) | translateY(−2px). Non-gates also get `0 0 0 4px lc 14%` and `0 12px 24px -14px lc` |
-| done | `color-mix(lc 45%, line)` | solid lane-colored circle with white `check` | |
-| waiting | `--warn`, pulsing between warn and warn 35% every 1.6s | solid warn circle | used when Decide escalates |
-
-### 7.4 Edges and particles
-
-- `path.edge` uses stroke `--line` at 1.6 width. Set `--lc` on each path.
-  - `.done` (when the target is done): stroke lane at 55%.
-  - `.active` (source done, target running or waiting): stroke lane at 75% with `stroke-dasharray: 3 5`, animated dashoffset 0→−8 every .6s.
-- **Particles**: while an edge is `.active`, add a `<g>` holding two `<circle r=3 fill=lane>`, each with SMIL `<animateMotion dur="1.1s" repeatCount="indefinite" begin="0s|.55s"><mpath href="#e{i}-{j}"/></animateMotion>`. Remove the group when the edge stops being active. Skip particles under reduced motion.
-- **Loop edge** `.edge.loop`:
-  - Normal: warn color, dash 4 5, opacity 0.
-  - `.on`: opacity 1 with the dash animation, plus the loop label shown (fade and scale in) for 4.2s.
-  - After that it becomes `.was` (opacity .35).
-
-### 7.5 Simulation (state machine)
-
-Each lane holds the following state:
-
-```
-{ i, color, s: scenario, states[8], mains[8], subs[8], stage, t (start time), dur,
-  pivoted, escalated, waiting, done, live }
-```
-
-A `tick()` runs every 120ms. For each lane that isn't `done` or `waiting`, it computes progress `p = (now − t) / dur`:
-
-- During Scout, the main text counts up: `${n} found` (n = p × results).
-- During Ideate, the main text counts up: `${n} ideas`.
-- During Consult, the main text switches from "Round 1/2" to "Round 2/2" at p > .5.
-- When p ≥ 1, call `finishStage`.
-
-`startStage(j)` sets the stage to running and sets its running text:
-
-| Stage | Main (running) | Sub (running) |
+| Stage | Done text (main / sub) | Decision logged (agent · what · outcome · confidence) |
 |---|---|---|
-| brief | Reading | client name |
-| scout | Searching | engines joined with ", " |
-| map | Clustering | `{results} sources` |
-| ideate | Generating | 16 GPUs |
-| novelty | Scoring | Bar 0.70 |
-| panel | Round 1/2 | 3 critics |
-| decide | Ranking | Nov × feas |
-| deliver | Writing | Consultant brief |
+| brief | parsed / 4 constraints | – |
+| scout | `{results} results` / "SerpAPI · {engines}" | Scout · "Searched {engines joined ' and '} via SerpAPI" · Route · .88 |
+| map | `{clusters} clusters` / 2 merged | Cartographer · "Merged 2 overlapping clusters" · Merge · .81 |
+| ideate | `{ideas} ideas` / round 1 or 2 | – (idea rows set to Drafted) |
+| novelty, `pivot` scenario, first pass | Novelty and Ideate reset to idle | Novelty Judge · "Sent the ideas back for another round" · Send back · .77. Why: "Only 2 of {ideas} ideas cleared the 0.70 novelty bar. Hardware is crowded, so the Ideator will explore service models instead." Shows the loop for 4.2s, then reruns Ideate |
+| novelty, otherwise | `{kept} kept` / `{n} pruned` | Novelty Judge · "Kept {kept} of {ideas} ideas" · Keep · .86. Why: "The other {n} matched existing products with more than 0.70 similarity in SerpAPI search results." Idea rows set to Passed novelty |
+| panel | 2 rounds / 1 challenged | Consultant panel · "Challenged one idea and kept the rest" · Challenge · .79. Idea rows set to In debate |
+| decide, `escalate` scenario, first pass | **waiting**, "your call" / conf 0.64 | Lead Consultant · "Asked you to break a tie" · Needs you · .64, with buttons. Sidebar shows "1 waiting" and the lede link appears. Auto-approves as "Engagement lead" after 15s |
+| decide, otherwise | top 3 chosen / best 0.xx | Lead Consultant · "Chose the top 3 ideas" · Decide · .90. Idea rows set to Shortlisted |
+| deliver | brief ready / 12 pages | Lead Consultant · "Delivered the brief to {client}" · Deliver · .92. Toast "{code} delivered to {client}". After 6.5s, recycle the lane with the next scenario and a new code |
 
-`finishStage(j)` marks the stage done, sets its final text, logs a decision and advances:
+- **Resolving an escalation**:
+  - **Approve**: logs You · "Approved the ranking", then Deliver starts.
+  - **Run another round**: logs You · "Asked the panel for another round" · Challenge, then reruns Consult. The flow doesn't escalate again.
 
-| Stage | Main / Sub when done | Decision logged (agent · what · outcome) | Side effects |
-|---|---|---|---|
-| brief | Parsed / 4 constraints | – | |
-| scout | `{results} results` / engines | Scout · "Routed searches to {engines joined ' and '}" · **route**, conf .88, cites results | +6 searches per engine used; sources read += results |
-| map | `{clusters} clusters` / 2 merged | Cartographer · "Merged 2 overlapping clusters" · **merge**, .81 | |
-| ideate | `{ideas} ideas` / Round 1 or Round 2 | – | ideas generated += ideas; idea rows set to "Drafted" (idle dot) |
-| novelty, **pivot** (scenario `pivot:true`, first time only) | Novelty and Ideate reset to idle | Novelty Judge · "Sent ideas back for another round" · **pivot**, .77. Why: "Only 2 of {ideas} ideas cleared the 0.70 novelty bar. Hardware is crowded, so the Ideator will explore service models instead." | Show the loop edge and label, then restart Ideate |
-| novelty, normal | `{kept} kept` / `{ideas−kept} pruned` | Novelty Judge · "Kept {kept} of {ideas} ideas" · **keep**, .86. Why: "The other {n} matched existing products with more than 0.70 similarity in SerpAPI results." | Idea rows set to "Passed novelty" (ok dot) |
-| panel | 2 rounds / 1 idea challenged | Consultant panel · "Challenged one idea, kept the rest" · **challenge**, .79 | Idea rows set to "In debate" (run dot) |
-| decide, **escalate** (scenario `escalate:true`, first time) | state **waiting**, "Needs you" / "Confidence 0.64" | Lead Consultant · "Asked you to break a tie" · **escalate**, .64, with buttons **Approve ranking** and **Run another round** | Sidebar Decisions tag shows "1". Auto-resolves as "Engagement lead" after 14s |
-| decide, normal | Top 3 chosen / "Best 0.{top novelty}" | Lead Consultant · "Chose the top 3 ideas" · **decide**, .90 | Idea rows set to "Shortlisted" (ok dot) |
-| deliver | Brief ready / 12 pages · 31 sources | Lead Consultant · "Delivered the brief to {client}" · **deliver**, .92. Why: "Top pick: {idea 1}." | Toast "{title}: consultant brief delivered". After 6s, **recycle** the lane with the next scenario |
+### 8.3 Initial frame
 
-How an escalation resolves:
+- Lanes start at stages `[4, 5, 1]`, 45% of the way into the current stage.
+- Earlier stages are completed silently: their decisions are logged with past timestamps and counters don't move.
+- Result: F-1041 is about to be sent back, F-1042 is about to escalate, and F-1043 is mid-Scout.
 
-- **Approve** (or the 14s timeout): Decide becomes done ("Approved by you" or "Approved by lead"). Log "Approved the ranking" with agent You or Engagement lead and outcome decide. Idea rows become Shortlisted, then Deliver starts.
-- **Run another round**: log You · "Asked the panel for another round" · challenge. Reset Decide to idle and restart Consult. That flow doesn't escalate again.
-
-**Recycle** fills the lane with `SCENARIOS[next % 5]`, resets all fields and starts at stage 0.
-
-**Initial frame.** On load, each flow should already be partway through:
-
-- Lane starting stages are `[4, 5, 1]`.
-- Fast-forward the earlier stages silently: log their decisions with past timestamps, but don't increment counters.
-- Then start the current stage with `t` pushed back by 45% of its duration.
-- Result: Lane 1 is mid-Novelty (and about to pivot), Lane 2 is mid-Consult (and about to escalate), and Lane 3 is mid-Scout.
-
-### 7.6 Scenario data (use verbatim)
+### 8.4 Scenario data (use verbatim)
 
 Each scenario has: `title, short, client, engines[], results, clusters, ideas, kept, pivot?, escalate?, why{scout,map,panel,decide}, list[[idea, novelty, feasibility, sources]×3]`.
 
@@ -483,234 +489,41 @@ Each scenario has: `title, short, client, engines[], results, clusters, ideas, k
    - decide: "Recess-decision bot leads at 0.83."
    - ideas: Automatic recess calls from AQI sensors (.83/.78/10) · HVAC filter swap scheduling from forecasts (.75/.81/8) · Parent text alerts tied to bus routes (.68/.88/6)
 
-Lanes 0–2 start with scenarios 1–3. Recycling continues from scenario 4 and wraps around.
+Lanes 0–2 start with scenarios 1–3 (codes F-1041..F-1043). Recycling continues from scenario 4 and wraps around.
 
 ---
 
-## 8. Decisions card (span 5)
+## 9. Copy rules
 
-### 8.1 Header
+- Write plain, active sentences. Every control says what it does ("Start flow", "Approve ranking", "Run another round"), and every toast confirms what happened.
+- Flows are named by code (`F-1041`) plus a short name. Agents are named by role.
+- Numbers use tabular figures. Scores always have 2 decimals.
 
-- Title "Decisions", meta "What the agents decided and why".
-- On the right, a segmented filter `.seg`: **All**, then one button per lane showing a lane-color swatch and the lane's `short` name.
-- Segmented control styling: chip track with 3px padding. Buttons are 30px tall. The pressed button uses `--glass-strong` with a small shadow.
+## 10. Accessibility
 
-### 8.2 Decision item (`li.dec`)
+- Icon-only buttons have `aria-label`, and the brief input has a label.
+- Panels use `aria-labelledby`. The palette uses listbox/option roles with `aria-selected`.
+- Toasts are in an `aria-live="polite"` region.
+- `:focus-visible` shows a 2px accent outline.
+- Every status has text, never color alone.
+- Reduced motion is respected everywhere, including the river.
 
-- List: `ul.stream`, max-height 470px, scrolls, newest on top, capped at 40 items.
-- Each item is a grid with a 30px icon column and a content column, padding 12px 10px, radius 14, hover `--chip`. `--lc` is set to its lane color.
-- **Icon tile**: 30px, radius 9, background `lc 14%`, icon in the lane color. The icon depends on the outcome:
-  - route → `route`, merge → `git-merge`, keep → `filter`, pivot → `undo-2`
-  - challenge → `messages-square`, decide → `scale`, escalate → `hand`, deliver → `send`
-- **Top line** (12px muted): lane short name (in lane color, weight 500), "·", agent name, and a relative time on the right ("now", "12s ago", "3m ago", refreshed every 5s).
-- **What line**: 14px/500 `--ink`, followed by an outcome label (11px/600, radius 6, padding 1px 7px):
-  - keep: ok tint
-  - pivot / escalate: warn tint
-  - route / decide: accent tint
-  - everything else: neutral chip
-- **Why**: 13px `--ink-2`.
-- **Meta**: "Confidence", a 46×4 bar (lane color, or warn below .70), the value to 2 decimals, and "{n} sources cited" when there are sources.
-- **Escalation items** add two buttons, "Approve ranking" (solid sm) and "Run another round" (sm). They disappear once the escalation is resolved.
-- **New items** get `.new`, which animates from `translateY(-6px)` with an accent tint over 1s. Items pre-seeded on load don't animate. Never start an item at opacity 0.
-- Each live decision adds 1 to the "decisions today" counter.
+## 11. Build order
 
-### 8.3 Lane selection
+1. Skeleton: `<title>NMC³ Console</title>`, fonts, the Lucide script, one `<style>` and one IIFE `<script>`.
+2. Tokens and theme blocks (§3), base styles, grain and the brand mark (§4).
+3. Shell: sidebar, top bar, header, KPI strip (§5).
+4. Panels: Live runs (river plus Steps board), Decisions, the Idea Consultant setup card (§6–7), and the builder dialog (§7.3).
+5. Simulation (§8) driving the 2D board, decisions, shortlist, agents, compute and sources. Seed the initial frame and start the intervals: tick 120ms, compute 1.4s, GPU hours 9s.
+6. Idea river (§6): canvas, label layer, `layout()`, `draw(t)` with the render loop, and the River/Steps tabs, wrapped in try/catch with a fallback to Steps.
+7. Interactions: theme toggle, brief form, drawer, command palette, toasts. Call `lucide.createIcons()` last.
+8. Check light and dark at 1440, 1024, 768 and 390px.
 
-Selecting a lane, either by clicking its row or its filter button, does three things:
+## 12. Porting to the Next.js app (`frontend/`)
 
-- highlights that lane and dims the others,
-- hides decision items from other lanes,
-- updates the pressed state of the filter.
-
-Clicking the selected lane again, or "All", clears the selection.
-
----
-
-## 9. Idea board (span 7)
-
-- Header: title "Idea board", meta "Best candidates across all flows, ranked by novelty", and an "Export" `.btn.sm` with `download` icon.
-- The table bleeds to the card edges. Columns: **Idea · Novelty · Feasibility · Status**.
-- Cell padding is 11px 12px, except the first and last columns use 24px on the outer side. Header cells are 12.5px muted at weight 450.
-- **Idea cell**: name in 500 weight. Below it, a lane dot with `{short} · {sources} sources` in 12px muted.
-- **Score cells**: a bar up to 56px wide (5px tall, accent-2→accent gradient, width = score) followed by the score in mono to 2 decimals.
-- **Status**: a dot with text: Drafted (idle), Passed novelty (ok), In debate (run), Shortlisted (ok).
-- Rows are deduplicated by idea name across all flows, sorted by novelty descending, and limited to 9. Changed rows flash once with an accent background fading over 1.4s.
-- The sidebar "Ideas" tag shows the number of unique ideas.
-
----
-
-## 10. Agents card (span 4)
-
-- Header: title "Agents", meta "9 agents, shared across flows".
-- Rows: 34px icon tile (accent-soft background, accent icon, radius 10), name (13.5px/500), a "doing" line (12px muted, ellipsis), and on the right one 7px dot per flow the agent is currently serving, in that lane's color.
-
-| Agent | Icon | Works stages | Idle text |
-|---|---|---|---|
-| Intake | file-text | brief, deliver | Waiting for a new brief |
-| Scout | search | scout | Idle, SerpAPI quota at 37% |
-| Cartographer | map | map | Idle |
-| Ideator | sparkles | ideate | Idle, GPUs released |
-| Novelty Judge | git-fork | novelty | Idle, threshold 0.70 |
-| Market critic | trending-up | panel | Idle |
-| Feasibility critic | wrench | panel | Idle |
-| Risk critic | shield-alert | panel | Idle |
-| Lead Consultant | scale | decide, deliver | Idle |
-
-The "doing" text comes from the first active flow:
-
-- brief: `Parsing “{short}” into constraints`
-- scout: `Searching {engines} for {short}`
-- map: `Clustering {results} sources for {short}`
-- ideate: `Generating ideas for {short}`
-- novelty: `Scoring {ideas} ideas for {short}`
-- panel: `Debating the shortlist for {short}`
-- decide: `Ranking finalists for {short}`, or while waiting: `Waiting for your call on {short}`
-- deliver: `Writing the brief for {short}`
-
-While an agent is working, its doing text gets a moving **sheen**: a gradient text-clip from ink-3 to ink to ink-3, background-size 260%, animated over 2.6s linear.
-
----
-
-## 11. NMC² compute card (span 4)
-
-- Header: title "NMC² compute", meta "Spartanburg HPC site · 64 GPUs", and on the right a status reading "Healthy" with a live ok dot.
-- **GPU heat grid**: a 16×4 grid of 64 squares (gap 4, radius 3, aspect 1). Each square is filled with `color-mix(in srgb, var(--accent) calc(var(--u) * 100%), var(--chip-hover))`, transitioning over .9s.
-  - Every 1.4s, compute `target = min(.96, .38 + .26 × (#lanes in Ideate) + .10 × (#lanes in Consult))`.
-  - Squares are grouped into 4 blocks of 16. The first `round(target × 4 + .4)` blocks are busy: `u = .55 + wobble × .45`. Other blocks are mostly idle: `u = wobble × .18`.
-  - `wobble = (sin(now/1400 + i×1.7) + 1) / 2`.
-- Caption row: "Each square is one GPU" and "Idle → busy".
-- Three key-value tiles (chip background, radius 12):
-  - Utilization: the average of u, as a %. This also drives the sidebar meter.
-  - GPU hours today: starts at 312, +1 every 9s.
-  - Jobs queued: `max(0, 3 − active jobs)`.
-- **Job list**: one row per lane in Ideate ("Idea generation · {short}", 16 GPUs) or Consult ("Critic debate · {short}", 8 GPUs), each with a lane-colored live dot. With no jobs, show "No GPU jobs right now · 0 GPUs".
-
----
-
-## 12. SerpAPI sources card (span 4)
-
-- Header: title "SerpAPI sources", meta "Searches today, by engine".
-- One row per engine: icon, name, and a mono count on the right, with a 5px gradient bar below (width = count ÷ max count).
-
-| Engine | Icon | Start count | Scenario key |
-|---|---|---|---|
-| Google Search | globe | 812 | Google |
-| Google Scholar | graduation-cap | 431 | Scholar |
-| Google Patents | scroll-text | 297 | Patents |
-| Google Trends | chart-line | 188 | Trends |
-| Google News | newspaper | 118 | News |
-
-- Footer (above a hairline): "Daily quota" showing `{sum} of 5,000` with a meter. Keep this in sync with the sidebar quota meter.
-- Each live Scout completion adds 6 to each engine it used.
-
----
-
-## 13. Interactions
-
-### 13.1 Theme toggle
-
-- The button contains both a `moon` icon (`.i-moon`) and a `sun` icon (`.i-sun`).
-- JS keeps `data-eff="light|dark"` on `<html>`, set to the explicit `data-theme` if present, otherwise the system preference. CSS shows the moon in light and the sun in dark.
-- Click: set `data-theme` to the opposite of the current effective theme and save it to `localStorage["nmc3-theme"]` (wrapped in try/catch). Restore it on load.
-- **Circular reveal**:
-  - If `document.startViewTransition` exists and reduced motion is off, run the change inside a view transition.
-  - Animate `::view-transition-new(root)` with `clipPath` from `circle(0 at btnX btnY)` to `circle(maxDistanceToCorner at btnX btnY)` over 650ms using `--ease`.
-  - Set `::view-transition-old/new(root) { animation:none; mix-blend-mode:normal }`.
-- Shortcut: ⌘/Ctrl + Shift + L.
-- Icon hover: rotate −25°.
-
-### 13.2 Escalation buttons
-
-Handled with event delegation on `[data-esc]`. Each button resolves the waiting lane (§7.5) and toasts:
-
-- Approve: "Ranking approved. Writing the brief."
-- Run another round: "Panel is running another round".
-
-### 13.3 Mobile drawer
-
-- Below 900px the sidebar becomes a fixed drawer: `left/top/bottom 10px`, `width min(86vw, 290px)`, `--glass-strong`, `translateX(-110%)`. The class `.shell.drawer` brings it in with a .4s ease.
-- The hamburger opens it. The scrim or Escape closes it.
-
-### 13.4 Command palette
-
-- Open with ⌘/Ctrl+K (toggles) or the search button. It's a native `<dialog>` using `showModal()`, styled as glass:
-  - 20px radius, `--glass-strong`, blur 30px.
-  - Backdrop: `rgba(10,10,20,.25)` with a 4px blur.
-  - Opens with a pop animation from translateY(8px) scale(.98).
-- Layout: a 56px input row (search icon, input, `esc` kbd), then a grouped list.
-- Groups:
-  - **Actions**: Start a new brief, Adjust novelty threshold (hint 0.70), Switch theme (⌘⇧L).
-  - **Flows**: one per lane, hint `step N/8` or `delivered`. Choosing one selects the lane and scrolls to the board.
-  - **Agents**: the first 4 agents.
-- Up/down arrows move the selection, Enter chooses, and mouse hover selects. The selected row gets `--chip-hover` and an accent icon.
-- With no matches, show "No matches. Press Enter to queue "{q}" as a new brief."
-
-### 13.5 Toasts
-
-- Fixed at the bottom center. Each toast is a 44px pill with radius 22: `--solid` background, `--solid-fg` text, an accent `circle-check` icon.
-- Animates in from translateY(14px) scale(.96). Removed after 2.6s with a fade-down.
-
----
-
-## 14. Responsive behavior
-
-| Width | Changes |
-|---|---|
-| ≤ 1280px | Stats show the first 3 tiles. Decisions and Idea board go full width. Agents and Compute each take half. SerpAPI goes full width. Search field narrows to 220px |
-| ≤ 900px | Sidebar becomes the drawer (§13.3) and the hamburger appears. Search collapses to an icon button. Workspace crumb is hidden |
-| ≤ 640px | Shell padding drops to 10px. Stats become 2 columns (3rd tile hidden). All cards go full width. Brief option chips are hidden. Card padding becomes 20px 18px. Breadcrumbs are hidden |
-
-- The flow board never shrinks below 980px. It scrolls horizontally inside its card, and the page itself never scrolls sideways.
-- Side padding uses `max(Npx, env(safe-area-inset-*))`.
-- Include `<meta name="claude:viewport-fit-sides" content="cover">` only when publishing as a Claude artifact.
-
----
-
-## 15. Accessibility checklist
-
-- Every icon-only button has an `aria-label`.
-- The brief input has a visually hidden `<label>`.
-- Sections use `aria-labelledby` pointing at their `h2`.
-- The palette list has `role="listbox"` and its items have `role="option"` with `aria-selected`.
-- The toast container has `aria-live="polite"`.
-- Focus is always visible through `:focus-visible`.
-- Every animation respects reduced motion (§4.10).
-- Status is never conveyed by color alone: each dot has a text label.
-
----
-
-## 16. Build order (step by step)
-
-1. Create the HTML skeleton: `<title>NMC³ Console</title>`, the font link, the Lucide script, and one `<style>` and one `<script>` block. The script is wrapped in an IIFE.
-2. Write the tokens (§3) with all three theme blocks, then the base reset (box-sizing, body font, `html` and `body` background `--bg`).
-3. Add the ambient field and `.glass` (§4), then the buttons, dots and `.rise`.
-4. Build the shell grid, sidebar, top bar, page head, brief bar and stat tiles (§5–6).
-5. Build the Live flows board:
-   1. Define the stages, then create the column headers.
-   2. For each of the 3 lanes, create the lane row, 8 nodes, 7 edge paths, the loop path and the loop label.
-   3. Write `layout()` and attach the ResizeObserver.
-   4. Write `render(lane)` to sync node states and text, edge classes, particles and the lane label.
-6. Build the Decisions card: `decide(lane, {...})`, relative time refresh, the filter, `selectLane()`.
-7. Build the Idea board: `upsertIdeas(lane, status, dot)` and `renderIdeas()`.
-8. Build the Agents, Compute and SerpAPI cards and their render functions.
-9. Write the simulation: `startStage`, `finishStage`, `resolveEsc`, `recycle`, `tick`. Seed the initial frame (§7.5), then start the intervals: tick 120ms, compute 1.4s, GPU hours 9s, relative times 5s.
-10. Add the interactions: theme toggle with view transition, brief composer typing, drawer, command palette, toasts. Call `lucide.createIcons()` last.
-11. Check light and dark at 1440, 1024, 768 and 390px. Confirm the page is complete at rest: no element starts invisible and every card has content on the first frame.
-
----
-
-## 17. Porting to the Next.js app
-
-The repo's `frontend/` folder is Next.js 15 with the App Router, TypeScript and Tailwind v4. It currently also has Ant Design v6, but this design does **not** use Ant Design components. Either remove antd or keep it only for complex form widgets later.
-
-To port the design:
-
-- Move the tokens into `frontend/src/app/globals.css`, using the same three theme blocks.
-- Use `next/font/google` for Inter Tight and Geist Mono, and `lucide-react` instead of the UMD script.
-- Suggested components:
-  - `Sidebar`, `TopBar`, `BriefBar`, `StatTiles`
-  - `FlowBoard` (with `FlowLane`, `FlowNode`, `FlowEdges`)
-  - `DecisionStream`, `IdeaBoard`, `AgentList`, `ComputeCard`, `SourcesCard`
-  - `CommandPalette`, `Toaster`, `ThemeToggle`
-- Put the simulation in a client-side hook (`useFlowSimulation`) that returns lanes, decisions and ideas. Later, swap it for real data from FastAPI (`/api/...`, already proxied by `next.config.ts`), for example via SSE or WebSocket for live decisions.
-- Keep the geometry math from §7.2 so the flow board looks identical.
+- Move the tokens into `globals.css`.
+- Use `next/font/google` for IBM Plex Sans and Mono, and `lucide-react` for icons.
+- Keep the river as a `<canvas>` component driven by `requestAnimationFrame`, with the same geometry and drawing order (§6).
+- Components: `Sidebar`, `TopBar`, `PageHeader` (with `BriefForm`), `KpiStrip`, `IdeaRiver` / `StepsBoard`, `DecisionTimeline`, `AgentSetupCard`, `AgentBuilder`, `CommandPalette`, `Toaster`, `ThemeToggle`.
+- Put the simulation in a `useFlowSimulation()` hook. Later, replace it with FastAPI data (`/api/...`, already proxied by `next.config.ts`), for example via SSE for live decisions.
+- The current `frontend/` still has Ant Design installed. This design doesn't use it.

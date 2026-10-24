@@ -2,7 +2,8 @@
 
 // Client-side stand-in for the agent service: run history, the live run,
 // workspace settings the UI can edit, and UI state (drawer, toasts).
-// Swap startRun/cancel and the history seed for calls to /v1/agent-runs.
+// Real runs are loaded from /v1/agent-runs when this API knows the agent.
+// Otherwise the in-browser simulator keeps the console usable.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { agentById } from "@/config/agents";
