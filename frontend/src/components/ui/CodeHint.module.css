@@ -1,0 +1,8 @@
+.wrap { position: relative; }
+.pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; width: min(520px, calc(100vw - 32px)); border-radius: 12px; background: var(--surface); box-shadow: var(--pop); overflow: hidden; animation: pop .2s var(--ease); }
+@keyframes pop { from { transform: translateY(-4px); opacity: 0; } }
+.tabs { display: flex; align-items: center; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--line); }
+.tabs button { height: 30px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; background: none; font: 500 12px var(--mono); color: var(--ink-3); cursor: pointer; }
+.tabs button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tabs .copy { margin-left: auto; border: 0; display: grid; place-items: center; width: 30px; }
+.pop pre { margin: 0; padding: 14px 16px; font: 400 12.5px/1.65 var(--mono); color: var(--ink-2); background: var(--surface-2); overflow-x: auto; white-space: pre; }

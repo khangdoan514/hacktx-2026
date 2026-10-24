@@ -1,0 +1,25 @@
+.rail { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 0 14px; border-right: 1px solid var(--line); background: var(--bg); z-index: 40; }
+.group { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mark { position: relative; overflow: hidden; width: 34px; height: 34px; border-radius: 9px; background: var(--solid); color: var(--solid-fg); display: grid; place-items: center; font: 600 12px var(--sans); margin-bottom: 14px; }
+.mark span { position: relative; z-index: 1; }
+.mark::after { content: ""; position: absolute; right: -1px; top: -1px; width: 16px; height: 16px; clip-path: polygon(0 0, 100% 0, 100% 100%); background: linear-gradient(135deg, #ff6900, #c8e06a 25%, #4aeadc 50%, #2b9cfc 75%, #8f7cf6); }
+.rail :global(.ibtn[aria-current="page"]) { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.rail :global(.ibtn[aria-current="page"])::before { content: ""; position: absolute; left: -13px; top: 10px; bottom: 10px; width: 2px; border-radius: 0 2px 2px 0; background: var(--accent); }
+.live { position: absolute; top: 7px; right: 7px; width: 5px; height: 5px; }
+.sep { width: 22px; height: 1px; background: var(--line); margin: 8px 0; }
+.bot { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 500 11px var(--mono); background: var(--ink); color: var(--bg); margin-top: 6px; }
+.sun { display: none; }
+:global([data-theme="dark"]) .sun { display: grid; }
+:global([data-theme="dark"]) .moon { display: none; }
+.moon, .sun { place-items: center; }
+.moon { display: grid; }
+
+@media (max-width: 720px) {
+  .rail { position: fixed; top: auto; bottom: 0; left: 0; right: 0; height: 60px; flex-direction: row; justify-content: space-around; padding: 0 6px; border-right: 0; border-top: 1px solid var(--line); overflow-x: auto; }
+  .group { flex-direction: row; }
+  .mark, .sep, .avatar { display: none; }
+  .bot { margin: 0; flex-direction: row; }
+  .rail :global(.ibtn[aria-current="page"])::before { display: none; }
+  .rail :global([data-tip]:hover::after) { display: none; }
+}

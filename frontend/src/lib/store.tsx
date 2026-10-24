@@ -1,0 +1,171 @@
+"use client";
+
+// Client-side stand-in for the agent service: run history, the live run,
+// workspace settings the UI can edit, and UI state (drawer, toasts).
+// Swap startRun/cancel and the history seed for calls to /v1/agent-runs.
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { agentById } from "@/config/agents";
+import { budgets, guardrails, scenarios, triggers } from "@/config/workspace";
+import { buildPlan, materialize } from "./simulate";
+import type { Limits, RunPlan, RunView } from "./types";
+
+type DrawerState = { agent: string; run?: string; tab?: "spec" | "activity" | "prompts" } | null;
+type Toast = { id: number; msg: string };
+
+type Store = {
+  history: RunPlan[];
+  live: RunPlan | null;
+  plan: (id: string) => RunPlan | undefined;
+  startRun: (o: { agent: string; task: string; limits?: Limits; trigger?: string }) => string;
+  cancelLive: () => void;
+  drawer: DrawerState;
+  openAgent: (agent: string, o?: { run?: string; tab?: "spec" | "activity" | "prompts" }) => void;
+  closeAgent: () => void;
+  toasts: Toast[];
+  toast: (msg: string) => void;
+  guardrailsOn: Record<string, boolean>;
+  setGuardrail: (id: string, on: boolean) => void;
+  caps: Record<string, number>;
+  setCap: (agent: string, usd: number) => void;
+  triggersOn: Record<string, boolean>;
+  setTrigger: (id: string, on: boolean) => void;
+};
+
+const StoreCtx = createContext<Store | null>(null);
+const NowCtx = createContext(0);
+
+const TRIGGERS = ["API", "Schedule", "Slack", "API", "Webhook", "Manual"];
+let runCounter = 0x8f2c41;
+const nextId = () => "run_" + (++runCounter).toString(16);
+
+function seedHistory(now: number): RunPlan[] {
+  const out: RunPlan[] = [];
+  let at = now - 4 * 60_000;
+  for (let i = 0; i < 18; i++) {
+    const scenario = scenarios[(i * 3 + 1) % scenarios.length];
+    out.push(buildPlan({
+      id: "run_" + (0x8f2c40 - i * 0x91).toString(16), seed: 900 + i, scenario, createdAt: at,
+      trigger: TRIGGERS[i % TRIGGERS.length],
+    }));
+    at -= (25 + ((i * 37) % 50)) * 60_000;
+  }
+  return out;
+}
+
+const liveScenarios = scenarios.filter((s) => !s.fail);
+
+export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const [now, setNow] = useState(0);
+  const [history, setHistory] = useState<RunPlan[]>([]);
+  const [live, setLive] = useState<RunPlan | null>(null);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [guardrailsOn, setGuardrailsOn] = useState(() => Object.fromEntries(guardrails.map((g) => [g.id, g.enabled])));
+  const [caps, setCaps] = useState<Record<string, number>>(budgets.perAgentDailyUsd);
+  const [triggersOn, setTriggersOn] = useState(() => Object.fromEntries(triggers.map((t) => [t.id, t.enabled])));
+  const archived = useRef<string | null>(null);
+  const cycle = useRef(0);
+  const liveRef = useRef<RunPlan | null>(null);
+  liveRef.current = live;
+
+  const toast = useCallback((msg: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, msg }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
+  }, []);
+
+  const startRun = useCallback<Store["startRun"]>(({ agent, task, limits, trigger }) => {
+    const scenario = scenarios.find((s) => s.task === task && s.agent === agent)
+      ?? { ...(liveScenarios.find((s) => s.agent === agent) ?? liveScenarios[0]), agent, task };
+    // A run still in flight when a new one starts is filed as cancelled.
+    const prev = liveRef.current;
+    if (prev && archived.current !== prev.id) {
+      const t = Date.now();
+      setHistory((h) => [t >= prev.createdAt + prev.durationMs ? prev : { ...prev, cancelledAt: prev.cancelledAt ?? t }, ...h]);
+    }
+    const id = nextId();
+    setLive(buildPlan({ id, seed: runCounter, scenario, limits, createdAt: Date.now(), trigger }));
+    archived.current = null;
+    return id;
+  }, []);
+
+  // Seed history and the first live run on the client only, so server and client markup match.
+  useEffect(() => {
+    const t = Date.now();
+    setHistory(seedHistory(t));
+    setNow(t);
+    setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));
+    setReady(true);
+    const iv = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(iv);
+  }, []);
+
+  // When the live run ends, file it in history and start the next demo run a little later.
+  useEffect(() => {
+    if (!live || archived.current === live.id) return;
+    const end = Math.min(live.createdAt + live.durationMs, live.cancelledAt ?? Infinity);
+    if (now < end) return;
+    archived.current = live.id;
+    setHistory((h) => [live, ...h]);
+    if (live.cancelledAt === undefined) toast(live.final === "SUCCEEDED" ? "Run succeeded" : "Run failed");
+    const id = live.id;
+    setTimeout(() => {
+      if (liveRef.current?.id !== id) return;
+      cycle.current = (cycle.current + 1) % liveScenarios.length;
+      archived.current = null;
+      setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[cycle.current], createdAt: Date.now(), trigger: "Schedule" }));
+    }, 12_000);
+  }, [now, live, toast]);
+
+  const cancelLive = useCallback(() => {
+    setLive((l) => (l && l.cancelledAt === undefined ? { ...l, cancelledAt: Date.now() } : l));
+    toast("Run cancelled");
+  }, [toast]);
+
+  const plan = useCallback((id: string) => (live?.id === id ? live : history.find((h) => h.id === id)), [live, history]);
+
+  const value = useMemo<Store>(() => ({
+    history, live, plan, startRun, cancelLive, drawer,
+    openAgent: (agent, o) => { if (agentById(agent)) setDrawer({ agent, ...o }); },
+    closeAgent: () => setDrawer(null),
+    toasts, toast,
+    guardrailsOn, setGuardrail: (id, on) => setGuardrailsOn((g) => ({ ...g, [id]: on })),
+    caps, setCap: (agent, v) => setCaps((c) => ({ ...c, [agent]: v })),
+    triggersOn, setTrigger: (id, on) => setTriggersOn((t) => ({ ...t, [id]: on })),
+  }), [history, live, plan, startRun, cancelLive, drawer, toasts, toast, guardrailsOn, caps, triggersOn]);
+
+  if (!ready) return null;
+  return (
+    <StoreCtx.Provider value={value}>
+      <NowCtx.Provider value={now}>{children}</NowCtx.Provider>
+    </StoreCtx.Provider>
+  );
+}
+
+export function useStore() {
+  const s = useContext(StoreCtx);
+  if (!s) throw new Error("useStore must be used inside StoreProvider");
+  return s;
+}
+
+export const useNow = () => useContext(NowCtx);
+
+/** A run as it looks right now. Finished runs are materialized at their end. */
+export function useRunView(id?: string): RunView | null {
+  const { plan, live } = useStore();
+  const now = useNow();
+  const p = id ? plan(id) : live ?? undefined;
+  const isLive = !!p && p.id === live?.id;
+  return useMemo(() => (p ? materialize(p, isLive ? now : Infinity) : null), [p, isLive, isLive ? now : 0]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Every run, newest first, materialized at its end (the live one at now). */
+export function useAllRuns(): RunView[] {
+  const { history, live } = useStore();
+  const now = useNow();
+  const done = useMemo(() => history.map((p) => materialize(p, Infinity)), [history]);
+  const liveView = live && !history.some((h) => h.id === live.id) ? materialize(live, now) : null;
+  return liveView ? [liveView, ...done] : done;
+}

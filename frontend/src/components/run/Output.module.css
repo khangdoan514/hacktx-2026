@@ -1,0 +1,25 @@
+.ok { display: inline-flex; align-items: center; gap: 6px; font: 400 12px var(--mono); color: var(--ok); }
+.ideas { list-style: none; margin: 0; padding: 0; }
+.idea { display: grid; grid-template-columns: 34px minmax(0, 1fr) 48px; gap: 14px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); animation: fadeIn .8s var(--ease) both; }
+.idea:last-child { border-bottom: 0; }
+.rk { font: 400 13px var(--mono); color: var(--ink-3); }
+.idea b { display: block; font-size: 14.5px; font-weight: 500; color: var(--ink); }
+.idea p { margin: 2px 0 0; font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src { margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap; }
+.src span { font: 400 10.5px var(--mono); padding: 1px 6px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); }
+.ring { width: 48px; height: 48px; position: relative; display: grid; place-items: center; font: 500 12px var(--mono); color: var(--ink); }
+.ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 3; }
+.bg { stroke: var(--line); }
+.fg { stroke: var(--accent); stroke-linecap: round; animation: ringIn 1.2s var(--ease) both; }
+@keyframes ringIn { from { stroke-dashoffset: var(--c); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } }
+.skel { padding: 8px 0; }
+.skel > div { display: grid; grid-template-columns: 34px minmax(0, 1fr) 48px; gap: 14px; align-items: center; padding: 14px 20px; }
+.skel i { display: block; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--line) 0%, var(--surface-2) 50%, var(--line) 100%); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+.skel .c { width: 40px; height: 40px; border-radius: 50%; }
+.skel .sq { width: 22px; }
+.skel span { display: flex; flex-direction: column; gap: 8px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.empty { padding: 28px 20px; color: var(--ink-3); font-size: 13.5px; display: flex; gap: 10px; align-items: center; }
+.fail { color: var(--err); }

@@ -1,0 +1,7 @@
+.lims { margin-left: auto; display: flex; gap: 22px; flex-wrap: wrap; }
+.lim { display: flex; flex-direction: column; gap: 5px; min-width: 70px; }
+.lim small { display: flex; justify-content: space-between; gap: 10px; font: 400 11px var(--mono); color: var(--ink-3); }
+.lim small b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+@media (max-width: 1180px) {
+  .lims { margin-left: 0; width: 100%; }
+}

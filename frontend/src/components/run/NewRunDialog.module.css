@@ -1,0 +1,12 @@
+.modal { width: min(540px, calc(100% - 32px)); padding: 0; border: 0; border-radius: 16px; margin-top: 12vh; background: var(--surface); color: var(--ink); box-shadow: var(--pop); }
+.modal::backdrop { background: rgba(0, 0, 0, .35); backdrop-filter: blur(3px); }
+.modal[open] { animation: pop .22s var(--ease); }
+@keyframes pop { from { transform: translateY(6px) scale(.985); opacity: 0; } }
+.fm { padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+.fm h3 { font: 500 20px var(--sans); letter-spacing: -.02em; }
+.fm label { display: flex; flex-direction: column; gap: 6px; font: 500 11.5px var(--mono); color: var(--ink-3); }
+.lims { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.lims label { font-size: 10.5px; }
+.lims input { width: 100%; padding: 0 8px; font-size: 13px; }
+.ft { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) { .lims { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

@@ -1,0 +1,25 @@
+import {
+  Activity, BadgeCheck, Bot, Boxes, Calculator, Check, CircleSlash, Clock, Code, Compass, Copy, FlaskConical,
+  Gauge, Globe, GraduationCap, Hourglass, Link, MessageSquare, Moon, Network, Play, Plus, Scale, ScrollText,
+  Search, Server, Settings2, ShieldCheck, ShieldX, Sparkles, Square, SquareTerminal, Sun, Terminal, Webhook,
+  Wrench, X, Zap,
+  type LucideProps,
+} from "lucide-react";
+
+// Icons available to config files. Add one here to use it in src/config.
+const icons = {
+  activity: Activity, "badge-check": BadgeCheck, bot: Bot, boxes: Boxes, calculator: Calculator, check: Check,
+  "circle-slash": CircleSlash, clock: Clock, code: Code, compass: Compass, copy: Copy, flask: FlaskConical,
+  gauge: Gauge, globe: Globe, "graduation-cap": GraduationCap, hourglass: Hourglass, link: Link,
+  message: MessageSquare, moon: Moon, network: Network, play: Play, plus: Plus, scale: Scale,
+  "scroll-text": ScrollText, search: Search, server: Server, settings: Settings2, shield: ShieldCheck,
+  "shield-x": ShieldX, sparkles: Sparkles, square: Square, terminal: Terminal, "square-terminal": SquareTerminal,
+  sun: Sun, webhook: Webhook, wrench: Wrench, x: X, zap: Zap,
+};
+
+export type IconName = keyof typeof icons;
+
+export default function Icon({ name, size = 16, ...rest }: { name: IconName } & LucideProps) {
+  const C = icons[name];
+  return <C size={size} strokeWidth={1.6} aria-hidden {...rest} />;
+}

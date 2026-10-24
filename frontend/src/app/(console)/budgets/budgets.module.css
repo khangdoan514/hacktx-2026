@@ -1,0 +1,30 @@
+.month { display: grid; grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+.month > div { background: var(--surface); padding: 16px 20px; }
+.month small, .limits small { display: block; font: 400 11px var(--mono); color: var(--ink-3); }
+.month b { font: 400 24px var(--mono); color: var(--ink); letter-spacing: -.02em; }
+.month b span { font-size: 14px; color: var(--ink-3); }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.caps, .spend { list-style: none; margin: 0; padding: 0; }
+.caps li { display: grid; grid-template-columns: 170px minmax(0, 1fr) 110px; gap: 16px; align-items: center; padding: 14px 20px; }
+.name { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; font-size: 13.5px; font-weight: 500; color: var(--ink); cursor: pointer; text-align: left; }
+.name:hover { text-decoration: underline; }
+.meter small { display: block; margin-top: 6px; font-size: 11px; color: var(--ink-3); }
+.cap { display: flex; align-items: center; gap: 6px; font: 400 13px var(--mono); color: var(--ink-3); }
+.cap input { width: 80px; }
+.limits { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.limits div { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--ink-2); flex-wrap: wrap; }
+.limits div .mono { font-size: 11.5px; color: var(--ink-3); }
+.spend li { display: grid; grid-template-columns: 170px minmax(0, 1fr) 64px 48px; gap: 14px; align-items: center; padding: 11px 20px; font-size: 12.5px; }
+.spend li .mono { text-align: right; }
+.models { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border-top: 1px solid var(--line); }
+.models div { background: var(--surface); padding: 12px 20px; }
+.models small { display: block; font-size: 11.5px; color: var(--ink-3); }
+.models b { font-size: 15px; color: var(--ink); font-weight: 500; }
+@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 720px) {
+  .month { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .caps li { grid-template-columns: minmax(0, 1fr) 100px; }
+  .caps .meter { grid-column: 1 / -1; grid-row: 2; }
+  .spend li { grid-template-columns: 130px minmax(0, 1fr) 60px; }
+  .spend li .muted { display: none; }
+}
