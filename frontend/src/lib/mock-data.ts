@@ -1,6 +1,5 @@
-// Type shim for the dashboard pages. Those modules were not in the tracked tree.
-// Arrays stay empty so this file does not invent agents, runs, or workflows.
-// Replace this file with the real module when that work lands.
+// Dashboard compatibility shim. Arrays stay empty.
+// The Runs page reads the live agent API. Do not invent sample agents here.
 
 export type AgentStatus = "active" | "paused" | "draft";
 export type RunStatus = "succeeded" | "running" | "failed";

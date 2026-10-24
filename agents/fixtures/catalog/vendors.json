@@ -1,0 +1,5 @@
+[
+  {"id":"vendor-a","name":"Cedar Desk","monthly_usd":640,"accessible":true,"features":["email","chat","knowledge_base"],"notes":"Fictional support platform with keyboard-first navigation."},
+  {"id":"vendor-b","name":"Harbor Help","monthly_usd":880,"accessible":true,"features":["email","phone","reporting"],"notes":"Fictional support platform with phone routing."},
+  {"id":"vendor-c","name":"Juniper Queue","monthly_usd":420,"accessible":false,"features":["email","chat"],"notes":"Fictional budget support platform."}
+]

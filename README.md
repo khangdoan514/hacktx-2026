@@ -43,4 +43,4 @@ See [docs/architecture.md](docs/architecture.md) for how they connect.
 
 ## NMC3 agent first pass
 
-The agent and orchestration service is specified in [agents/README.md](agents/README.md). That first pass is not running in this checkout, and its HTTP contract is not connected to the business app. The business screens are separate: open `/sign-in` after the API and database are up. `/` remains the existing dashboard shell.
+The agent contracts and Pass 1 notes are in [agents/README.md](agents/README.md). Business screens stay separate: open `/sign-in` after the API and database are up. `/` remains the dashboard shell.

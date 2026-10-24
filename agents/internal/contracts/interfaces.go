@@ -33,10 +33,15 @@ type DelegateRequest struct {
 }
 
 type ModelInput struct {
-	Definition AgentDefinition `json:"definition"`
-	Invocation AgentInvocation `json:"invocation"`
-	Context    RunContext      `json:"context"`
-	History    []ActionResult  `json:"history"`
+	Definition AgentDefinition   `json:"definition"`
+	Invocation AgentInvocation   `json:"invocation"`
+	Context    RunContext        `json:"context"`
+	History    []ActionResult    `json:"history"`
+	// Delegates carries the allowlisted delegate definitions (same version)
+	// so a provider can shape delegation input to the delegate's schema.
+	// Tools carries the agent's allowed tool definitions for the same reason.
+	Delegates []AgentDefinition `json:"delegates,omitempty"`
+	Tools     []ToolDefinition  `json:"tools,omitempty"`
 }
 
 type ActionResult struct {
@@ -46,7 +51,12 @@ type ActionResult struct {
 }
 
 type ModelAdapter interface {
-	Next(ctx context.Context, input ModelInput) (ModelAction, error)
+	Next(ctx context.Context, input ModelInput) (ModelResult, error)
+}
+
+type ModelResult struct {
+	Action ModelAction `json:"action"`
+	Usage  Usage       `json:"usage"`
 }
 
 type Tool interface {
@@ -58,6 +68,9 @@ type Tool interface {
 // the invoking agent's allowlist and validate input before calling a handler.
 type ToolGateway interface {
 	Invoke(ctx context.Context, agent AgentDefinition, invocation AgentInvocation, request ToolRequest) (ToolInvocation, error)
+	// Definitions exposes the registered tool registry so the coordinator can
+	// share an agent's allowed tool schemas with the model adapter.
+	Definitions() []ToolDefinition
 }
 
 type RunStore interface {
