@@ -1,10 +1,9 @@
 package main
 
-// Transitional entrypoint: the custom execution engine (runtime, model, and
-// tool packages) was removed in favor of OpenCode; see
-// agents/docs/opencode-adoption.md. The full implementation remains in git
-// history. This binary serves persisted run history from Supabase until the
-// OpenCode execution backend lands; run submission is disabled.
+// Execution backend: OpenCode (see agents/docs/opencode-adoption.md). The
+// previous custom engine was removed; its implementation remains in git
+// history. Run submission creates an OpenCode session; run history stays in
+// Supabase and remains inspectable after restarts.
 
 import (
 	"context"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/httpapi"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
 )
 
@@ -24,13 +24,6 @@ func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// disabled rejects run submission while history stays readable.
-type disabled struct{}
-
-func (disabled) Start(context.Context, contracts.StartRunRequest) (contracts.Run, error) {
-	return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent execution is disabled during the OpenCode migration"}
 }
 
 func run() error {
@@ -57,14 +50,31 @@ func run() error {
 		}
 		runs, events = s, s
 	}
-	// Definitions still feed GET /v1/agents; execution no longer reads them.
+	// Definitions feed GET /v1/agents and the OpenCode session prompts.
 	definitions := []contracts.AgentDefinition{}
 	if err := readJSON(envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"), &definitions); err != nil {
 		return err
 	}
+	opencodeURL := envDefault("OPENCODE_URL", "http://127.0.0.1:49374")
+	password, err := opencode.ResolvePassword()
+	if err != nil {
+		return err
+	}
+	backend, err := opencode.NewClient(opencodeURL, password, nil)
+	if err != nil {
+		return err
+	}
+	workdir := envDefault("NMC3_WORKDIR", os.TempDir()+"/nmc3-sessions")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return fmt.Errorf("create session workdir: %w", err)
+	}
+	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, envDefault("OPENCODE_MODEL", "meta/muse-spark-1.3-contributor"))
+	if err != nil {
+		return err
+	}
 	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
-	server := http.Server{Addr: addr, Handler: httpapi.New(disabled{}, runs, events, definitions), ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("NMC3 API listening on %s (history only; execution disabled)", addr)
+	server := http.Server{Addr: addr, Handler: httpapi.New(coordinator, runs, events, definitions), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
 }
 

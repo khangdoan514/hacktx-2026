@@ -72,6 +72,34 @@ tool execution, and credentials.
 4. The deterministic adapter is replaced by a scripted harness at the
    translation layer for contract tests (no live calls, no secrets).
 
+## Phase 0 result (completed 2026-10-24, opencode v2.0.26)
+
+Manual spike via `opencode api`: session `ses_e8ff4bf11ffeYPpJZmlt8MNHCX`
+(`meta/muse-spark-1.3-contributor`) ran the vendor comparison with two
+parallel `subagent` calls (price + accessibility, both completed) and
+returned exactly the schema-shaped JSON result with zero file writes.
+Per-session usage is reported on the session object
+(input 9956 / output 626 / reasoning 406, cost $0.00122), which is what
+`Run.usage` will map from. Open items for Phase 1: enforce JSON-only output
+via a validation layer (not harness-native), confirm depth-1 non-escalation
+under deny-by-default permissions, and build the scripted non-network test
+harness.
+
+## Phase 1 result (completed 2026-10-24)
+
+`internal/opencode/` implements the execution backend: REST client (Basic
+auth via service registration), session create/prompt/wait/messages,
+coordinator mapping OpenCode sessions to NMC3 runs (validation, invocation
+tree with one depth-1 child per subagent call, ordered `source: "opencode"`
+events, provider-reported usage), and the restored schema validator.
+Verified live: vendor run SUCCEEDED on `meta/muse-spark-1.3-contributor`
+($0.00148), byte-identical across API restart (14 ordered events), website
+`/agent-api` flow SUCCEEDED. Fixes found live: newest-first message order,
+30s client timeout killing long waits, 60s fixture limit too short for model
+runs. Pending: apply `db/migrations/202610240003_nmc3_event_source.sql`
+(source column currently omitted on read); depth-escalation and permission
+hardening move to Phase 2.
+
 ## Migration phases
 
 **Phase 0 — Spike (1 session, no merges).** Drive one vendor comparison

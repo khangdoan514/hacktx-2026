@@ -126,6 +126,9 @@ type RunEvent struct {
 	Type         string          `json:"type"`
 	Timestamp    time.Time       `json:"timestamp"`
 	Data         json.RawMessage `json:"data,omitempty"`
+	// Source marks event provenance: "nmc3" for coordinator-owned events,
+	// "opencode" for events mapped from an OpenCode session.
+	Source string `json:"source,omitempty"`
 }
 
 type Run struct {
@@ -135,7 +138,10 @@ type Run struct {
 	Version string `json:"agent_version"`
 	// ModelID records the resolved model for inspection; empty means the
 	// deterministic adapter or service default applied.
-	ModelID         string            `json:"model_id,omitempty"`
+	ModelID string `json:"model_id,omitempty"`
+	// OpenCodeSessionID links the run to the executing OpenCode session.
+	// Empty for runs that predate the OpenCode backend.
+	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
 	Input           json.RawMessage   `json:"input"`
 	Output          json.RawMessage   `json:"output,omitempty"`
 	Error           *RunError         `json:"error,omitempty"`
