@@ -72,6 +72,19 @@ tool execution, and credentials.
 4. The deterministic adapter is replaced by a scripted harness at the
    translation layer for contract tests (no live calls, no secrets).
 
+## Phase 0 result (completed 2026-10-24, opencode v2.0.26)
+
+Manual spike via `opencode api`: session `ses_e8ff4bf11ffeYPpJZmlt8MNHCX`
+(`meta/muse-spark-1.3-contributor`) ran the vendor comparison with two
+parallel `subagent` calls (price + accessibility, both completed) and
+returned exactly the schema-shaped JSON result with zero file writes.
+Per-session usage is reported on the session object
+(input 9956 / output 626 / reasoning 406, cost $0.00122), which is what
+`Run.usage` will map from. Open items for Phase 1: enforce JSON-only output
+via a validation layer (not harness-native), confirm depth-1 non-escalation
+under deny-by-default permissions, and build the scripted non-network test
+harness.
+
 ## Migration phases
 
 **Phase 0 — Spike (1 session, no merges).** Drive one vendor comparison
