@@ -27,6 +27,10 @@ export default function ProductShell({ children }: { children: React.ReactNode }
     return <p className="p-6 text-sm text-gray-500">Checking session…</p>;
   }
 
+  if (isPublic) {
+    return <div className="min-h-screen">{children}</div>;
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-gray-900">
       <header className="border-b border-gray-200 bg-white">

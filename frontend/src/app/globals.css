@@ -1,3 +1,6 @@
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
 /* Design tokens and shared primitives. Component styles live in *.module.css next to each component. */
 
 :root {
