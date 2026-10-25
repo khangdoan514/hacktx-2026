@@ -94,7 +94,7 @@ function Spec({ def }: { def: AgentDef }) {
         </div>
       </Sec>
       <Sec title="Configure">
-        <p className={s.note}>Definitions are edited and published from <Link href="/definitions" className="mono">Definitions</Link>. This is version {def.version} ({def.state}).</p>
+        <p className={s.note}>This is version {def.version} ({def.state}). <Link href={`/agents/new?from=${def.id}`} className="btn sm">Open in builder</Link></p>
       </Sec>
     </>
   );

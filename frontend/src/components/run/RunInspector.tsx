@@ -2,25 +2,24 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import RunApprovals from "@/components/approvals/ApprovalInbox";
 import PageHeader from "@/components/shell/PageHeader";
 import Icon from "@/components/ui/Icon";
 import StatePill from "@/components/ui/StatePill";
 import { clock, compact, usd } from "@/lib/format";
 import { isTerminal } from "@/lib/live";
-import { useAllRuns, useStore } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import type { RunView } from "@/lib/types";
 import ExecutionGraph from "./ExecutionGraph";
 import LimitMeters from "./LimitMeters";
 import NewRunDialog from "./NewRunDialog";
 import Output, { OutputBadge } from "./Output";
-import RunList from "./RunList";
 import Timeline from "./Timeline";
 import s from "./RunInspector.module.css";
 
 /** One run, drawn from what the service recorded: graph, lanes, output, plus the runs around it. */
 export default function RunInspector({ view }: { view: RunView }) {
   const { cancelRun, agentById, toast } = useStore();
-  const runs = useAllRuns();
   const [dialog, setDialog] = useState(false);
   const p = view.plan;
   const def = agentById(p.agent);
@@ -42,6 +41,8 @@ export default function RunInspector({ view }: { view: RunView }) {
         }
       />
 
+      <RunApprovals runId={p.id} />
+
       <section className="card rise" style={{ "--d": "60ms" } as React.CSSProperties}>
         <div className="ch">
           <h2>How this run executed</h2>
@@ -52,16 +53,10 @@ export default function RunInspector({ view }: { view: RunView }) {
         <Timeline view={view} />
       </section>
 
-      <div className={s.lower}>
-        <section className="card rise" style={{ "--d": "120ms" } as React.CSSProperties}>
-          <div className="ch"><h2>Output</h2><OutputBadge view={view} /></div>
-          <Output view={view} />
-        </section>
-        <section className="card rise" style={{ "--d": "160ms" } as React.CSSProperties}>
-          <div className="ch"><h2>Runs</h2><span className="n">{runs.length}</span><Link href="/dashboard" className="right btn ghost sm">All</Link></div>
-          <RunList runs={runs.slice(0, 6)} current={p.id} />
-        </section>
-      </div>
+      <section className="card rise" style={{ "--d": "120ms" } as React.CSSProperties}>
+        <div className="ch"><h2>Output</h2><OutputBadge view={view} /></div>
+        <Output view={view} />
+      </section>
 
       <NewRunDialog open={dialog} onClose={() => setDialog(false)} agent={p.agent} />
     </>

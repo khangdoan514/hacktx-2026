@@ -14,6 +14,8 @@ export type Layout = { width: number; height: number; you: Box; nodes: LayoutNod
 const AGENT = { w: 236, h: 76, slot: 104 };
 const CALL = { w: 250, h: 42, slot: 50 };
 const COL_X = [128, 478, 806];
+// Used when delegation goes a level deeper, so every column still fits.
+const COL_X_DEEP = [128, 430, 732, 1034];
 const TOP = 52;
 
 type T = { kind: "agent" | "call"; id: string; call?: Call; children: T[] };
@@ -21,14 +23,19 @@ type T = { kind: "agent" | "call"; id: string; call?: Call; children: T[] };
 export function layoutRun(plan: RunPlan): Layout {
   // A delegation is shown as the specialist's own node, not as a call.
   const callsOf = (agent: string) => plan.calls.filter((c) => c.agent === agent && c.kind !== "delegate");
-  const specialists = [...new Set(plan.invocations.filter((i) => i.depth >= 1).map((i) => i.agent))];
-  const tree = (id: string, depth: number): T => {
+  const invs = plan.invocations;
+  const rootInv = invs.find((i) => i.depth === 0);
+  // Specialists are drawn under the invocation that started them, up to the depth limit.
+  const tree = (id: string, depth: number, inv: string | null): T => {
     const kids: T[] = [];
-    if (depth === 0) for (const d of specialists) kids.push(tree(d, 1));
+    for (const i of invs.filter((x) => x.parent === inv && x.depth === depth + 1)) {
+      if (!kids.some((k) => k.kind === "agent" && k.id === i.agent)) kids.push(tree(i.agent, depth + 1, i.id));
+    }
     for (const c of callsOf(id)) kids.push({ kind: "call", id: c.id, call: c, children: [] });
     return { kind: "agent", id, children: kids };
   };
-  const root = tree(plan.agent, 0);
+  const root = tree(plan.agent, 0, rootInv?.id ?? null);
+  const specialists = invs.filter((i) => i.depth >= 1);
 
   const heightOf = (n: T): number => {
     const own = n.kind === "agent" ? AGENT.slot : CALL.slot;
@@ -36,11 +43,13 @@ export function layoutRun(plan: RunPlan): Layout {
     return Math.max(own, kids);
   };
 
+  const maxDepth = Math.max(0, ...invs.map((i) => i.depth));
+  const X = maxDepth >= 2 ? COL_X_DEEP : COL_X;
   const nodes: LayoutNode[] = [];
   const place = (n: T, top: number, col: number, parent: string | null) => {
     const H = heightOf(n);
     const size = n.kind === "agent" ? AGENT : CALL;
-    const box = { x: COL_X[Math.min(col, COL_X.length - 1)], y: top + H / 2 - size.h / 2, w: size.w, h: size.h };
+    const box = { x: X[Math.min(col, X.length - 1)], y: top + H / 2 - size.h / 2, w: size.w, h: size.h };
     if (n.kind === "agent") nodes.push({ kind: "agent", id: n.id, box, parent });
     else nodes.push({ kind: "call", id: n.id, call: n.call!, box, parent: parent! });
     const kidsH = n.children.reduce((s, c) => s + heightOf(c), 0);
@@ -54,12 +63,17 @@ export function layoutRun(plan: RunPlan): Layout {
 
   const height = Math.max(320, TOP + heightOf(root) + 16);
   const rootBox = nodes[0].box;
-  const maxCol = nodes.reduce((m, n) => Math.max(m, COL_X.indexOf(n.box.x)), 0);
-  const cols = [{ label: specialists.length ? "orchestrator" : "agent", x: COL_X[0] }];
-  if (maxCol >= 1) cols.push({ label: root.children.some((c) => c.kind === "agent") ? "specialists" : "tool calls", x: COL_X[1] });
-  if (maxCol >= 2) cols.push({ label: "tool calls", x: COL_X[2] });
+  const colOf = (n: LayoutNode) => X.indexOf(n.box.x);
+  const maxCol = nodes.reduce((m, n) => Math.max(m, colOf(n)), 0);
+  const cols = [{ label: specialists.length ? "orchestrator" : "agent", x: X[0] }];
+  for (let c = 1; c <= maxCol; c++) {
+    const inCol = nodes.filter((n) => colOf(n) === c);
+    const agentsHere = inCol.some((n) => n.kind === "agent"), callsHere = inCol.some((n) => n.kind === "call");
+    const label = agentsHere && callsHere ? "agents & tools" : agentsHere ? (c === 1 ? "specialists" : "sub-specialists") : "tool calls";
+    cols.push({ label, x: X[c] });
+  }
   return {
-    width: 1080, height, nodes, cols,
+    width: maxDepth >= 2 ? 1330 : 1080, height, nodes, cols,
     you: { x: 26, y: rootBox.y + rootBox.h / 2 - 26, w: 52, h: 52 },
   };
 }

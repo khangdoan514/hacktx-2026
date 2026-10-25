@@ -24,6 +24,7 @@ import (
 	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/policy"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/threads"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 	"github.com/khangdoan514/hacktx-2026/internal/platform"
 )
@@ -90,6 +91,7 @@ func run() error {
 	reg := extensions.NewRegistry()
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
 	extensions.NewAPI(reg, gw).Mount(mux)
+	threads.New(backend, workdir, "thread", model).Mount(mux)
 	// Built-in GitHub and Google Drive packs. The tools-mcp server named in
 	// opencode.jsonc reads the same credential directory.
 	toolpacks.NewAPI(

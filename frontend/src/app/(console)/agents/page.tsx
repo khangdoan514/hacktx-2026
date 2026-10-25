@@ -19,28 +19,22 @@ function stats(id: string, runs: RunView[]) {
 
 export default function AgentsPage() {
   const runs = useAllRuns();
-  const { agents, agentById } = useStore();
-  const orchestrators = agents.filter((a) => a.kind === "orchestrator");
-  const loose = agents.filter((a) => a.kind === "specialist" && !agents.some((o) => o.delegates.includes(a.id)));
+  const { agents } = useStore();
+  // Agents that run other agents come first; the rest follow in service order.
+  const sorted = [...agents].sort((x, y) => Number(y.kind === "orchestrator") - Number(x.kind === "orchestrator"));
 
   return (
     <>
-      <PageHeader title="Agents" sub="Agents the service can run. Click one for its spec, history and prompts." actions={<Link href="/definitions" className="btn"><Icon name="plus" size={15} />Add an agent</Link>} />
+      <PageHeader title="Agents" sub="Click an agent for its details and history." actions={<Link href="/agents/new" className="btn solid"><Icon name="plus" size={15} />New agent</Link>} />
       {agents.length === 0 && <p className="muted">The agent service has no agents.</p>}
-      {orchestrators.map((o) => (
-        <section key={o.id} className={`${s.team} rise`}>
-          <h2 className={s.teamH}>{o.name} <span className="mono muted">team</span></h2>
-          <div className={s.grid}>
-            {[o, ...o.delegates.map((d) => agentById(d)).filter((a): a is AgentDef => !!a)].map((a) => <AgentCard key={a.id} a={a} st={stats(a.id, runs)} />)}
-          </div>
-        </section>
-      ))}
-      {loose.length > 0 && (
-        <section className={`${s.team} rise`}>
-          <h2 className={s.teamH}>Standalone</h2>
-          <div className={s.grid}>{loose.map((a) => <AgentCard key={a.id} a={a} st={stats(a.id, runs)} />)}</div>
-        </section>
-      )}
+      <div className={`${s.grid} rise`}>
+        {sorted.map((a) => <AgentCard key={a.id} a={a} st={stats(a.id, runs)} />)}
+        <Link href="/agents/new" className={`${s.card} ${s.add}`}>
+          <span className={s.addIco}><Icon name="plus" size={18} /></span>
+          <b>Build an agent</b>
+          <p>Drag steps onto a canvas, connect them, and run branches in parallel.</p>
+        </Link>
+      </div>
     </>
   );
 }
@@ -55,7 +49,7 @@ function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
           <b>{a.name}</b>
           <small className="mono">{a.id}@{a.version}</small>
         </div>
-        <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind}</span>
+        <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
       </div>
       <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
       <div className={s.chips}>

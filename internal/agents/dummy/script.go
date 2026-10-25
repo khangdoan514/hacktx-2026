@@ -81,6 +81,11 @@ func (s *Script) Next(_ context.Context, input contracts.ModelInput) (contracts.
 	} else {
 		action = contracts.ModelAction{Type: contracts.ActionFinish, Output: json.RawMessage(`{}`)}
 	}
+	// An agent already at the depth limit tries to hand work on, which the
+	// runtime must reject. The shipped denial demo depends on this.
+	if input.Invocation.Depth >= 2 {
+		action = contracts.ModelAction{Type: contracts.ActionDelegate, Delegation: &contracts.DelegateRequest{AgentID: "catalog-specialist", Input: json.RawMessage(`{}`)}}
+	}
 	hook := s.onTurn
 	s.mu.Unlock()
 	if input.Invocation.Depth == 1 && index == 0 {
