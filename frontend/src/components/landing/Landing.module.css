@@ -2,8 +2,8 @@
 .main{height:calc(100svh - 58px);padding:0 4.2%}
 .intro{position:relative;z-index:2;display:flex;align-items:center;width:39%;height:100%;pointer-events:none}
 .content{padding:0 20px 30px 0;background:linear-gradient(90deg,#08090b 20%,#08090be8 70%,#08090b00)}
-.content h1{font-size:clamp(74px,8.4vw,136px);font-weight:450;line-height:1.1;letter-spacing:-.075em;margin:0 0 23px -.065em;color:#eeeef2}
-.content h1 sup{font-size:.5em;vertical-align:super;line-height:0;letter-spacing:-.04em}
+.content h1{margin:0 0 28px}
+.wordmark{width:min(100%,380px);height:auto;display:block}
 .slogan{font-size:clamp(23px,2.7vw,43px);font-weight:250;line-height:1.28;letter-spacing:-.035em;margin:0}
 .description{font-size:14px;line-height:1.8;color:#85858e;margin:28px 0 30px;font-weight:350}
 .explore{pointer-events:auto;display:inline-block;border-bottom:1px solid #74717d;color:#eeeef2;padding:0 0 10px;font-size:12px;text-decoration:none}

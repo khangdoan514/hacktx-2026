@@ -57,6 +57,8 @@ type ListBody = { tools?: ToolRow[] };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
+  const token = window.localStorage.getItem("nmc3_token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init?.body) headers.set("Content-Type", "application/json");
   let response: Response;
   try {

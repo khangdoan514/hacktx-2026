@@ -23,7 +23,7 @@ async function readJSON(response: Response) {
   const text = await response.text();
   if (!text) return {};
   try {
-    return JSON.parse(text) as { error?: { message?: string }; approvals?: PendingApproval[] };
+    return JSON.parse(text) as { error?: { message?: string }; message?: string; approvals?: PendingApproval[] };
   } catch {
     return {};
   }
@@ -37,9 +37,12 @@ export default function ApprovalInbox() {
   const refresh = useCallback(async () => {
     setLoad({ status: "loading" });
     try {
+      const headers = new Headers();
+      const token = window.localStorage.getItem("nmc3_token");
+      if (token) headers.set("Authorization", `Bearer ${token}`);
       const response = await fetch("/agent-api/approvals/pending", {
         cache: "no-store",
-        headers: { "X-NMC3-Console": "1" },
+        headers,
       });
       const body = await readJSON(response);
       if (response.status === 404) {
@@ -47,7 +50,7 @@ export default function ApprovalInbox() {
         return;
       }
       if (!response.ok) {
-        setLoad({ status: "error", message: body.error?.message ?? `Could not load approvals (${response.status}).` });
+        setLoad({ status: "error", message: body.error?.message ?? body.message ?? `Could not load approvals (${response.status}).` });
         return;
       }
       setLoad({ status: "ready", approvals: (body.approvals ?? []).filter((item) => item.state === "WAITING") });
@@ -65,10 +68,13 @@ export default function ApprovalInbox() {
     setPendingID(id);
     setNotice("");
     try {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      const token = window.localStorage.getItem("nmc3_token");
+      if (token) headers.set("Authorization", `Bearer ${token}`);
       const response = await fetch(`/agent-api/approvals/${encodeURIComponent(id)}/decision`, {
         method: "POST",
         cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-NMC3-Console": "1" },
+        headers,
         body: JSON.stringify({ outcome }),
       });
       const body = await readJSON(response);

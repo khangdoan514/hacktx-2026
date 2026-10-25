@@ -1,0 +1,75 @@
+# Website, application API, private agent process, and Postgres.
+# The agent port is not published. Call it through http://localhost:8000/agent-api.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nmc3
+      POSTGRES_PASSWORD: nmc3-local
+      POSTGRES_DB: hacktx_nmc3
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./script/docker/init-databases.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nmc3 -d hacktx_nmc3"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "127.0.0.1:54330:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: script/docker/api.Dockerfile
+    environment:
+      ENVIRONMENT: local
+      DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-replace-with-a-long-random-string}
+      ALLOW_LOCAL_AUTH: "true"
+      AGENT_EXECUTION_MODE: dummy
+      ADDR: ":8000"
+      STORAGE_DIR: /app/var/storage
+      NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
+      AGENT_API_URL: http://agent:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  agent:
+    build:
+      context: .
+      dockerfile: script/docker/agent.Dockerfile
+    environment:
+      NMC3_STORE: postgres
+      DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
+      NMC3_DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
+      NMC3_ADDR: 0.0.0.0:8080
+      NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
+      OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-docker-opencode}
+      OPENCODE_URL: ${OPENCODE_URL:-http://host.docker.internal:49374}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: script/docker/web.Dockerfile
+      args:
+        BACKEND_URL: http://api:8000
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://vocvwmiypifqnncxhfpj.supabase.co}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    environment:
+      BACKEND_URL: http://api:8000
+    depends_on:
+      - api
+    ports:
+      - "3010:3000"
+
+volumes:
+  pgdata:

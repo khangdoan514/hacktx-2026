@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import Logo from "@/components/brand/Logo";
 import Icon, { type IconName } from "@/components/ui/Icon";
+import { endSession } from "@/product/supabase";
 import { useNow, useStore } from "@/lib/store";
 import { materialize } from "@/lib/simulate";
+import { useEmployee } from "./ConsoleGate";
 import s from "./Rail.module.css";
 
 const groups: { href: string; label: string; icon: IconName }[][] = [
@@ -19,6 +22,12 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/budgets", label: "Budgets", icon: "gauge" },
     { href: "/guardrails", label: "Guardrails", icon: "shield" },
     { href: "/prompts", label: "Prompts", icon: "message" },
+  ],
+  [
+    { href: "/definitions", label: "Definitions", icon: "scroll-text" },
+    { href: "/tools", label: "Tools", icon: "wrench" },
+    { href: "/approvals", label: "Approvals", icon: "badge-check" },
+    { href: "/org", label: "Organization", icon: "building" },
   ],
 ];
 
@@ -35,16 +44,25 @@ function toggleTheme(e: React.MouseEvent<HTMLButtonElement>) {
       { duration: 650, easing: "cubic-bezier(0.16, 1, 0.3, 1)", pseudoElement: "::view-transition-new(root)" }));
 }
 
+function initials(name: string, email: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : (parts[0] || email).slice(0, 2);
+  return letters.toUpperCase();
+}
+
 export default function Rail() {
   const path = usePathname();
+  const router = useRouter();
+  const employee = useEmployee();
   const { live } = useStore();
   const now = useNow();
   const running = live ? materialize(live, now).state === "RUNNING" : false;
   const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
+  const label = employee?.display_name || employee?.email || "Signed in";
 
   return (
     <nav className={s.rail} aria-label="Primary">
-      <Link href="/" className={s.mark} aria-label="NMC³ home"><span>N³</span></Link>
+      <Link href="/" className={s.mark} aria-label="NMC³ home"><Logo /></Link>
       {groups.map((g, i) => (
         <div key={i} className={s.group}>
           {i > 0 && <span className={s.sep} />}
@@ -61,7 +79,10 @@ export default function Rail() {
           <span className={s.moon}><Icon name="moon" size={17} /></span>
           <span className={s.sun}><Icon name="sun" size={17} /></span>
         </button>
-        <div className={s.avatar} title="Khang Doan">KD</div>
+        <button type="button" className="ibtn" onClick={() => { void endSession().then(() => router.replace("/sign-in")); }} aria-label="Sign out" data-tip="Sign out" data-tip-side>
+          <Icon name="log-out" size={17} />
+        </button>
+        <div className={s.avatar} title={label}>{initials(employee?.display_name ?? "", employee?.email ?? "")}</div>
       </div>
     </nav>
   );

@@ -1,23 +1,21 @@
 # Architecture
 
 ```
-browser ──► Next.js
-              │
-              ├── console /agent-api ──► agents/cmd/nmc3-agent (:8080)
-              │                            ├── its own Postgres database (schema nmc3)
-              │                            └── local OpenCode service (:49374)
-              └── NMC2 product routes at /sign-in, /org, and /requests
-                    │
-                    └── employee JWT ──► Go API (cmd/api :8000)
-                                           │
-                                           ├── Postgres schema app
-                                           ├── Postgres schema nmc3 (business runs and worker queue)
-                                           ├── private document bytes
-                                           └── cmd/worker leases agent runs
+browser or CLI ──► Next.js or :8000
+                     │
+                     └── Authorization: Bearer ──► Go API (cmd/api :8000)
+                                                     │
+                                                     ├── Postgres schema app (employees and roles)
+                                                     ├── Postgres schema nmc3 (business runs and worker queue)
+                                                     ├── private document bytes
+                                                     └── after the employee check, /agent-api/*
+                                                           └── agents/cmd/nmc3-agent (127.0.0.1:8080)
+                                                                 ├── its own Postgres database (schema nmc3)
+                                                                 └── local OpenCode service (:49374)
 ```
 
-- Business commands are under `/api/v1`. The business API also serves `/v1/agent-runs` for its dummy worker. The console uses the dedicated agent API for `/v1/agents`, `/v1/agent-runs`, run detail, and events. `GET /api/health` does not require a session.
-- Next.js proxies `/api/*` to the business API and `/agent-api/*` to `AGENT_API_URL` (default `http://127.0.0.1:8080`).
+- Business commands are under `/api/v1`. The business API also serves `/v1/agent-runs` for its dummy worker. Console and CLI calls to `/agent-api/*` stop at `cmd/api`, which checks the employee token and forwards to the private agent process for `/v1/agents`, `/v1/agent-runs`, run detail, events, `/v1/definitions`, `/v1/approvals`, and `/v1/extension-tools`. `GET /api/health` does not require a session. `./script/dev.sh` sets `NMC3_DATABASE_URL` to `AGENT_DATABASE_URL` for those stores. Run history stays on Supabase when `SUPABASE_SECRET_KEY` is set, and on that same agent database otherwise.
+- Next.js proxies `/api/*` and `/agent-api/*` to the business API (`BACKEND_URL`, default `http://localhost:8000`). A CLI uses the same bearer token against `http://127.0.0.1:8000/agent-api/...`. The agent process listens on `127.0.0.1:8080` and, when `NMC3_INTERNAL_TOKEN` is set, rejects requests that did not come from `cmd/api`.
 - The API verifies a Supabase RS256 or ES256 token against the configured issuer, audience, and JWKS. Local HS256 is available only when `ENVIRONMENT` is `local` or `test`, and never with the secret `dev-only-change-me`.
 - Each employee transaction runs as `app_runtime` (`NOLOGIN`, `NOBYPASSRLS`) with transaction-local `app.user_id` and `app.user_email`. The role does not own the tables.
 - Schema `app` holds the NMC2 organization, requests, specifications, approvals, handovers, catalog releases, and files. Schema `nmc3` holds runs, events, and the worker queue. Older business tables remain in place.
@@ -32,4 +30,4 @@ The record of the replaced FastAPI and Convex behavior is in [implemented/](impl
 
 ## Dashboard boundary
 
-This phase does not change the dashboard shell, its overview, agents, workflows, or runs pages, or the product dashboard routes. `frontend/src/lib/mock-data.ts` remains the compatibility shim those pages import.
+The console rail links Definitions, Tools, and Approvals beside the existing run pages. Those three call the agent API. Product routes stay on the business API. `frontend/src/lib/mock-data.ts` remains the compatibility shim the older pages import.

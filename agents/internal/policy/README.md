@@ -101,7 +101,7 @@ root.Handle("/", httpapi.New(coordinator, runs, events, definitions))
 server := http.Server{Addr: addr, Handler: root, ReadHeaderTimeout: 10 * time.Second}
 ```
 
-`cmd/nmc3-agent/main.go` does not contain this mount.
+`cmd/nmc3-agent/main.go` mounts this handler on the dedicated agent database and uses the local console principal.
 
 ## Not wired here
 

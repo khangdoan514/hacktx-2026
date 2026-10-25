@@ -1,5 +1,5 @@
 import { agentById } from "@/config/agents";
-import { agentApi, type AgentRun, type RunState } from "@/lib/api";
+import { AgentRequestError, agentApi, type AgentRun, type RunState } from "@/lib/api";
 import type { Call, ErrorCode, Idea, Limits, Op, RunPlan, Turn } from "@/lib/types";
 
 const knownErrors = new Set<ErrorCode>([
@@ -111,7 +111,8 @@ export async function loadBackendRuns(): Promise<RunPlan[] | null> {
   try {
     const body = await agentApi.list();
     return (body.runs ?? []).map(planFromRun).filter((plan) => agentById(plan.agent));
-  } catch {
+  } catch (err) {
+    if (err instanceof AgentRequestError && err.status === 401) throw err;
     return null;
   }
 }

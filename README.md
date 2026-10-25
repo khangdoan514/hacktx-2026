@@ -32,7 +32,15 @@ The local password is `local-demo-pass`. `ALLOW_LOCAL_AUTH=true` works only when
 ./script/dev.sh
 ```
 
-The business API listens on `:8000`, the agent API on `127.0.0.1:8080`, and Next.js on `:3000`. `/` is the console. Its `/agent-api` calls go to `agents/cmd/nmc3-agent`, which executes through the local OpenCode service. `./script/dev.sh` creates the separate `hacktx_nmc3_agent` database, applies `agents/db/migrations`, and starts OpenCode when it is not already running. `/sign-in`, `/org`, and `/requests` stay on the business API. `GET /api/health` stays available.
+Docker runs the same three processes plus Postgres:
+
+```bash
+docker compose up --build
+```
+
+The site is `http://localhost:3010`. The console signs in through Supabase at `/sign-in`. The demo employees `ada.hardware@nmc2.test`, `bao.ai@nmc2.test`, and `cam.review@nmc2.test` use `local-demo-pass`. The application API is on port 8000 and calls the agent container on the Compose network. Postgres is on `127.0.0.1:54330` with user `nmc3` and password `nmc3-local`. Live model runs still need OpenCode. Point `OPENCODE_URL` at a service the agent container can reach, and set `OPENCODE_SERVICE_PASSWORD` to that service's password.
+
+The business API listens on `:8000`, the agent API on `127.0.0.1:8080`, and Next.js on `:3000`. `/` is the console. Its `/agent-api` calls go to the business API, which checks the employee token and then calls `agents/cmd/nmc3-agent`. A CLI uses that same token: `curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/agent-api/agents`. The agent process executes through the local OpenCode service. `./script/dev.sh` creates the separate `hacktx_nmc3_agent` database, applies `agents/db/migrations`, and starts OpenCode when it is not already running. `/sign-in`, `/org`, and `/requests` stay on the business API. `GET /api/health` stays available.
 
 Agent runs use `AGENT_EXECUTION_MODE=dummy`. The mode and adapter version are stored on the run. This build does not call a model provider and does not substitute dummy output for a failed provider call.
 

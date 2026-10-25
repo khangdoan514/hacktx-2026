@@ -1,6 +1,6 @@
 # Definition registry
 
-This package is the Pass 2 definition lifecycle. It stores agent definitions as versioned records, validates them, serves the draft/test/publish/revise/retire/get/export HTTP API, and pins a run to the exact version it started with. Canonical form is JSON. `agents/cmd/nmc3-agent` still loads `agents/examples/definitions.json` directly and does not call `ResolveAndPinRun`. It mounts `Handler` when `DATABASE_URL` is set. The example file format is unchanged.
+This package is the Pass 2 definition lifecycle. It stores agent definitions as versioned records, validates them, serves the draft/test/publish/revise/retire/get/export HTTP API, and pins a run to the exact version it started with. Canonical form is JSON. `agents/cmd/nmc3-agent` still loads `agents/examples/definitions.json` for OpenCode prompts and does not call `ResolveAndPinRun`. It imports that file into the registry and mounts `Handler` when `NMC3_DATABASE_URL` is set. The example file format is unchanged.
 
 ## Lifecycle
 
@@ -70,11 +70,11 @@ Invalid publish returns 400 `INVALID_INPUT` and writes nothing:
 
 `fields[].field` is the JSON path (`limits.max_tokens`, `allowed_delegates[0]`). Not found is 404. Retired, immutable, and conflict are 409. A published body cannot be replaced; `revise` creates the next version and leaves the source version in place.
 
-The website at `frontend/src/app/(console)/definitions/page.tsx` posts these routes through `/agent-api/definitions/*`. Next rewrites that prefix to `${AGENT_API_URL}/v1/*`.
+The website at `frontend/src/app/(console)/definitions/page.tsx` posts these routes through `/agent-api/definitions/*`. Next rewrites that prefix to the application API, which forwards it to `/v1/*` on this service.
 
 ## Wiring main.go
 
-`agents/cmd/nmc3-agent` mounts this handler when `DATABASE_URL` is set. Without that variable the process still returns 404 for `/v1/definitions`. `TestHTTPWebsiteFlow` serves `Handler` and performs the page's draft, test, and publish requests, including the pin check.
+`agents/cmd/nmc3-agent` mounts this handler when `NMC3_DATABASE_URL` is set. Without that variable the process still returns 404 for `/v1/definitions`. `TestHTTPWebsiteFlow` serves `Handler` and performs the page's draft, test, and publish requests, including the pin check.
 
 `Mount` registers absolute paths. Put it on the process mux before the catch-all run API so `/v1/definitions` is not swallowed:
 
@@ -110,7 +110,7 @@ To try the page without editing `main.go`, from `agents/`:
 NMC3_DEFINITIONS_ADDR=127.0.0.1:8091 go test ./internal/definitions/ -run TestDefinitionsListen -count=1
 ```
 
-That process is an in-memory registry. From `frontend/`, with `AGENT_API_URL=http://127.0.0.1:8091`, open `/definitions`. The console rail does not link here.
+That process is an in-memory registry. From `frontend/`, with `AGENT_API_URL=http://127.0.0.1:8091`, open `/definitions`. The console rail links Definitions.
 
 ## Storage
 

@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { writeToken } from "@/product/api";
+import Logo from "@/components/brand/Logo";
+import PageHeader from "@/components/shell/PageHeader";
+import { supabase } from "@/product/supabase";
 import { nmc } from "./client";
+import org from "./org.module.css";
+import signIn from "./signin.module.css";
 
 type RequestRow = {
   id: string;
@@ -50,26 +54,32 @@ export function SignInScreen() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    try {
-      const session = await nmc<{ access_token: string }>("/api/v1/auth/local-session", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      writeToken(session.access_token);
-      router.push("/org");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+    if (!supabase) {
+      setError("Supabase auth is not configured.");
+      return;
     }
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      setError(signInError.message);
+      return;
+    }
+    const next = new URLSearchParams(window.location.search).get("next");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
   }
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto max-w-md space-y-3 rounded-lg bg-white p-6 shadow-sm">
-      <h1 className="text-lg font-semibold">Sign in</h1>
-      <p className="text-sm text-gray-600">NMC2 employees use the account issued for their team.</p>
-      <input className="w-full rounded border px-3 py-2" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="email" />
-      <input className="w-full rounded border px-3 py-2" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} data-testid="password" />
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      <button className="rounded bg-gray-900 px-3 py-2 text-sm text-white" type="submit">Sign in</button>
+    <form onSubmit={onSubmit} className={signIn.page}>
+      <div className={signIn.card}>
+        <Logo className={signIn.logo} />
+        <div>
+          <h1>Sign in</h1>
+          <p className="muted">NMC2 employees use the account issued for their team.</p>
+        </div>
+        <input className="input" placeholder="Email" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="email" autoComplete="username" />
+        <input className="input" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} data-testid="password" autoComplete="current-password" />
+        {error ? <p className={signIn.error}>{error}</p> : null}
+        <button className="btn solid" type="submit">Sign in</button>
+      </div>
     </form>
   );
 }
@@ -81,28 +91,43 @@ export function OrgScreen() {
     nmc<typeof data>("/api/v1/organization").then(setData).catch((err: Error) => setError(err.message));
   }, []);
   return (
-    <section className="space-y-4">
-      <h1 className="text-xl font-semibold">{data?.name || "NMC2"}</h1>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      {data?.divisions.map((division) => (
-        <div key={division.name} className="rounded-lg bg-white p-4">
-          <h2 className="font-medium">{division.name}</h2>
-          <ul className="mt-2 text-sm text-gray-700">
-            {division.teams.map((team) => <li key={team.id}>{team.name}</li>)}
-          </ul>
-        </div>
-      ))}
-      <Link href="/requests" className="text-sm underline">Capability requests</Link>
-      <button
-        className="rounded border px-3 py-2 text-sm"
-        data-testid="remove-ada"
-        onClick={() => {
-          void nmc("/api/v1/members/20000000-0000-4000-8000-000000000001/remove", { method: "POST", body: "{}" }).catch((err: Error) => setError(err.message));
-        }}
-      >
-        Remove Hardware access
-      </button>
-    </section>
+    <>
+      <PageHeader
+        title={data?.name || "NMC2"}
+        sub="One organization. Hardware and Software are the divisions."
+        actions={
+          <>
+            <Link className="btn" href="/requests">Requests</Link>
+            <button
+              className="btn"
+              type="button"
+              data-testid="remove-ada"
+              onClick={() => {
+                void nmc("/api/v1/members/20000000-0000-4000-8000-000000000001/remove", { method: "POST", body: "{}" }).catch((err: Error) => setError(err.message));
+              }}
+            >
+              Remove Hardware access
+            </button>
+          </>
+        }
+      />
+      {error ? <p className={org.err}>{error}</p> : null}
+      <div className={org.grid}>
+        {data?.divisions.map((division) => (
+          <section key={division.name} className="card rise">
+            <div className="ch">
+              <h2>{division.name}</h2>
+              <span className={`n ${org.count}`}>{division.teams.length}</span>
+            </div>
+            <div className="rows">
+              {division.teams.map((team) => (
+                <div key={team.id} className={org.row}>{team.name}</div>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </>
   );
 }
 

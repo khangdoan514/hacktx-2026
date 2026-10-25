@@ -5,10 +5,12 @@
 // Real runs are loaded from /v1/agent-runs when this API knows the agent.
 // Otherwise the in-browser simulator keeps the console usable.
 
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { endSession } from "@/product/supabase";
 import { agentById } from "@/config/agents";
 import { budgets, guardrails, scenarios, triggers } from "@/config/workspace";
-import { agentApi } from "./api";
+import { AgentRequestError, agentApi } from "./api";
 import { loadBackendRun, loadBackendRuns, startBackendRun } from "./live";
 import { buildPlan, materialize } from "./simulate";
 import type { Limits, RunPlan, RunView } from "./types";
@@ -59,6 +61,8 @@ function seedHistory(now: number): RunPlan[] {
 const liveScenarios = scenarios.filter((s) => !s.fail);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<RunPlan[]>([]);
@@ -115,6 +119,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const featured = remote.find((plan) => plan.final === "SUCCEEDED") ?? remote[0];
         setHistory(remote.filter((plan) => plan.id !== featured.id));
         setLive(featured);
+      } else {
+        setHistory(seedHistory(t));
+        setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));
+      }
+      setNow(t);
+      setReady(true);
+    }).catch((err: unknown) => {
+      if (stop) return;
+      if (err instanceof AgentRequestError && err.status === 401) {
+        void endSession().then(() => router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`));
+        return;
       } else {
         setHistory(seedHistory(t));
         setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));

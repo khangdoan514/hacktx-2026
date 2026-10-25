@@ -110,8 +110,8 @@ export default function Editor() {
         title="Definitions"
         sub="Draft, test, and publish an agent without editing a file. Test checks tools and delegates. It does not start a model run."
         code={{
-          cli: `curl -s -X POST "$AGENT_API/v1/definitions/draft" \\\n  -H "X-NMC3-Actor: local" -H "Content-Type: application/json" \\\n  -d @agent.json\n\ncurl -s -X POST "$AGENT_API/v1/definitions/test" \\\n  -H "X-NMC3-Actor: local" -H "Content-Type: application/json" \\\n  -d '{"id":"support-triage","version":"1.0.0"}'\n\ncurl -s -X POST "$AGENT_API/v1/definitions/publish" \\\n  -H "X-NMC3-Actor: local" -H "Content-Type: application/json" \\\n  -d @agent.json`,
-          sdk: `await fetch("/agent-api/definitions/publish", {\n  method: "POST",\n  headers: {\n    "Content-Type": "application/json",\n    "X-NMC3-Actor": "local",\n  },\n  body: JSON.stringify(spec),\n});`,
+          cli: `curl -s -X POST "$API/agent-api/definitions/draft" \\\n  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n  -d @agent.json\n\ncurl -s -X POST "$API/agent-api/definitions/publish" \\\n  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\\n  -d @agent.json`,
+          sdk: `await fetch("/agent-api/definitions/publish", {\n  method: "POST",\n  headers: {\n    "Content-Type": "application/json",\n    Authorization: \`Bearer \${token}\`,\n  },\n  body: JSON.stringify(spec),\n});`,
         }}
       />
       {offline === "unmounted" && (
