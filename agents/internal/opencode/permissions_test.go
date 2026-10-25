@@ -181,6 +181,32 @@ func TestDepthEscalationDenied(t *testing.T) {
 	}
 }
 
+func TestThreadToolsRequireApprovalForOperations(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	cfg, err := loadProjectPolicy(filepath.Join(filepath.Dir(file), "..", "..", "opencode.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := effectiveRules(cfg, "thread")
+	checks := []struct{ action, resource, want string }{
+		{"read", "README.md", "allow"},
+		{"read", ".env", "deny"},
+		{"glob", "*.go", "allow"},
+		{"grep", "API_KEY", "ask"},
+		{"shell", "pwd", "ask"},
+		{"edit", "README.md", "ask"},
+		{"catalog_search", "*", "allow"},
+		{"tools_github_get_file", "*", "allow"},
+		{"websearch", "OpenCode", "allow"},
+		{"subagent", "general", "deny"},
+	}
+	for _, check := range checks {
+		if got := permissionEffect(rules, check.action, check.resource); got != check.want {
+			t.Errorf("%s %q: got %q, want %q", check.action, check.resource, got, check.want)
+		}
+	}
+}
+
 // Every pack tool a definition lists must be allowed for that agent in
 // opencode.jsonc, and no agent may hold a pack tool its definition omits.
 func TestPackToolsMatchDefinitions(t *testing.T) {

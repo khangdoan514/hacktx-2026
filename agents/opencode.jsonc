@@ -223,23 +223,33 @@
       ]
     },
     // Free-form chat (the console's Threads page). No pre-compiled prompt.
-    // It can read the project and query the catalog, and nothing else: no
-    // shell, edit, web, or subagents. Widen this list to give threads more.
+    // Read-only tools run directly; shell and edits require an explicit
+    // per-call decision in the Threads UI.
+    "builder-agent": {
+      "description": "Model-only agent published from the website",
+      "mode": "primary",
+      "steps": 12,
+      "system": "Follow the published agent instructions supplied in the prompt. Complete the task using only the provided input. Do not call tools or delegate.",
+      "permissions": [{ "action": "*", "resource": "*", "effect": "deny" }]
+    },
     "thread": {
       "description": "Open-ended thread",
       "mode": "primary",
       "steps": 20,
-      "system": "You are a helpful assistant. Answer directly and say when you used a tool.",
+      "system": "You are a helpful agent. Use tools when they help complete the user's request. Uploaded files are included in the message or as native attachments; they are not workspace paths. Analyze their provided content directly. Ask for approval through the tool permission mechanism when an operation requires it. Explain meaningful results naturally; do not add tool-use footers.",
       "permissions": [
         { "action": "*", "resource": "*", "effect": "deny" },
         { "action": "read", "resource": "*", "effect": "allow" },
+        { "action": "glob", "resource": "*", "effect": "allow" },
+        { "action": "grep", "resource": "*", "effect": "ask" },
         { "action": "catalog_*", "resource": "*", "effect": "deny" },
         { "action": "catalog_search", "resource": "*", "effect": "allow" },
-        { "action": "shell", "resource": "*", "effect": "deny" },
-        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "tools_*", "resource": "*", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "ask" },
+        { "action": "edit", "resource": "*", "effect": "ask" },
         { "action": "subagent", "resource": "*", "effect": "deny" },
-        { "action": "webfetch", "resource": "*", "effect": "deny" },
-        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "allow" },
+        { "action": "websearch", "resource": "*", "effect": "allow" },
         { "action": "read", "resource": "*.env", "effect": "deny" },
         { "action": "read", "resource": "*.env.*", "effect": "deny" },
         { "action": "read", "resource": "*.env.example", "effect": "deny" }

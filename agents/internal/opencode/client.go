@@ -26,9 +26,10 @@ const serviceUser = "opencode"
 var callTimeout = 30 * time.Second
 
 type Client struct {
-	baseURL  string
-	password string
-	client   *http.Client
+	baseURL      string
+	password     string
+	passwordFile string
+	client       *http.Client
 }
 
 func defaultServiceFile() string {
@@ -53,6 +54,10 @@ func ResolvePassword() (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("OpenCode service password is not configured")
 	}
+	return readServicePassword(path)
+}
+
+func readServicePassword(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read OpenCode service registration: %w", err)
@@ -73,7 +78,7 @@ func NewClient(baseURL, password string, client *http.Client) (*Client, error) {
 	if client == nil {
 		client = &http.Client{}
 	}
-	return &Client{baseURL: baseURL, password: password, client: client}, nil
+	return &Client{baseURL: baseURL, password: password, passwordFile: os.Getenv("OPENCODE_SERVICE_FILE"), client: client}, nil
 }
 
 func (c *Client) call(ctx context.Context, method, path string, body any, out any) error {
@@ -98,7 +103,16 @@ func (c *Client) callWithTimeout(ctx context.Context, method, path string, body 
 	if err != nil {
 		return fmt.Errorf("create OpenCode request: %w", err)
 	}
-	request.SetBasicAuth(serviceUser, c.password)
+	password := c.password
+	if c.passwordFile != "" {
+		// The host service can rotate its registration while the agent runs.
+		// Read the mounted file for each request so a restart is not required.
+		password, err = readServicePassword(c.passwordFile)
+		if err != nil {
+			return err
+		}
+	}
+	request.SetBasicAuth(serviceUser, password)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -154,10 +168,12 @@ type messageEnvelope struct {
 // Message mirrors the assistant/user message shape used for event mapping.
 // Only text and tool parts are interpreted; other parts are ignored.
 type Message struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Agent   string `json:"agent"`
-	Content []struct {
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`
+	Text     string         `json:"text,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+	Agent    string         `json:"agent"`
+	Content  []struct {
 		Type  string         `json:"type"`
 		Text  string         `json:"text"`
 		Name  string         `json:"name"`
@@ -195,7 +211,52 @@ func (c *Client) CreateSession(ctx context.Context, directory, title, agent, pro
 }
 
 func (c *Client) Prompt(ctx context.Context, sessionID, text string) error {
-	return c.call(ctx, http.MethodPost, "/api/session/"+sessionID+"/prompt", map[string]string{"text": text}, nil)
+	return c.PromptWithFiles(ctx, sessionID, text, nil)
+}
+
+// FileAttachment uses OpenCode's native prompt attachment API. The caller
+// supplies a data URL so the OpenCode service need not access object storage.
+type FileAttachment struct {
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
+}
+
+func (c *Client) PromptWithFiles(ctx context.Context, sessionID, text string, files []FileAttachment) error {
+	return c.PromptWithDisplayText(ctx, sessionID, text, "", files)
+}
+
+// PromptWithDisplayText keeps server-side attachment context available to the
+// model while preserving the user's original message for transcript display.
+func (c *Client) PromptWithDisplayText(ctx context.Context, sessionID, text, displayText string, files []FileAttachment) error {
+	var metadata map[string]string
+	if displayText != "" {
+		metadata = map[string]string{"nmc3_display_text": displayText}
+	}
+	return c.call(ctx, http.MethodPost, "/api/session/"+sessionID+"/prompt", struct {
+		Text     string            `json:"text"`
+		Files    []FileAttachment  `json:"files,omitempty"`
+		Metadata map[string]string `json:"metadata,omitempty"`
+	}{Text: text, Files: files, Metadata: metadata}, nil)
+}
+
+type PermissionRequest struct {
+	ID        string   `json:"id"`
+	Action    string   `json:"action"`
+	Resources []string `json:"resources"`
+}
+
+func (c *Client) PermissionRequests(ctx context.Context, sessionID string) ([]PermissionRequest, error) {
+	var out struct {
+		Data []PermissionRequest `json:"data"`
+	}
+	if err := c.call(ctx, http.MethodGet, "/api/session/"+sessionID+"/permission", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+func (c *Client) ReplyPermission(ctx context.Context, sessionID, requestID, decision string) error {
+	return c.call(ctx, http.MethodPost, "/api/session/"+sessionID+"/permission/"+requestID+"/reply", map[string]string{"decision": decision}, nil)
 }
 
 // Wait blocks until the session idles. A 204 means idle; callers enforce the

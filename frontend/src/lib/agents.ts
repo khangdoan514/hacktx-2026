@@ -7,7 +7,7 @@ type WireSpec = {
   id: string; version: string; name: string; role?: string; instructions?: string;
   input_schema?: unknown; output_schema?: unknown; allowed_tools?: string[]; allowed_delegates?: string[]; limits?: WireLimits;
 };
-type WireDefinition = { spec: WireSpec; state?: string };
+type WireDefinition = { spec: WireSpec; state?: string; published_at?: string; updated_at?: string };
 
 export const limitsFromWire = (l: WireLimits): Limits => ({
   turns: l.max_model_turns, tools: l.max_tool_calls, delegations: l.max_delegations, parallel: l.max_concurrent_agents, seconds: l.timeout_seconds,
@@ -35,6 +35,12 @@ function newerVersion(left: string, right: string): boolean {
   return false;
 }
 
+function newerDefinition(next: WireDefinition, prior: WireDefinition): boolean {
+  if (newerVersion(next.spec.version, prior.spec.version)) return true;
+  if (newerVersion(prior.spec.version, next.spec.version)) return false;
+  return (next.published_at ?? next.updated_at ?? "") >= (prior.published_at ?? prior.updated_at ?? "");
+}
+
 /** One card per agent. A republish keeps the older version for past runs. */
 function latestVersions(definitions: WireDefinition[]): WireDefinition[] {
   const byID = new Map<string, WireDefinition>();
@@ -42,7 +48,7 @@ function latestVersions(definitions: WireDefinition[]): WireDefinition[] {
     const id = definition.spec?.id;
     if (!id) continue;
     const current = byID.get(id);
-    if (!current || newerVersion(definition.spec.version, current.spec.version)) byID.set(id, definition);
+    if (!current || newerDefinition(definition, current)) byID.set(id, definition);
   }
   return [...byID.values()];
 }
