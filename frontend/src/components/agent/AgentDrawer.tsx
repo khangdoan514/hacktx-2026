@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import { stateColor } from "@/components/ui/StatePill";
 import { compact, secs, usd } from "@/lib/format";
-import { useAllRuns, useRunView, useStore } from "@/lib/store";
+import { useAllRuns, useRunDetails, useRunView, useStore } from "@/lib/store";
 import type { AgentDef } from "@/lib/types";
 import s from "./AgentDrawer.module.css";
 
@@ -170,7 +170,9 @@ function Activity({ def }: { def: AgentDef }) {
 function Prompts({ def, runId }: { def: AgentDef; runId?: string }) {
   // Default to the run the drawer was opened from, else this agent's latest run.
   const inv = useInvocations(def.id);
-  const id = runId && inv.some((i) => i.run.plan.id === runId) ? runId : inv[0]?.run.plan.id;
+  const details = useRunDetails();
+  const withTurns = details.find((r) => r.turns.some((t) => t.agent === def.id && t.id !== `${r.id}-usage`))?.id;
+  const id = runId && inv.some((i) => i.run.plan.id === runId) ? runId : withTurns ?? inv[0]?.run.plan.id;
   const view = useRunView(id);
   if (!id || !view) return <p className={s.note} style={{ marginTop: 12 }}>{id ? "Loading…" : "No runs yet."}</p>;
   const turns = view.turns.filter((t) => t.agent === def.id);
