@@ -1,98 +1,67 @@
 "use client";
 
 import Link from "next/link";
-import { agentById } from "@/config/agents";
-import { guardrails, type Guardrail } from "@/config/workspace";
 import PageHeader from "@/components/shell/PageHeader";
-import Icon from "@/components/ui/Icon";
-import { ago } from "@/lib/format";
-import { useAllRuns, useNow, useStore } from "@/lib/store";
-import type { EventView, RunView } from "@/lib/types";
-import s from "./guardrails.module.css";
+import { useRunDetails, useStore } from "@/lib/store";
+import s from "../table.module.css";
 
-/** Which guardrail an event shows firing, if any. */
-const firedBy = (e: EventView): Guardrail["id"] | null => {
-  if (e.type === "DELEGATION_REJECTED") return "depth";
-  if (e.type === "TOOL_FAILED" && e.detail?.includes("TOOL_NOT_ALLOWED")) return "allowlist";
-  if (e.type === "RUN_FAILED" && e.detail === "BUDGET_EXCEEDED") return "limits";
-  if (e.type === "RUN_FAILED" && e.detail === "OUTPUT_SCHEMA_INVALID") return "schema";
-  return null;
-};
-
+/** What each definition allows. The service denies everything else, and records the denials. */
 export default function GuardrailsPage() {
-  const runs = useAllRuns();
-  const now = useNow();
-  const { guardrailsOn, setGuardrail, toast, openAgent } = useStore();
-  const blocks: { run: RunView; e: EventView; g: string }[] = [];
-  for (const r of runs) for (const e of r.events) {
-    const g = firedBy(e);
-    if (g) blocks.push({ run: r, e, g });
-  }
-  const count = (id: string) => blocks.filter((b) => b.g === id).length;
+  const runs = useRunDetails();
+  const { agents } = useStore();
+  const stopped = runs.filter((r) => r.error || r.final === "FAILED");
+  // The service records each denial as an event (with its code) and as a failed tool invocation; events carry the code, so use them.
+  const denied = runs.flatMap((r) => {
+    const events = r.ops.flatMap((o, i) => (o.k === "event" && (o.type === "TOOL_FAILED" || o.type === "DELEGATION_REJECTED")
+      ? [{ key: `${r.id}-${i}`, run: r.id, what: o.detail ?? o.type, agent: o.agent }] : []));
+    return events.length ? events : r.calls.filter((c) => c.denied).map((c) => ({ key: c.id, run: r.id, what: c.name, agent: c.agent }));
+  });
 
   return (
     <>
-      <PageHeader
-        title="Guardrails"
-        sub="Rules checked in code before any action runs. Prompts guide agents; guardrails enforce."
-        code={{
-          cli: "nmc3 guardrails list\nnmc3 guardrails enable citations\nnmc3 guardrails blocks --since 24h",
-          sdk: `await nmc3.guardrails.update("citations", { enabled: true });\nconst blocks = await nmc3.guardrails.blocks({ since: "24h" });`,
-        }}
-      />
-      <div className={s.grid}>
-        <section className="card rise">
-          <div className="ch"><h2>Rules</h2><span className="n">{guardrails.filter((g) => guardrailsOn[g.id]).length} on</span></div>
-          <ul className={`${s.rules} rows`}>
-            {guardrails.map((g) => {
-              const on = guardrailsOn[g.id];
-              const locked = g.enforcement === "runtime";
-              return (
-                <li key={g.id}>
-                  <span className={`${s.ico} ${on ? s.on : ""}`}><Icon name={g.icon} size={17} /></span>
-                  <div style={{ minWidth: 0 }}>
-                    <b>{g.name}</b>
-                    <p>{g.detail}</p>
-                    <div className={s.meta}>
-                      <span className={`tag ${locked ? "" : "accent"}`}>{locked ? "runtime" : "policy"}</span>
-                      {g.code && <span className="tag">{g.code}</span>}
-                      {count(g.id) > 0 && <span className="tag err">{count(g.id)} blocked</span>}
-                    </div>
-                  </div>
-                  <button
-                    type="button" className="switch" role="switch" aria-checked={on} disabled={locked}
-                    aria-label={g.name} title={locked ? "Enforced by the runtime" : undefined}
-                    onClick={() => { setGuardrail(g.id, !on); toast(`${g.name} ${on ? "off" : "on"}`); }}
-                  />
-                </li>
-              );
-            })}
+      <PageHeader title="Guardrails" sub="What each definition allows, and what the service actually denied or stopped on recorded runs." />
+      <section className="card">
+        <div className={s.scroll}>
+          <table className={s.table}>
+            <thead><tr><th>Agent</th><th>Allowed tools</th><th>Allowed delegates</th><th className={s.r}>Max delegations</th><th className={s.r}>Max tool calls</th></tr></thead>
+            <tbody>
+              {agents.map((a) => (
+                <tr key={a.id}>
+                  <td>{a.name} <span className="mono muted">{a.id}@{a.version}</span></td>
+                  <td>{a.tools.length ? a.tools.map((t) => <span key={t} className="tag accent" style={{ marginRight: 4 }}>{t}</span>) : <span className="muted">none</span>}</td>
+                  <td>{a.delegates.length ? a.delegates.map((d) => <span key={d} className="tag" style={{ marginRight: 4 }}>{d}</span>) : <span className="muted">none</span>}</td>
+                  <td className={`${s.r} mono`}>{a.limits.delegations}</td>
+                  <td className={`${s.r} mono`}>{a.limits.tools}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="card">
+        <div className="ch"><h2>Denied actions</h2><span className="n">{denied.length}</span></div>
+        {denied.length === 0 ? <p className="muted" style={{ padding: 20 }}>No run has had a tool call denied.</p> : (
+          <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
+            {denied.map((d) => (
+              <li key={d.key} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <span className="tag err">{d.what}</span> {d.agent} in <Link href={`/live-run/${d.run}`} className="mono">{d.run}</Link>
+              </li>
+            ))}
           </ul>
-        </section>
-
-        <section className="card rise" style={{ "--d": "60ms" } as React.CSSProperties}>
-          <div className="ch"><h2>Recent blocks</h2><span className="n">{blocks.length}</span></div>
-          <ul className={`${s.feed} rows`}>
-            {blocks.slice(0, 14).map(({ run, e }) => {
-              const a = agentById(e.agent);
-              return (
-                <li key={`${run.plan.id}-${e.seq}`}>
-                  <i className={s.diamond} />
-                  <div style={{ minWidth: 0 }}>
-                    <b className="mono">{e.type === "RUN_FAILED" ? e.detail : e.type}</b>
-                    <small>
-                      {a && <button type="button" onClick={() => openAgent(a.id, { run: run.plan.id, tab: "prompts" })}>{a.name}</button>}
-                      {e.detail && e.type !== "RUN_FAILED" && <> · {e.detail}</>}
-                    </small>
-                  </div>
-                  <Link href={`/runs/${run.plan.id}`} className="mono muted">{run.plan.id}</Link>
-                  <span className="mono muted">{ago(run.plan.createdAt + e.at, now)}</span>
-                </li>
-              );
-            })}
+        )}
+      </section>
+      <section className="card">
+        <div className="ch"><h2>Runs stopped by the service</h2><span className="n">{stopped.length}</span></div>
+        {stopped.length === 0 ? <p className="muted" style={{ padding: 20 }}>No run has been stopped by a limit or a failed check.</p> : (
+          <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
+            {stopped.map((p) => (
+              <li key={p.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <span className="tag err">{p.error ?? "FAILED"}</span> <Link href={`/live-run/${p.id}`} className="mono">{p.id}</Link> {p.errorDetail}
+              </li>
+            ))}
           </ul>
-        </section>
-      </div>
+        )}
+      </section>
     </>
   );
 }

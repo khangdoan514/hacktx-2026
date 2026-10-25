@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 // Registry is the definition lifecycle. Memory and Postgres implementations
@@ -98,8 +99,24 @@ func (r *Registry) Close() {
 	}
 }
 
+// seed registers catalog.search and the built-in GitHub and Google Drive pack
+// tools, so a definition can list them in allowed_tools.
 func (r *Registry) seed(ctx context.Context) error {
-	return r.RegisterTool(ctx, builtinCatalogTool())
+	if err := r.RegisterTool(ctx, builtinCatalogTool()); err != nil {
+		return err
+	}
+	for _, pack := range toolpacks.Packs() {
+		for _, tool := range pack.Tools {
+			if err := r.RegisterTool(ctx, Tool{
+				ID: pack.ToolID(tool), Version: toolpacks.Version, Description: pack.Name + ": " + tool.Description,
+				InputSchema: tool.InputSchemaJSON(), OutputSchema: tool.OutputSchemaJSON(),
+				SideEffect: "READ_ONLY", TimeoutSeconds: 30,
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func builtinCatalogTool() Tool {

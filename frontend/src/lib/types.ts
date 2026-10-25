@@ -33,49 +33,24 @@ export type Limits = {
   seconds: number;
 };
 
-/** One scripted step a simulated agent takes. Real agents decide these at runtime. */
-export type SimStep =
-  | { tool: string; result: string; ms?: number }
-  | { blocked: "tool" | "delegate"; target: string }
-  | { think: string; ms?: number };
-
 export type AgentDef = {
   id: string;
   version: string;
   name: string;
   icon: IconName;
   kind: "orchestrator" | "specialist";
-  model: string;
+  /** What the definition's role says; the agent service has no separate description. */
   role: string;
   instructions: string;
   tools: string[];
   delegates: string[];
-  /** Orchestrators only: groups of delegates; agents in one group run in parallel. */
-  plan?: string[][];
   limits: Limits;
+  /** Spend ceiling per run, USD. */
+  maxCostUsd: number;
+  maxTokens: number;
   input: string;
   output: string;
-  /** Demo behaviour for the in-browser simulator. Omit to get a default. */
-  sim?: { steps?: SimStep[]; result: string };
-};
-
-export type ToolDef = {
-  id: string;
-  name: string;
-  mark: string;
-  provider: string;
-  sideEffect: "READ_ONLY" | "WRITE";
-  timeoutSeconds: number;
-};
-
-export type Idea = { title: string; why: string; score: number; sources: string[] };
-
-export type Scenario = {
-  agent: string;
-  task: string;
-  ideas: Idea[];
-  /** Ends the run early with a typed failure, for history. */
-  fail?: { atMs: number; code: ErrorCode };
+  state: string;
 };
 
 // ---------- Timeline produced by the simulator ----------
@@ -89,6 +64,8 @@ export type Turn = {
   system: string;
   input: string;
   output: string;
+  /** What the model decided this turn (FINISH, TOOL, DELEGATE), from the event. */
+  action?: string;
   tokensIn: number;
   tokensOut: number;
   cost: number;
@@ -113,11 +90,15 @@ export type RunPlan = {
   ops: Op[];
   calls: Call[];
   turns: Turn[];
-  ideas: Idea[];
+  /** The run's structured output once it has succeeded. */
+  output?: unknown;
+  /** Agent invocations in start order; the graph and lanes draw from these. */
+  invocations: { id: string; agent: string; parent: string | null; depth: number }[];
+  model?: string;
+  usage: { tokensIn: number; tokensOut: number; cost: number };
   final: State;
   error?: ErrorCode;
   errorDetail?: string;
-  trigger: string;
   cancelledAt?: number;
 };
 

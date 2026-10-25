@@ -12,14 +12,16 @@ export type RunState = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELL
 export interface RunError { code: string; message: string }
 export interface Invocation {
   id: string; parent_id: string | null; agent_id: string; agent_version: string;
-  depth: number; state: RunState; output?: unknown; error?: RunError;
+  depth: number; state: RunState; input?: unknown; output?: unknown; error?: RunError;
+  started_at?: string; finished_at?: string;
 }
 export interface AgentRun {
   id: string; state: RunState; agent_id: string; agent_version: string;
+  model_id?: string;
   input: unknown; output?: unknown; error?: RunError; invocations: Invocation[];
   usage: { input_tokens: number; output_tokens: number; cost_usd: number };
   tool_invocations: { id: string; agent_invocation_id: string; tool_id: string; tool_version: string;
-    output?: unknown; error?: RunError }[];
+    output?: unknown; error?: RunError; started_at?: string; finished_at?: string }[];
   created_at: string; updated_at: string;
 }
 export interface RunEvent {

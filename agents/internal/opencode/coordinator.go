@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 func id(prefix string) string {
@@ -41,6 +43,16 @@ type Coordinator struct {
 	events       contracts.EventSink
 	workdir      string
 	defaultModel string
+
+	mu       sync.Mutex
+	inflight map[string]*inflightRun
+}
+
+// inflightRun lets Cancel stop a run that execute is waiting on.
+type inflightRun struct {
+	cancel    context.CancelFunc
+	sessionID string
+	cancelled bool
 }
 
 func New(definitions []contracts.AgentDefinition, client *Client, store contracts.RunStore, events contracts.EventSink, workdir, defaultModel string) (*Coordinator, error) {
@@ -50,7 +62,7 @@ func New(definitions []contracts.AgentDefinition, client *Client, store contract
 	if workdir == "" || defaultModel == "" {
 		return nil, fmt.Errorf("opencode coordinator needs a workdir and default model")
 	}
-	c := &Coordinator{client: client, defs: map[string]contracts.AgentDefinition{}, store: store, events: events, workdir: workdir, defaultModel: defaultModel}
+	c := &Coordinator{client: client, defs: map[string]contracts.AgentDefinition{}, store: store, events: events, workdir: workdir, defaultModel: defaultModel, inflight: map[string]*inflightRun{}}
 	for _, d := range definitions {
 		if d.ID == "" || d.Version == "" || d.Name == "" {
 			return nil, fmt.Errorf("invalid definition identity")
@@ -117,9 +129,11 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	}
 	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", definition.ID, providerID, modelID)
 	if err != nil {
+		log.Printf("NMC3 OpenCode CreateSession failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
 	if err := c.client.Prompt(ctx, session.ID, buildPrompt(definition, c.defs, req.Input)); err != nil {
+		log.Printf("NMC3 OpenCode Prompt failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
 	t := now()
@@ -154,6 +168,11 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 	if listed(definition.AllowedTools, "catalog.search") {
 		sb.WriteString("Search the fictional catalog with the catalog_search tool. Do not read catalog files.\n")
 	}
+	for _, tool := range definition.AllowedTools {
+		if openCodeName, ok := toolpacks.OpenCodeNameFor(tool); ok {
+			sb.WriteString("Use the " + openCodeName + " tool for " + tool + ".\n")
+		}
+	}
 	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. Cite source IDs for every claim. If a tool or delegation is denied, do not retry it through the shell, the network, or another agent.\n")
 	sb.WriteString("Reply with ONLY a single JSON object matching this output schema, no other text: " + string(definition.OutputSchema))
 	return sb.String()
@@ -165,7 +184,7 @@ func canonicalToolID(name string) string {
 	if name == "catalog_search" {
 		return "catalog.search"
 	}
-	return name
+	return toolpacks.ContractID(name)
 }
 
 func listed(items []string, want string) bool {
@@ -245,6 +264,15 @@ func fail(err error) *contracts.RunError {
 func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefinition, limits contracts.Limits) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(limits.TimeoutSeconds)*time.Second)
 	defer cancel()
+	entry := &inflightRun{cancel: cancel, sessionID: run.OpenCodeSessionID}
+	c.mu.Lock()
+	c.inflight[run.ID] = entry
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.inflight, run.ID)
+		c.mu.Unlock()
+	}()
 	c.emit(run.ID, nil, "RUN_STARTED", map[string]any{"agent_id": definition.ID, "opencode_session_id": run.OpenCodeSessionID})
 	root := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, AgentID: definition.ID, AgentVersion: definition.Version, Depth: 0, State: contracts.StateRunning, Input: run.Input}
 	start := now()
@@ -256,14 +284,28 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 
 	output, usage, invocations, tools, runErr := c.collect(ctx, run, definition, &root, limits)
 	finish := now()
-	if runErr != nil {
+	c.mu.Lock()
+	cancelled := entry.cancelled
+	c.mu.Unlock()
+	if cancelled {
+		runErr = &contracts.RunError{Code: contracts.ErrInternal, Message: "The run was cancelled"}
+	}
+	if runErr != nil && cancelled {
+		root.Error = fail(runErr)
+		root.State = contracts.StateCancelled
+		c.emit(run.ID, &root.ID, "AGENT_FAILED", map[string]any{"code": root.Error.Code})
+	} else if runErr != nil {
 		log.Printf("NMC3 run %s failed: %v", run.ID, runErr)
 		root.Error = fail(runErr)
 		root.State = contracts.StateFailed
 		c.emit(run.ID, &root.ID, "MODEL_FAILED", map[string]any{"code": root.Error.Code})
 		c.emit(run.ID, &root.ID, "AGENT_FAILED", map[string]any{"code": root.Error.Code})
 	} else {
-		c.emit(run.ID, &root.ID, "MODEL_SUCCEEDED", map[string]any{"action": "FINISH", "usage": usage})
+		rootUsage := usage
+		if root.Usage != nil {
+			rootUsage = *root.Usage
+		}
+		c.emit(run.ID, &root.ID, "MODEL_SUCCEEDED", map[string]any{"action": "FINISH", "usage": rootUsage})
 		root.Output = output
 		root.State = contracts.StateSucceeded
 		c.emit(run.ID, &root.ID, "AGENT_SUCCEEDED", nil)
@@ -276,6 +318,9 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	if runErr != nil {
 		run.Error = fail(runErr)
 		run.State = contracts.StateFailed
+		if cancelled {
+			run.State = contracts.StateCancelled
+		}
 	} else {
 		run.State = contracts.StateSucceeded
 		run.Output = output
@@ -283,6 +328,8 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	c.persist(run)
 	if run.State == contracts.StateSucceeded {
 		c.emit(run.ID, nil, "RUN_SUCCEEDED", nil)
+	} else if run.State == contracts.StateCancelled {
+		c.emit(run.ID, nil, "RUN_CANCELLED", nil)
 	} else {
 		c.emit(run.ID, nil, "RUN_FAILED", map[string]any{"code": run.Error.Code})
 	}
@@ -437,6 +484,8 @@ waitLoop:
 
 func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDefinition, root *contracts.AgentInvocation, limits contracts.Limits, session Session, messages []Message) (json.RawMessage, contracts.Usage, []contracts.AgentInvocation, []contracts.ToolInvocation, error) {
 	usage := usageFrom(session)
+	own := usage
+	root.Usage = &own
 	var invocations []contracts.AgentInvocation
 	var tools []contracts.ToolInvocation
 	var lastText string
@@ -483,8 +532,31 @@ func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDe
 					c.emit(run.ID, &root.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": part.Name})
 					tools = append(tools, toolInvocation)
 					child := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, ParentID: &root.ID, AgentID: agent, AgentVersion: definition.Version, Depth: 1, State: contracts.StateSucceeded, Input: json.RawMessage(`{}`), StartedAt: &toolInvocation.StartedAt, FinishedAt: &finished}
-					invocations = append(invocations, child)
 					c.emit(run.ID, &child.ID, "AGENT_STARTED", map[string]any{"depth": 1})
+					if report, ok := c.childReport(childSessionID(part.State)); ok {
+						// The specialist ran in its own session: record its usage, tool calls and answer.
+						childUsage := usageFrom(report.session)
+						usage.InputTokens += childUsage.InputTokens
+						usage.OutputTokens += childUsage.OutputTokens
+						usage.CostUSD += childUsage.CostUSD
+						child.Output = report.output
+						child.Usage = &childUsage
+						for _, call := range report.tools {
+							call.RunID, call.AgentInvocationID = run.ID, child.ID
+							if call.Error != nil {
+								event := "TOOL_FAILED"
+								if call.Error.Code == contracts.ErrDelegationDepthExceeded {
+									event = "DELEGATION_REJECTED"
+								}
+								c.emit(run.ID, &child.ID, event, map[string]any{"tool_id": call.ToolID, "code": call.Error.Code, "agent_id": agent})
+							} else {
+								c.emit(run.ID, &child.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": call.ToolID})
+							}
+							tools = append(tools, call)
+						}
+						c.emit(run.ID, &child.ID, "MODEL_SUCCEEDED", map[string]any{"action": "FINISH", "usage": childUsage})
+					}
+					invocations = append(invocations, child)
 					c.emit(run.ID, &child.ID, "AGENT_SUCCEEDED", nil)
 					break
 				}
@@ -519,4 +591,92 @@ func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDe
 		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrOutputSchemaInvalid, Message: "agent output does not match schema: " + err.Error()}
 	}
 	return json.RawMessage(extracted), usage, invocations, tools, nil
+}
+
+// Cancel stops an in-flight run: the wait context is cancelled and the
+// OpenCode session is interrupted. It reports not-found for runs that are not
+// executing in this process (finished, or started by another instance).
+func (c *Coordinator) Cancel(ctx context.Context, runID string) error {
+	c.mu.Lock()
+	entry, ok := c.inflight[runID]
+	if ok {
+		entry.cancelled = true
+	}
+	c.mu.Unlock()
+	if !ok {
+		return &contracts.RunError{Code: contracts.ErrNotFound, Message: "run is not in flight"}
+	}
+	interruptCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+	defer stop()
+	_ = c.client.Interrupt(interruptCtx, entry.sessionID)
+	entry.cancel()
+	return nil
+}
+
+// childSessionID reads the delegated agent's OpenCode session from a subagent
+// tool call. OpenCode reports it in the tool state's metadata.
+func childSessionID(state map[string]any) string {
+	meta, _ := state["metadata"].(map[string]any)
+	id, _ := meta["sessionID"].(string)
+	return id
+}
+
+type childReport struct {
+	session Session
+	output  json.RawMessage
+	tools   []contracts.ToolInvocation
+}
+
+// childReport reads a delegated agent's own session: its usage, final answer
+// and tool calls. A permission rejection is recorded as TOOL_NOT_ALLOWED. It
+// is best-effort: when the session cannot be read the delegation is recorded
+// without detail, as before.
+func (c *Coordinator) childReport(sessionID string) (childReport, bool) {
+	if sessionID == "" {
+		return childReport{}, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := c.client.GetSession(ctx, sessionID)
+	if err != nil {
+		return childReport{}, false
+	}
+	messages, err := c.client.Messages(ctx, sessionID)
+	if err != nil {
+		return childReport{}, false
+	}
+	report := childReport{session: session}
+	var lastText string
+	for i := len(messages) - 1; i >= 0; i-- { // newest-first from OpenCode
+		if messages[i].Type != "assistant" {
+			continue
+		}
+		for _, part := range messages[i].Content {
+			switch part.Type {
+			case "text":
+				if part.Text != "" {
+					lastText = part.Text
+				}
+			case "tool":
+				t := now()
+				call := contracts.ToolInvocation{ID: id("tool-"), ToolID: canonicalToolID(part.Name), ToolVersion: "opencode", StartedAt: t, FinishedAt: &t}
+				if status, _ := part.State["status"].(string); status == "error" {
+					code := contracts.ErrInternal
+					if e, _ := part.State["error"].(map[string]any); e != nil && e["type"] == "permission.rejected" {
+						code = contracts.ErrToolNotAllowed
+					}
+					// Specialists sit at depth 1 and cannot delegate further.
+					if part.Name == "subagent" {
+						code = contracts.ErrDelegationDepthExceeded
+					}
+					call.Error = &contracts.RunError{Code: code, Message: "tool call denied"}
+				}
+				report.tools = append(report.tools, call)
+			}
+		}
+	}
+	if extracted := extractFirstObject(lastText); json.Valid([]byte(extracted)) {
+		report.output = json.RawMessage(extracted)
+	}
+	return report, true
 }

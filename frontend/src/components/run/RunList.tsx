@@ -1,21 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { agentById } from "@/config/agents";
 import { stateColor } from "@/components/ui/StatePill";
 import { ago, secs } from "@/lib/format";
-import { useNow } from "@/lib/store";
+import { useNow, useStore } from "@/lib/store";
 import type { RunView } from "@/lib/types";
 import s from "./RunList.module.css";
 
 /** Compact run rows. `current` highlights the run being viewed. */
 export default function RunList({ runs, current, showAgent }: { runs: RunView[]; current?: string; showAgent?: boolean }) {
   const now = useNow();
+  const { agentById } = useStore();
   return (
     <ul className={s.runs}>
       {runs.map((r) => (
         <li key={r.plan.id} className={r.plan.id === current ? s.cur : ""}>
-          <Link href={`/runs/${r.plan.id}`}>
+          <Link href={`/live-run/${r.plan.id}`}>
             <i className={`dot ${stateColor(r.state)} ${r.state === "RUNNING" ? "live" : ""}`} />
             <div style={{ minWidth: 0 }}>
               <b>{r.plan.task}</b>

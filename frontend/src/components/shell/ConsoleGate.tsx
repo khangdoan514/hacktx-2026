@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { endSession, restoreSession } from "@/product/supabase";
 
-export type Employee = { email: string; display_name: string };
+export type Team = { id: string; name: string; division: string };
+export type Employee = { user_id?: string; email: string; display_name: string; roles?: string[]; teams?: Team[] };
 
 const EmployeeContext = createContext<Employee | null>(null);
 

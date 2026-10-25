@@ -3,31 +3,57 @@
 
 /* Design tokens and shared primitives. Component styles live in *.module.css next to each component. */
 
+/* Light values on bare :root; both dark blocks below must stay identical. */
 :root {
-  --bg: #f4f4f1; --surface: #ffffff; --surface-2: #f9f9f7; --line: #e6e5e0; --line-2: #d8d7d1;
-  --ink: #0c0c0d; --ink-2: #46474c; --ink-3: #8c8d92; --hover: rgba(12, 12, 13, .04);
-  --solid: #0c0c0d; --solid-fg: #ffffff;
-  --accent: #0a6fd6; --accent-soft: rgba(10, 111, 214, .1);
-  --ok: #0c9a61; --ok-soft: rgba(12, 154, 97, .1);
-  --warn: #c2620a; --warn-soft: rgba(194, 98, 10, .1);
+  --bg: #f4f4f2; --surface: #ffffff; --surface-2: #f8f8f6; --line: #e4e4e0; --line-2: #d4d4cf;
+  --ink: #0b0b0c; --ink-2: #3f4045; --ink-3: #8a8b90; --hover: rgba(11, 11, 12, .035);
+  --solid: #0b0b0c; --solid-fg: #ffffff;
+  --accent: #0a6fd6; --accent-soft: rgba(10, 111, 214, .09);
+  --f1: #0a6fd6; --f2: #0b9e8f; --f3: #6a4fe0;
+  --ok: #00965f; --ok-soft: rgba(0, 150, 95, .1);
+  --warn: #e2620c; --warn-soft: rgba(226, 98, 12, .1);
   --err: #d92d20; --err-soft: rgba(217, 45, 32, .08);
-  --stage: #fbfbf9; --dot: rgba(12, 12, 13, .08);
-  --node-sh: 0 1px 0 rgba(12, 12, 13, .03), 0 8px 24px -14px rgba(12, 12, 13, .22);
+  --glass: rgba(244, 244, 242, .74);
+  --stage-bg: #fbfbfa; --stage: var(--stage-bg); --dot: rgba(11, 11, 12, .08);
+  --shard-o: .4; --grain-o: .035;
+  --node-sh: 0 1px 0 rgba(11, 11, 12, .03), 0 8px 24px -14px rgba(11, 11, 12, .22);
   --pop: 0 30px 80px -24px rgba(0, 0, 0, .28), 0 0 0 1px var(--line);
-  --sans: var(--font-geist-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 12px;
+  --sans: var(--font-plex-sans), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   color-scheme: light;
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #050506; --surface: #0b0b0d; --surface-2: #0f0f12; --line: #1c1c20; --line-2: #2a2a30;
+    --ink: #f4f4f5; --ink-2: #b4b5bb; --ink-3: #6f7077; --hover: rgba(255, 255, 255, .035);
+    --solid: #ffffff; --solid-fg: #050506;
+    --accent: #2b9cfc; --accent-soft: rgba(43, 156, 252, .13);
+    --f1: #2b9cfc; --f2: #4aeadc; --f3: #b7a8ff;
+    --ok: #00d084; --ok-soft: rgba(0, 208, 132, .11);
+    --warn: #ff7a1a; --warn-soft: rgba(255, 122, 26, .12);
+    --err: #ff5a4e; --err-soft: rgba(255, 90, 78, .1);
+    --glass: rgba(5, 5, 6, .72);
+    --stage-bg: #070709; --dot: rgba(255, 255, 255, .06);
+    --shard-o: .85; --grain-o: .06;
+    --node-sh: 0 12px 32px -14px rgba(0, 0, 0, .8);
+    --pop: 0 30px 80px -24px rgba(0, 0, 0, .8), 0 0 0 1px var(--line);
+    color-scheme: dark;
+  }
+}
 :root[data-theme="dark"] {
-  --bg: #07070a; --surface: #0e0e11; --surface-2: #131317; --line: #1d1d22; --line-2: #2a2a31;
-  --ink: #f3f3f4; --ink-2: #b2b3b9; --ink-3: #6c6d74; --hover: rgba(255, 255, 255, .04);
-  --solid: #f3f3f4; --solid-fg: #07070a;
-  --accent: #3b9eff; --accent-soft: rgba(59, 158, 255, .14);
-  --ok: #2fd38a; --ok-soft: rgba(47, 211, 138, .11);
-  --warn: #f0a53a; --warn-soft: rgba(240, 165, 58, .12);
-  --err: #ff5b50; --err-soft: rgba(255, 91, 80, .1);
-  --stage: #0a0a0d; --dot: rgba(255, 255, 255, .06);
+  --bg: #050506; --surface: #0b0b0d; --surface-2: #0f0f12; --line: #1c1c20; --line-2: #2a2a30;
+  --ink: #f4f4f5; --ink-2: #b4b5bb; --ink-3: #6f7077; --hover: rgba(255, 255, 255, .035);
+  --solid: #ffffff; --solid-fg: #050506;
+  --accent: #2b9cfc; --accent-soft: rgba(43, 156, 252, .13);
+  --f1: #2b9cfc; --f2: #4aeadc; --f3: #b7a8ff;
+  --ok: #00d084; --ok-soft: rgba(0, 208, 132, .11);
+  --warn: #ff7a1a; --warn-soft: rgba(255, 122, 26, .12);
+  --err: #ff5a4e; --err-soft: rgba(255, 90, 78, .1);
+  --glass: rgba(5, 5, 6, .72);
+  --stage-bg: #070709; --dot: rgba(255, 255, 255, .06);
+  --shard-o: .85; --grain-o: .06;
   --node-sh: 0 12px 32px -14px rgba(0, 0, 0, .8);
   --pop: 0 30px 80px -24px rgba(0, 0, 0, .8), 0 0 0 1px var(--line);
   color-scheme: dark;
@@ -113,3 +139,18 @@ textarea.input { height: auto; min-height: 76px; padding: 9px 11px; resize: vert
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* Film grain (FRONTEND.md §4) */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 200; pointer-events: none;
+  opacity: var(--grain-o); mix-blend-mode: overlay; background-size: 160px 160px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+}
+
+/* Brand mark: N³ with the NMC² spectrum in the top-right corner */
+.mark { position: relative; width: 30px; height: 30px; border-radius: 7px; background: var(--solid); color: var(--solid-fg); display: inline-grid; place-items: center; font: 600 11.5px var(--sans); overflow: hidden; flex: none; }
+.mark::after { content: ""; position: absolute; top: 0; right: 0; width: 15px; height: 15px; clip-path: polygon(0 0, 100% 0, 100% 100%); background: linear-gradient(135deg, #ff6900, #c8e06a 25%, #4aeadc 50%, #2b9cfc 75%, #8f7cf6); }
+
+/* Flow code chip: diamond plus code, coloured by --fc (set to var(--f1..3)) */
+.code { display: inline-flex; align-items: center; gap: 7px; font: 400 11.5px var(--mono); color: var(--fc, var(--ink-2)); }
+.code::before { content: ""; width: 6px; height: 6px; background: var(--fc, var(--ink-3)); transform: rotate(45deg); flex: none; }

@@ -2,23 +2,21 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import Logo from "@/components/brand/Logo";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import { endSession } from "@/product/supabase";
-import { useNow, useStore } from "@/lib/store";
-import { materialize } from "@/lib/simulate";
+import { isTerminal } from "@/lib/live";
+import { useStore } from "@/lib/store";
 import { useEmployee } from "./ConsoleGate";
 import s from "./Rail.module.css";
 
 const groups: { href: string; label: string; icon: IconName }[][] = [
   [
-    { href: "/dashboard", label: "Live run", icon: "activity" },
-    { href: "/runs", label: "Runs", icon: "play" },
+    { href: "/dashboard", label: "Dashboard", icon: "activity" },
     { href: "/agents", label: "Agents", icon: "bot" },
   ],
   [
-    { href: "/evaluate", label: "Evaluate", icon: "flask" },
-    { href: "/triggers", label: "Triggers", icon: "zap" },
     { href: "/budgets", label: "Budgets", icon: "gauge" },
     { href: "/guardrails", label: "Guardrails", icon: "shield" },
     { href: "/prompts", label: "Prompts", icon: "message" },
@@ -55,10 +53,19 @@ export default function Rail() {
   const router = useRouter();
   const employee = useEmployee();
   const { live } = useStore();
-  const now = useNow();
-  const running = live ? materialize(live, now).state === "RUNNING" : false;
-  const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
-  const label = employee?.display_name || employee?.email || "Signed in";
+  const running = live ? !isTerminal(live.final) : false;
+  const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" || path.startsWith("/live-run") : path.startsWith(href));
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => { if (!menu.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
+  }, [open]);
+  const signOut = () => { void endSession().then(() => router.replace("/sign-in")); };
 
   return (
     <nav className={s.rail} aria-label="Primary">
@@ -79,10 +86,34 @@ export default function Rail() {
           <span className={s.moon}><Icon name="moon" size={17} /></span>
           <span className={s.sun}><Icon name="sun" size={17} /></span>
         </button>
-        <button type="button" className="ibtn" onClick={() => { void endSession().then(() => router.replace("/sign-in")); }} aria-label="Sign out" data-tip="Sign out" data-tip-side>
-          <Icon name="log-out" size={17} />
-        </button>
-        <div className={s.avatar} title={label}>{initials(employee?.display_name ?? "", employee?.email ?? "")}</div>
+        <div className={s.profile} ref={menu}>
+          <button type="button" className={s.avatar} onClick={() => setOpen((v) => !v)} aria-label="Account" aria-haspopup="dialog" aria-expanded={open}>
+            {initials(employee?.display_name ?? "", employee?.email ?? "")}
+          </button>
+          {open && (
+            <div className={s.card} role="dialog" aria-label="Your profile">
+              <div className={s.head}>
+                <div className={`${s.avatar} ${s.big}`} aria-hidden>{initials(employee?.display_name ?? "", employee?.email ?? "")}</div>
+                <div className={s.who}>
+                  <strong>{employee?.display_name || "Unnamed"}</strong>
+                  <span>{employee?.email}</span>
+                </div>
+              </div>
+              <dl className={s.facts}>
+                <dt>Roles</dt>
+                <dd>{employee?.roles?.length ? employee.roles.map((r) => <span key={r} className={s.chip}>{r.replace(/_/g, " ")}</span>) : <span className={s.none}>None assigned</span>}</dd>
+                <dt>Teams</dt>
+                <dd>
+                  {employee?.teams?.length
+                    ? employee.teams.map((t) => <div key={t.id} className={s.team}>{t.name}<span>{t.division}</span></div>)
+                    : <span className={s.none}>No active teams</span>}
+                </dd>
+              </dl>
+              <Link href="/org" className={s.row} onClick={() => setOpen(false)}><Icon name="building" size={15} />Organization</Link>
+              <button type="button" className={s.row} onClick={signOut}><Icon name="log-out" size={15} />Sign out</button>
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );

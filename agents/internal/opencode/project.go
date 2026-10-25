@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 // Permission is one OpenCode v2 rule. The last matching rule wins, so a broad
@@ -84,6 +85,11 @@ func PermissionsFor(def contracts.AgentDefinition) []Permission {
 	if allowsCatalog(def) {
 		rules = append(rules, Permission{Action: "read", Resource: catalogRel, Effect: "allow"})
 		rules = append(rules, Permission{Action: "read", Resource: "**/vendors.json", Effect: "allow"})
+	}
+	for _, tool := range def.AllowedTools {
+		if name, ok := toolpacks.OpenCodeNameFor(tool); ok {
+			rules = append(rules, Permission{Action: name, Resource: "*", Effect: "allow"})
+		}
 	}
 	return rules
 }
