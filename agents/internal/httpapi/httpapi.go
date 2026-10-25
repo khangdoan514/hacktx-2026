@@ -44,6 +44,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.listRuns(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/v1/agent-runs/") && strings.HasSuffix(r.URL.Path, "/cancel") && r.Method == http.MethodPost {
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/agent-runs/"), "/cancel")
+		if id != "" && !strings.Contains(id, "/") {
+			h.cancel(w, r, id)
+			return
+		}
+	}
 	if strings.HasPrefix(r.URL.Path, "/v1/agent-runs/") && r.Method == http.MethodGet {
 		tail := strings.TrimPrefix(r.URL.Path, "/v1/agent-runs/")
 		if strings.HasSuffix(tail, "/events") {
@@ -62,6 +69,22 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, http.StatusNotFound, contracts.ErrNotFound, "endpoint not found")
+}
+
+func (h *handler) cancel(w http.ResponseWriter, r *http.Request, id string) {
+	type canceller interface {
+		Cancel(ctx context.Context, runID string) error
+	}
+	c, ok := h.coordinator.(canceller)
+	if !ok {
+		writeError(w, http.StatusMethodNotAllowed, contracts.ErrInvalidInput, "method not allowed")
+		return
+	}
+	if err := c.Cancel(r.Context(), id); err != nil {
+		writeRunError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "cancel_requested"})
 }
 
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {

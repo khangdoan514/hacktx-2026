@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
@@ -41,6 +42,16 @@ type Coordinator struct {
 	events       contracts.EventSink
 	workdir      string
 	defaultModel string
+
+	mu       sync.Mutex
+	inflight map[string]*inflightRun
+}
+
+// inflightRun lets Cancel stop a run that execute is waiting on.
+type inflightRun struct {
+	cancel    context.CancelFunc
+	sessionID string
+	cancelled bool
 }
 
 func New(definitions []contracts.AgentDefinition, client *Client, store contracts.RunStore, events contracts.EventSink, workdir, defaultModel string) (*Coordinator, error) {
@@ -50,7 +61,7 @@ func New(definitions []contracts.AgentDefinition, client *Client, store contract
 	if workdir == "" || defaultModel == "" {
 		return nil, fmt.Errorf("opencode coordinator needs a workdir and default model")
 	}
-	c := &Coordinator{client: client, defs: map[string]contracts.AgentDefinition{}, store: store, events: events, workdir: workdir, defaultModel: defaultModel}
+	c := &Coordinator{client: client, defs: map[string]contracts.AgentDefinition{}, store: store, events: events, workdir: workdir, defaultModel: defaultModel, inflight: map[string]*inflightRun{}}
 	for _, d := range definitions {
 		if d.ID == "" || d.Version == "" || d.Name == "" {
 			return nil, fmt.Errorf("invalid definition identity")
@@ -245,6 +256,15 @@ func fail(err error) *contracts.RunError {
 func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefinition, limits contracts.Limits) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(limits.TimeoutSeconds)*time.Second)
 	defer cancel()
+	entry := &inflightRun{cancel: cancel, sessionID: run.OpenCodeSessionID}
+	c.mu.Lock()
+	c.inflight[run.ID] = entry
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.inflight, run.ID)
+		c.mu.Unlock()
+	}()
 	c.emit(run.ID, nil, "RUN_STARTED", map[string]any{"agent_id": definition.ID, "opencode_session_id": run.OpenCodeSessionID})
 	root := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, AgentID: definition.ID, AgentVersion: definition.Version, Depth: 0, State: contracts.StateRunning, Input: run.Input}
 	start := now()
@@ -256,7 +276,17 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 
 	output, usage, invocations, tools, runErr := c.collect(ctx, run, definition, &root, limits)
 	finish := now()
-	if runErr != nil {
+	c.mu.Lock()
+	cancelled := entry.cancelled
+	c.mu.Unlock()
+	if cancelled {
+		runErr = &contracts.RunError{Code: contracts.ErrInternal, Message: "The run was cancelled"}
+	}
+	if runErr != nil && cancelled {
+		root.Error = fail(runErr)
+		root.State = contracts.StateCancelled
+		c.emit(run.ID, &root.ID, "AGENT_FAILED", map[string]any{"code": root.Error.Code})
+	} else if runErr != nil {
 		log.Printf("NMC3 run %s failed: %v", run.ID, runErr)
 		root.Error = fail(runErr)
 		root.State = contracts.StateFailed
@@ -276,6 +306,9 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	if runErr != nil {
 		run.Error = fail(runErr)
 		run.State = contracts.StateFailed
+		if cancelled {
+			run.State = contracts.StateCancelled
+		}
 	} else {
 		run.State = contracts.StateSucceeded
 		run.Output = output
@@ -283,6 +316,8 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	c.persist(run)
 	if run.State == contracts.StateSucceeded {
 		c.emit(run.ID, nil, "RUN_SUCCEEDED", nil)
+	} else if run.State == contracts.StateCancelled {
+		c.emit(run.ID, nil, "RUN_CANCELLED", nil)
 	} else {
 		c.emit(run.ID, nil, "RUN_FAILED", map[string]any{"code": run.Error.Code})
 	}
@@ -519,4 +554,24 @@ func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDe
 		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrOutputSchemaInvalid, Message: "agent output does not match schema: " + err.Error()}
 	}
 	return json.RawMessage(extracted), usage, invocations, tools, nil
+}
+
+// Cancel stops an in-flight run: the wait context is cancelled and the
+// OpenCode session is interrupted. It reports not-found for runs that are not
+// executing in this process (finished, or started by another instance).
+func (c *Coordinator) Cancel(ctx context.Context, runID string) error {
+	c.mu.Lock()
+	entry, ok := c.inflight[runID]
+	if ok {
+		entry.cancelled = true
+	}
+	c.mu.Unlock()
+	if !ok {
+		return &contracts.RunError{Code: contracts.ErrNotFound, Message: "run is not in flight"}
+	}
+	interruptCtx, stop := context.WithTimeout(ctx, 5*time.Second)
+	defer stop()
+	_ = c.client.Interrupt(interruptCtx, entry.sessionID)
+	entry.cancel()
+	return nil
 }
