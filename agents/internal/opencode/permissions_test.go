@@ -77,7 +77,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 	if !strings.Contains(joined, "catalog-mcp") {
 		t.Fatalf("command=%v", catalogServer.Command)
 	}
-	for _, id := range []string{"catalog-specialist", "accessibility-specialist", "denial-specialist"} {
+	for _, id := range []string{"catalog-specialist", "accessibility-specialist", "denial-specialist", "interval-reporter", "project-span-reporter"} {
 		agent := cfg.Agents[id]
 		if agent.Mode != "subagent" {
 			t.Fatalf("%s mode=%s", id, agent.Mode)
@@ -92,7 +92,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 		t.Fatal("depth gate mismatch")
 	}
 
-	for _, id := range []string{"vendor-orchestrator", "denial-orchestrator", "workspace-assistant", "catalog-specialist", "accessibility-specialist", "denial-specialist", "build", "plan", "general", "explore"} {
+	for _, id := range []string{"vendor-orchestrator", "denial-orchestrator", "workspace-assistant", "partner-analytics", "internal-analytics", "catalog-specialist", "accessibility-specialist", "denial-specialist", "interval-reporter", "project-span-reporter", "build", "plan", "general", "explore"} {
 		for _, rule := range cfg.Agents[id].Permissions {
 			if rule.Effect == "ask" {
 				t.Fatalf("%s uses ask: %+v", id, rule)

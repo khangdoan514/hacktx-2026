@@ -55,6 +55,69 @@
     }
   },
   "agents": {
+    "partner-analytics": {
+      "description": "Partner Analytics",
+      "mode": "primary",
+      "steps": 8,
+      "system": "You are Partner Analytics (orchestrator). Build one standardized report for the requested week, month, quarter, or project. The report may span more than one project. Delegate to interval-reporter and project-span-reporter. Cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "interval-reporter", "effect": "allow" },
+        { "action": "subagent", "resource": "project-span-reporter", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
+    "internal-analytics": {
+      "description": "Internal Analytics",
+      "mode": "primary",
+      "steps": 8,
+      "system": "You are Internal Analytics (orchestrator). Build one standardized report for the requested week, month, quarter, or project inside this organization. Do not include partner projects. Delegate only to interval-reporter. Cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "interval-reporter", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
+    "interval-reporter": {
+      "description": "Interval reporter",
+      "mode": "subagent",
+      "steps": 4,
+      "system": "You are Interval reporter (specialist). Summarize the requested week, month, quarter, or project. Do not delegate. Cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
+    "project-span-reporter": {
+      "description": "Project span reporter",
+      "mode": "subagent",
+      "steps": 4,
+      "system": "You are Project span reporter (specialist). Compare the same period across projects for partner analytics. Do not delegate. Cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
     "vendor-orchestrator": {
       "description": "Vendor comparison orchestrator",
       "mode": "primary",

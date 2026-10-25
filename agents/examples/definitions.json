@@ -354,5 +354,153 @@
       "max_cost_usd": 2,
       "timeout_seconds": 120
     }
+  },
+  {
+    "id": "partner-analytics",
+    "version": "1.0.0",
+    "name": "Partner Analytics",
+    "role": "orchestrator",
+    "instructions": "Build a standardized report for the requested period. This report may span more than one project. Delegate the interval summary and the project-spanning comparison, then return one report.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": { "type": "string" },
+        "period": { "type": "string", "enum": ["week", "month", "quarter", "project"] }
+      },
+      "required": ["task", "period"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "period": { "type": "string" },
+        "scope": { "type": "string" },
+        "sections": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["title", "period", "scope", "sections"],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": ["interval-reporter", "project-span-reporter"],
+    "limits": {
+      "max_delegations": 2,
+      "max_concurrent_agents": 2,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  },
+  {
+    "id": "internal-analytics",
+    "version": "1.0.0",
+    "name": "Internal Analytics",
+    "role": "orchestrator",
+    "instructions": "Build a standardized report for the requested period inside this organization. Do not include partner projects. Delegate only the interval summary, then return one report.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": { "type": "string" },
+        "period": { "type": "string", "enum": ["week", "month", "quarter", "project"] }
+      },
+      "required": ["task", "period"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "period": { "type": "string" },
+        "scope": { "type": "string" },
+        "sections": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["title", "period", "scope", "sections"],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": ["interval-reporter"],
+    "limits": {
+      "max_delegations": 1,
+      "max_concurrent_agents": 1,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 60
+    }
+  },
+  {
+    "id": "interval-reporter",
+    "version": "1.0.0",
+    "name": "Interval reporter",
+    "role": "specialist",
+    "instructions": "Summarize the requested week, month, quarter, or project. Cite only fictional source IDs. Do not delegate.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": { "type": "string" },
+        "period": { "type": "string", "enum": ["week", "month", "quarter", "project"] }
+      },
+      "required": ["period"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "summary": { "type": "string" },
+        "source_ids": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["summary", "source_ids"],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": [],
+    "limits": {
+      "max_delegations": 1,
+      "max_concurrent_agents": 1,
+      "max_tool_calls": 2,
+      "max_model_turns": 4,
+      "max_tokens": 8000,
+      "max_cost_usd": 1,
+      "timeout_seconds": 30
+    }
+  },
+  {
+    "id": "project-span-reporter",
+    "version": "1.0.0",
+    "name": "Project span reporter",
+    "role": "specialist",
+    "instructions": "Compare the same period across projects. This specialist is only for partner analytics. Cite only fictional source IDs. Do not delegate.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": { "type": "string" },
+        "period": { "type": "string", "enum": ["week", "month", "quarter", "project"] }
+      },
+      "required": ["period"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "summary": { "type": "string" },
+        "source_ids": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["summary", "source_ids"],
+      "additionalProperties": false
+    },
+    "allowed_tools": [],
+    "allowed_delegates": [],
+    "limits": {
+      "max_delegations": 1,
+      "max_concurrent_agents": 1,
+      "max_tool_calls": 2,
+      "max_model_turns": 4,
+      "max_tokens": 8000,
+      "max_cost_usd": 1,
+      "timeout_seconds": 30
+    }
   }
 ]

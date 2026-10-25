@@ -24,7 +24,7 @@ type Store = {
   live: RunPlan | null;
   plan: (id: string) => RunPlan | undefined;
   /** Starts a run on the service and resolves with its id. Rejects with the service's message. */
-  startRun: (o: { agent: string; task: string; limits?: Limits }) => Promise<string>;
+  startRun: (o: { agent: string; task: string; period?: string; limits?: Limits }) => Promise<string>;
   cancelRun: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
   drawer: DrawerState;
@@ -89,11 +89,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { stop = true; clearInterval(poll); clearInterval(tick); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startRun = useCallback<Store["startRun"]>(async ({ agent, task, limits }) => {
+  const startRun = useCallback<Store["startRun"]>(async ({ agent, task, period, limits }) => {
     const def = agentsRef.current.find((a) => a.id === agent);
     if (!def) throw new Error(`Unknown agent ${agent}`);
+    const input = period ? { task, period } : { task };
     const started = await agentApi.start({
-      agent_id: def.id, agent_version: def.version, input: { task },
+      agent_id: def.id, agent_version: def.version, input,
       limits: limitsToWire(limits ?? def.limits, { max_tokens: def.maxTokens || undefined, max_cost_usd: def.maxCostUsd || undefined }),
     });
     await refresh();

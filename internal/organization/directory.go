@@ -13,6 +13,7 @@ const (
 	AdaID    = "20000000-0000-4000-8000-000000000001"
 	BaoID    = "20000000-0000-4000-8000-000000000002"
 	CamID    = "20000000-0000-4000-8000-000000000003"
+	AliID    = "20000000-0000-4000-8000-000000000004"
 	Password = "local-demo-pass"
 )
 
@@ -217,6 +218,7 @@ func Seed(ctx context.Context, db *platform.DB) error {
 		{AdaID, "ada.hardware@nmc2.test", "Ada Hardware", platform.HardwareTeamID, []string{"requester"}},
 		{BaoID, "bao.ai@nmc2.test", "Bao AI", platform.AITeamID, []string{"ai_intake", "ai_engineer"}},
 		{CamID, "cam.review@nmc2.test", "Cam Review", platform.ReviewTeamID, []string{"release_approver", "administrator"}},
+		{AliID, "ali-analytics@nmc2.test", "Ali Analytics", platform.AITeamID, []string{"analyst"}},
 	}
 	return db.Admin(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		for _, person := range people {
