@@ -51,7 +51,7 @@ export function planFromRun(run: AgentRun, agents: AgentDef[], events?: RunEvent
     if (inv.depth >= 1) ops.push({ at, k: "use", key: "delegations", delta: 1 });
     if (inv.state === "PENDING" || inv.state === "RUNNING") continue;
     const finish = Math.max(at, rel(inv.finished_at, durationMs));
-    ops.push({ at: finish, k: "agent", agent: inv.agent_id, st: inv.state, now: inv.state === "SUCCEEDED" ? "Done" : inv.error?.code ?? inv.state });
+    ops.push({ at: finish, k: "agent", agent: inv.agent_id, st: inv.state, now: inv.state === "SUCCEEDED" ? "Done" : inv.state === "CANCELLED" ? "Cancelled" : inv.error?.code ?? inv.state });
   }
 
   (run.tool_invocations ?? []).forEach((tool) => {

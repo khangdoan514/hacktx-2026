@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useEmployee } from "@/components/shell/ConsoleGate";
 import PageHeader from "@/components/shell/PageHeader";
 import {
   DefinitionAPIError,
@@ -29,7 +30,9 @@ const limitFields: { key: keyof DefinitionForm["limits"]; label: string; step?: 
 const schemaTypes = ["string", "number", "integer", "boolean", "object", "array"];
 
 export default function Editor() {
-  const [actor, setActor] = useState("local");
+  const employee = useEmployee();
+  // The service records the signed-in employee; the proxy stamps it, so it is not editable.
+  const actor = employee?.display_name || employee?.email || "";
   const [form, setForm] = useState<DefinitionForm>(blankForm);
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState<Version | null>(null);
@@ -173,10 +176,7 @@ export default function Editor() {
             {status && <p className={s.ok} role="status">{status}</p>}
             {locked && <p>This version is frozen. Set a new version, then revise. Publish will not overwrite it.</p>}
 
-            <label className={s.field}>
-              Your name
-              <input className="input" value={actor} onChange={(event) => setActor(event.target.value)} autoComplete="name" />
-            </label>
+            <p className={s.field}>Recorded as {actor}</p>
             <div className={s.grid}>
               <Field label="Id" value={form.id} error={messages(fields, "id")} onChange={(id) => setForm({ ...form, id })} />
               <Field label="Version" value={form.version} error={messages(fields, "version")} onChange={(version) => setForm({ ...form, version })} />

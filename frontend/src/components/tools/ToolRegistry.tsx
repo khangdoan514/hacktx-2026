@@ -40,13 +40,13 @@ type Draft = {
 };
 
 const initial: Draft = {
-  tenant: "tenant-a",
-  id: "extensions.http.console",
+  tenant: "",
+  id: "",
   version: "1.0.0",
   className: "http",
-  url: "http://127.0.0.1:9/tool",
-  allow: "127.0.0.1:9",
-  mcpTool: "sample",
+  url: "",
+  allow: "",
+  mcpTool: "",
   internal: false,
 };
 
@@ -122,9 +122,18 @@ export default function ToolRegistry() {
     setTools(body.tools ?? []);
   }, []);
 
+  // The registry is keyed by tenant. The tenant is the signed-in employee's organization.
   useEffect(() => {
     let cancel = false;
-    refresh(initial.tenant).catch((err: unknown) => {
+    (async () => {
+      const token = window.localStorage.getItem("nmc3_token");
+      const res = await fetch("/api/v1/organization", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) throw new Error("The organization could not be loaded.");
+      const org = (await res.json()) as { id: string };
+      if (cancel) return;
+      setDraft((prev) => ({ ...prev, tenant: org.id }));
+      await refresh(org.id);
+    })().catch((err: unknown) => {
       if (!cancel) setNotice({ tone: "err", text: err instanceof Error ? err.message : unwired });
     });
     return () => {
@@ -174,10 +183,10 @@ export default function ToolRegistry() {
         </div>
         <div className={s.fields}>
           <label>tenant
-            <input className="input" value={draft.tenant} onChange={(e) => set("tenant", e.target.value)} autoComplete="off" />
+            <input className="input mono" value={draft.tenant} readOnly aria-readonly="true" />
           </label>
           <label>id
-            <input className="input" value={draft.id} onChange={(e) => set("id", e.target.value)} autoComplete="off" spellCheck={false} />
+            <input className="input" value={draft.id} placeholder="extensions.http.name" onChange={(e) => set("id", e.target.value)} autoComplete="off" spellCheck={false} />
           </label>
           <label>version
             <input className="input" value={draft.version} onChange={(e) => set("version", e.target.value)} autoComplete="off" spellCheck={false} />
@@ -190,10 +199,10 @@ export default function ToolRegistry() {
             </select>
           </label>
           <label className={s.span2}>endpoint URL
-            <input className="input" value={draft.url} onChange={(e) => set("url", e.target.value)} autoComplete="off" spellCheck={false} />
+            <input className="input" value={draft.url} placeholder="http://10.0.0.5:8080/tool" onChange={(e) => set("url", e.target.value)} autoComplete="off" spellCheck={false} />
           </label>
           <label className={s.span2}>allow (IP:port)
-            <input className="input" value={draft.allow} onChange={(e) => set("allow", e.target.value)} autoComplete="off" spellCheck={false} />
+            <input className="input" value={draft.allow} placeholder="10.0.0.5:8080" onChange={(e) => set("allow", e.target.value)} autoComplete="off" spellCheck={false} />
           </label>
           {draft.className === "mcp" && (
             <label>MCP tool
