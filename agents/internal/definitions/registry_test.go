@@ -21,7 +21,7 @@ func TestFileDefinitionsRemainV1(t *testing.T) {
 	if err := json.Unmarshal(raw, &defs); err != nil {
 		t.Fatal(err)
 	}
-	if len(defs) != 6 {
+	if len(defs) != 7 {
 		t.Fatalf("file definitions: %d", len(defs))
 	}
 	specs, err := Parse(raw)
@@ -49,14 +49,14 @@ func TestImportExampleDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Created != 6 || first.Unchanged != 0 {
+	if first.Created != 7 || first.Unchanged != 0 {
 		t.Fatalf("created %d unchanged %d", first.Created, first.Unchanged)
 	}
 	second, err := reg.Import(ctx, "migration", raw, ImportPublish)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Created != 0 || second.Unchanged != 6 {
+	if second.Created != 0 || second.Unchanged != 7 {
 		t.Fatalf("reimport created %d unchanged %d", second.Created, second.Unchanged)
 	}
 	parsed, err := Parse(raw)
@@ -101,7 +101,7 @@ func TestImportExampleDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summaries) != 6 {
+	if len(summaries) != 7 {
 		t.Fatalf("summaries %d", len(summaries))
 	}
 }
@@ -354,7 +354,7 @@ func TestExportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Created != 6 {
+	if restored.Created != 7 {
 		t.Fatalf("restored %d", restored.Created)
 	}
 	again, err := other.Export(ctx)
@@ -368,7 +368,7 @@ func TestExportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replay.Unchanged != 6 || replay.Created != 0 {
+	if replay.Unchanged != 7 || replay.Created != 0 {
 		t.Fatalf("replay %+v", replay)
 	}
 	specs := make([]Spec, len(restored.Versions))
@@ -386,7 +386,7 @@ func TestExportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed) != 6 {
+	if len(parsed) != 7 {
 		t.Fatalf("envelope %d", len(parsed))
 	}
 }
