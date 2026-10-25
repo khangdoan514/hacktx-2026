@@ -92,6 +92,17 @@ func Packs() []Pack {
 			},
 		},
 		{
+			ID:          "repo",
+			Name:        "Project repository",
+			Description: "Read the single GitHub repository bound to this agent run.",
+			Tools: []Tool{
+				{Name: "get_file", Description: "Read a file on the bound repository branch", Properties: map[string]any{"scope": str("Run's repository scope"), "path": str("File path")}, Required: []string{"scope", "path"}},
+				{Name: "list_issues", Description: "List issues in the bound repository", Properties: map[string]any{"scope": str("Run's repository scope"), "state": str("open, closed or all (default open)"), "limit": limitProp}, Required: []string{"scope"}},
+				{Name: "get_issue", Description: "Read an issue in the bound repository", Properties: map[string]any{"scope": str("Run's repository scope"), "number": num("Issue number")}, Required: []string{"scope", "number"}},
+				{Name: "list_pull_requests", Description: "List pull requests in the bound repository", Properties: map[string]any{"scope": str("Run's repository scope"), "state": str("open, closed or all (default open)"), "limit": limitProp}, Required: []string{"scope"}},
+			},
+		},
+		{
 			ID:          "gdrive",
 			Name:        "Google Drive",
 			Description: "Search Drive, list folders and read documents, sheets and text files. Read-only.",

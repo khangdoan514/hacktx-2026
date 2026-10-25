@@ -6,6 +6,7 @@ package main
 // Supabase and remains inspectable after restarts.
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -85,6 +86,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	coordinator.AfterSuccess = saveRunContext
 	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
 	mux := http.NewServeMux()
 	mux.Handle("/", httpapi.New(coordinator, runs, events, definitions))
@@ -107,6 +109,37 @@ func run() error {
 	server := http.Server{Addr: addr, Handler: guardInternal(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
+}
+
+func saveRunContext(ctx context.Context, run contracts.Run, request contracts.StartRunRequest) error {
+	endpoint := os.Getenv("NMC3_APP_API_URL")
+	if endpoint == "" {
+		return fmt.Errorf("NMC3_APP_API_URL is missing")
+	}
+	body, err := json.Marshal(map[string]any{
+		"project_id": request.ProjectID, "actor_id": request.ActorID,
+		"run_id": run.ID, "agent_id": run.AgentID, "body": string(run.Output),
+	})
+	if err != nil {
+		return err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	httpRequest, err := http.NewRequestWithContext(requestCtx, http.MethodPost, strings.TrimRight(endpoint, "/")+"/api/internal/agent-context", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	httpRequest.Header.Set(platform.InternalHeader, platform.InternalToken())
+	response, err := http.DefaultClient.Do(httpRequest)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		return fmt.Errorf("application context save returned %d", response.StatusCode)
+	}
+	return nil
 }
 
 // portSuffix turns a listen address like 127.0.0.1:8080 into ":8080".

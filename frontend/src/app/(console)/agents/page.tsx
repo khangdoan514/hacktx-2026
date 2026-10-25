@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
 import PageHeader from "@/components/shell/PageHeader";
 import Icon from "@/components/ui/Icon";
 import { secs } from "@/lib/format";
 import { useAllRuns, useStore } from "@/lib/store";
 import type { AgentDef, RunView } from "@/lib/types";
+import { nmc } from "@/product/nmc3/client";
 import s from "./agents.module.css";
 
 function stats(id: string, runs: RunView[]) {
@@ -20,7 +22,6 @@ function stats(id: string, runs: RunView[]) {
 export default function AgentsPage() {
   const runs = useAllRuns();
   const { agents } = useStore();
-  // Agents that run other agents come first; the rest follow in service order.
   const sorted = [...agents].sort((x, y) => Number(y.kind === "orchestrator") - Number(x.kind === "orchestrator"));
 
   return (
@@ -35,8 +36,88 @@ export default function AgentsPage() {
           <p>Drag steps onto a canvas, connect them, and run branches in parallel.</p>
         </Link>
       </div>
+      <ProjectContext agents={agents} />
     </>
   );
+}
+
+type ContextEntry = { id: string; agent_id: string; kind: string; title: string; body: string; visibility: string; owner_id: string; created_at: string; can_delete: boolean };
+
+function ProjectContext({ agents }: { agents: AgentDef[] }) {
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [projectID, setProjectID] = useState("");
+  const [entries, setEntries] = useState<ContextEntry[]>([]);
+  const [shared, setShared] = useState<string[]>([]);
+  const [agentID, setAgentID] = useState("");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [visibility, setVisibility] = useState("private");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    nmc<{ items: { id: string; name: string }[] }>("/api/v1/agent-projects")
+      .then((result) => { setProjects(result.items); setProjectID((current) => current || result.items[0]?.id || ""); })
+      .catch((err: Error) => setError(err.message));
+  }, []);
+  useEffect(() => {
+    if (!projectID) return;
+    void Promise.all([
+      nmc<{ items: ContextEntry[] }>(`/api/v1/projects/${projectID}/agent-context`),
+      nmc<{ agents: { agent_id: string }[] }>(`/api/v1/projects/${projectID}/agents`),
+    ]).then(([context, shares]) => { setEntries(context.items); setShared(shares.agents.map((item) => item.agent_id)); })
+      .catch((err: Error) => setError(err.message));
+  }, [projectID]);
+  async function refresh() {
+    const [context, shares] = await Promise.all([
+      nmc<{ items: ContextEntry[] }>(`/api/v1/projects/${projectID}/agent-context`),
+      nmc<{ agents: { agent_id: string }[] }>(`/api/v1/projects/${projectID}/agents`),
+    ]);
+    setEntries(context.items);
+    setShared(shares.agents.map((item) => item.agent_id));
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      await nmc(`/api/v1/projects/${projectID}/agent-context`, { method: "POST", body: JSON.stringify({ agent_id: agentID, kind: "memory", title, body, visibility }) });
+      setTitle(""); setBody("");
+      await refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not save context"); }
+  }
+  async function toggleShare(id: string) {
+    setError("");
+    try {
+      if (shared.includes(id)) await nmc(`/api/v1/projects/${projectID}/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      else await nmc(`/api/v1/projects/${projectID}/agents`, { method: "POST", body: JSON.stringify({ agent_id: id }) });
+      await refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not update sharing"); }
+  }
+  async function deleteEntry(id: string) {
+    setError("");
+    try {
+      await nmc(`/api/v1/projects/${projectID}/agent-context/${id}`, { method: "DELETE" });
+      await refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not delete context"); }
+  }
+  if (!projects.length) return null;
+  return <section className="card" style={{ marginTop: 24, padding: 20 }}>
+    <h2>Project agent context</h2>
+    <p className="muted">Project members can share agents and context. Private notes stay with you; shared notes and run reports are visible to the project.</p>
+    <label>Project <select className="input" value={projectID} onChange={(event) => setProjectID(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+      {agents.map((agent) => <button key={agent.id} className="btn" type="button" onClick={() => void toggleShare(agent.id)}>{shared.includes(agent.id) ? `Unshare ${agent.name}` : `Share ${agent.name}`}</button>)}
+    </div>
+    <form onSubmit={(event) => void save(event)} style={{ display: "grid", gap: 8, marginTop: 16 }}>
+      <select className="input" value={agentID} onChange={(event) => setAgentID(event.target.value)} required><option value="">Choose an agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select>
+      <input className="input" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Context title" required />
+      <textarea className="input" value={body} onChange={(event) => setBody(event.target.value)} placeholder="Notes for the agent" required rows={4} />
+      <select className="input" value={visibility} onChange={(event) => setVisibility(event.target.value)}><option value="private">Private</option><option value="project">Share with project</option></select>
+      <button className="btn solid" type="submit">Save context</button>
+    </form>
+    {error && <p role="alert">{error}</p>}
+    <ul style={{ marginTop: 16 }}>
+      {entries.map((entry) => <li key={entry.id}><b>{entry.title}</b> · {entry.agent_id} · {entry.visibility} · {entry.kind} {entry.can_delete && <button className="btn" type="button" onClick={() => void deleteEntry(entry.id)}>Delete</button>}<p>{entry.body}</p></li>)}
+    </ul>
+  </section>;
 }
 
 function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {

@@ -242,7 +242,7 @@ func TestServeSpeaksMCP(t *testing.T) {
 		t.Fatalf("want 4 replies (the notification gets none), got %d", len(replies))
 	}
 	tools := replies[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 9 {
+	if len(tools) != 13 {
 		t.Fatalf("tools=%d", len(tools))
 	}
 	if replies[2]["result"].(map[string]any)["isError"] != false {

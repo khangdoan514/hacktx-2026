@@ -13,7 +13,7 @@ function remember(token: string | null) {
   else clearToken();
 }
 
-if (supabase && typeof window !== "undefined") {
+if (supabase && process.env.NEXT_PUBLIC_LOCAL_AUTH !== "true" && typeof window !== "undefined") {
   supabase.auth.onAuthStateChange((_event, session) => {
     remember(session?.access_token ?? null);
   });
@@ -22,7 +22,7 @@ if (supabase && typeof window !== "undefined") {
 export async function restoreSession(): Promise<string | null> {
   // Without Supabase configured (local auth), reuse the token from /auth/local-session.
   // The API still verifies it on every request.
-  if (!supabase) return readToken();
+  if (!supabase || process.env.NEXT_PUBLIC_LOCAL_AUTH === "true") return readToken();
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token ?? null;
   remember(token);
@@ -30,6 +30,6 @@ export async function restoreSession(): Promise<string | null> {
 }
 
 export async function endSession() {
-  if (supabase) await supabase.auth.signOut();
+  if (supabase && process.env.NEXT_PUBLIC_LOCAL_AUTH !== "true") await supabase.auth.signOut();
   clearToken();
 }

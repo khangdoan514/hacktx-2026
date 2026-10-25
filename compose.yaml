@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 30
     ports:
-      - "127.0.0.1:54330:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-54330}:5432"
 
   api:
     build:
@@ -31,12 +31,20 @@ services:
       ADDR: ":8000"
       STORAGE_DIR: /app/var/storage
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      AGENT_API_URL: ${AGENT_API_URL:-http://agent:8080}
+      AGENT_API_URL: ${DOCKER_AGENT_API_URL:-http://agent:8080}
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+      GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
+      GITHUB_APP_PRIVATE_KEY_FILE: ${GITHUB_APP_PRIVATE_KEY_FILE:-}
+      GITHUB_APP_CALLBACK_URL: ${GITHUB_APP_CALLBACK_URL:-http://localhost:3010/api/v1/github/oauth/callback}
+      GITHUB_APP_CONSOLE_URL: ${GITHUB_APP_CONSOLE_URL:-http://localhost:3010}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITHUB_SCOPE_SIGNING_KEY: ${GITHUB_SCOPE_SIGNING_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
 
   agent:
     build:
@@ -50,6 +58,7 @@ services:
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
       OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-docker-opencode}
       OPENCODE_URL: ${OPENCODE_URL:-http://host.docker.internal:49374}
+      NMC3_APP_API_URL: http://api:8000
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -64,12 +73,13 @@ services:
         BACKEND_URL: http://api:8000
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://vocvwmiypifqnncxhfpj.supabase.co}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_LOCAL_AUTH: "true"
     environment:
       BACKEND_URL: http://api:8000
     depends_on:
       - api
     ports:
-      - "3010:3000"
+      - "${WEB_PORT:-3010}:3000"
 
 volumes:
   pgdata:

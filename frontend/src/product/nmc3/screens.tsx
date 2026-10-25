@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Logo from "@/components/brand/Logo";
 import PageHeader from "@/components/shell/PageHeader";
 import { supabase } from "@/product/supabase";
+import { writeToken } from "@/product/api";
 import { nmc } from "./client";
 import org from "./org.module.css";
 import signIn from "./signin.module.css";
@@ -54,14 +55,15 @@ export function SignInScreen() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    if (!supabase) {
-      setError("Supabase auth is not configured.");
-      return;
-    }
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInError) {
-      setError(signInError.message);
-      return;
+    if (process.env.NEXT_PUBLIC_LOCAL_AUTH === "true") {
+      try {
+        const session = await nmc<{ access_token: string }>("/api/v1/auth/local-session", { method: "POST", body: JSON.stringify({ email, password }) });
+        writeToken(session.access_token);
+      } catch (err) { setError(err instanceof Error ? err.message : "Sign-in failed"); return; }
+    } else {
+      if (!supabase) { setError("Supabase auth is not configured."); return; }
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) { setError(signInError.message); return; }
     }
     const next = new URLSearchParams(window.location.search).get("next");
     router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/runs");

@@ -11,6 +11,18 @@ type StartRunRequest struct {
 	ModelID string          `json:"model_id,omitempty"`
 	Input   json.RawMessage `json:"input"`
 	Limits  Limits          `json:"limits"`
+	// Populated by the authenticated application proxy, never by model text.
+	ProjectID     string           `json:"project_id,omitempty"`
+	ActorID       string           `json:"actor_id,omitempty"`
+	SharedContext []ContextSnippet `json:"shared_context,omitempty"`
+}
+
+type ContextSnippet struct {
+	ID      string `json:"id"`
+	AgentID string `json:"agent_id"`
+	Kind    string `json:"kind"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
 }
 
 type StartRunResponse struct {

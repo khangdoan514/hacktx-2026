@@ -19,6 +19,7 @@ type fakeBackend struct {
 	requests    []string
 	model       map[string]string
 	agent       string
+	prompt      string
 	messages    []Message
 	outcome     string
 	tokens      struct{ in, out int }
@@ -54,6 +55,11 @@ func (f *fakeBackend) handler() http.Handler {
 			f.mu.Unlock()
 			_, _ = w.Write([]byte(`{"data":{"id":"ses-test","outcome":"","cost":0,"tokens":{"input":0,"output":0,"reasoning":0}}}`))
 		case strings.HasSuffix(r.URL.Path, "/prompt"):
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.mu.Lock()
+			f.prompt = body["text"]
+			f.mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"data":{"id":"msg-1"}}`))
 		case strings.HasSuffix(r.URL.Path, "/interrupt"):
@@ -95,6 +101,54 @@ func (f *fakeBackend) handler() http.Handler {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	})
+}
+
+func TestProjectContextReachesPromptAndSavesOutput(t *testing.T) {
+	backend := &fakeBackend{outcome: "succeeded"}
+	backend.messages = []Message{assistantMessage(map[string]any{"type": "text", "text": `{"ok":true}`})}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, err := NewClient(server.URL, "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := newMemory()
+	coordinator, err := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := make(chan contracts.StartRunRequest, 1)
+	coordinator.AfterSuccess = func(_ context.Context, run contracts.Run, request contracts.StartRunRequest) error {
+		if run.State != contracts.StateSucceeded {
+			t.Errorf("callback state %s", run.State)
+		}
+		saved <- request
+		return nil
+	}
+	run, err := coordinator.Start(context.Background(), contracts.StartRunRequest{
+		AgentID: "root", AgentVersion: "1.0.0", Input: json.RawMessage(`{}`), Limits: openLimits(),
+		ProjectID: "project-1", ActorID: "actor-1", SharedContext: []contracts.ContextSnippet{{ID: "previous", AgentID: "root", Kind: "report", Title: "Last report", Body: "Shipped the API"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.mu.Lock()
+	prompt := backend.prompt
+	backend.mu.Unlock()
+	if !strings.Contains(prompt, "Last report") || !strings.Contains(prompt, "Shipped the API") || !strings.Contains(prompt, "Untrusted project context") {
+		t.Fatalf("context missing from prompt: %s", prompt)
+	}
+	select {
+	case request := <-saved:
+		if request.ProjectID != "project-1" || request.ActorID != "actor-1" {
+			t.Fatalf("callback request %+v", request)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("output was not saved")
+	}
+	if result := waitRun(t, mem, run.ID); result.State != contracts.StateSucceeded {
+		t.Fatalf("run state %s", result.State)
+	}
 }
 
 func stringOf(v any) string {
