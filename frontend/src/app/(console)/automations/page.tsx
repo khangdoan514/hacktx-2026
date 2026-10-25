@@ -144,7 +144,7 @@ export default function AutomationsPage() {
           <label>Project<select className="input" value={projectID} onChange={(event) => setProjectID(event.target.value)}><option value="">No project</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {agentID === "github-repo-reviewer" && <label>GitHub repository and branch<select className="input" value={githubBindingID} onChange={(event) => setGitHubBindingID(event.target.value)} required>
             <option value="">Choose a repository</option>{githubBindings.map((item) => <option key={item.id} value={item.id}>{item.full_name} · {item.branch}</option>)}
-          </select>{!githubBindings.length && <Link href="/github">Connect a repository first</Link>}</label>}
+          </select>{!githubBindings.length && <Link href="/tools?github=repositories">Connect a repository first</Link>}</label>}
           <label>Task<textarea className="input" rows={4} value={task} onChange={(event) => setTask(event.target.value)} placeholder="Review this week's GitHub activity and summarize progress." required /></label>
           <label>When<select className="input" value={kind} onChange={(event) => setKind(event.target.value as Schedule["kind"])}><option value="once">Once</option><option value="interval">Every interval</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
           {kind === "once" && <label>Date and time<input className="input" type="datetime-local" value={onceAt} onChange={(event) => setOnceAt(event.target.value)} required /></label>}

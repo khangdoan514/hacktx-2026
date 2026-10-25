@@ -135,6 +135,7 @@ type githubDispatch struct {
 	Branch         string
 	AgentID        string
 	AgentVersion   string
+	Instructions   string
 	EventName      string
 	ActionName     string
 	Payload        json.RawMessage
@@ -146,7 +147,7 @@ func (w *GitHubDeliveryWorker) load(ctx context.Context, id string) (githubDispa
 	var job githubDispatch
 	err := w.Server.DB.Admin(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT d.delivery_id::text,b.id::text,b.project_id::text,r.created_by::text,e.email,
-			b.repository_id,b.installation_id,b.full_name,b.branch_name,r.agent_id,r.agent_version,d.event_name,d.action_name,d.payload,
+			b.repository_id,b.installation_id,b.full_name,b.branch_name,r.agent_id,r.agent_version,r.instructions,d.event_name,d.action_name,d.payload,
 			x.attempts,(b.enabled AND r.enabled AND i.status='active')
 			FROM app.github_rule_runs x
 			JOIN app.github_webhook_deliveries d ON d.delivery_id=x.delivery_id
@@ -155,7 +156,7 @@ func (w *GitHubDeliveryWorker) load(ctx context.Context, id string) (githubDispa
 			JOIN app.github_installations i ON i.installation_id=b.installation_id
 			JOIN app.employees e ON e.user_id=r.created_by
 			WHERE x.id=$1`, id).Scan(&job.DeliveryID, &job.BindingID, &job.ProjectID, &job.OwnerID, &job.Email,
-			&job.RepositoryID, &job.InstallationID, &job.FullName, &job.Branch, &job.AgentID, &job.AgentVersion,
+			&job.RepositoryID, &job.InstallationID, &job.FullName, &job.Branch, &job.AgentID, &job.AgentVersion, &job.Instructions,
 			&job.EventName, &job.ActionName, &job.Payload, &job.Attempts, &job.Enabled)
 	})
 	return job, err
@@ -244,10 +245,18 @@ func githubEventQuestion(job githubDispatch) string {
 		} `json:"pull_request"`
 	}
 	_ = json.Unmarshal(job.Payload, &event)
+	var question string
 	if job.EventName == "issues" {
-		return fmt.Sprintf("Review new issue #%d in %s on branch %s. Summarize progress impact and next steps. Use the repository tools and cite source URLs.", event.Issue.Number, job.FullName, job.Branch)
+		question = fmt.Sprintf("Review new issue #%d in %s on branch %s. Summarize progress impact and next steps. Use the repository tools and cite source URLs.", event.Issue.Number, job.FullName, job.Branch)
+	} else {
+		question = fmt.Sprintf("Review pull request #%d targeting %s in %s after %s. Summarize changes, risks, and next steps. Use the repository tools and cite source URLs.", event.PullRequest.Number, job.Branch, job.FullName, job.ActionName)
 	}
-	return fmt.Sprintf("Review pull request #%d targeting %s in %s after %s. Summarize changes, risks, and next steps. Use the repository tools and cite source URLs.", event.PullRequest.Number, job.Branch, job.FullName, job.ActionName)
+	// The task comes from the project member who created the trigger, not
+	// from the GitHub payload, so it is safe to pass as an instruction.
+	if job.Instructions != "" {
+		question += "\nTask from the project: " + job.Instructions
+	}
+	return question
 }
 
 func (w *GitHubDeliveryWorker) finish(ctx context.Context, id, runID string, failure error, retryable bool, attempts int) {

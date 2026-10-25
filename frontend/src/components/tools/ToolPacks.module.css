@@ -61,3 +61,11 @@
 .tokenForm .input { width: 100%; }
 .tokenForm button { justify-self: stretch; }
 .privacy { margin: 20px 0 0; color: var(--ink-3); font-size: 11px; line-height: 1.5; }
+.choices { display: grid; gap: 10px; }
+.choice { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid var(--line-2); border-radius: 12px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.choice:hover { border-color: var(--accent); background: var(--hover); }
+.choice:disabled { opacity: .5; cursor: default; }
+.choice b { font-size: 14px; font-weight: 550; }
+.choice span { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+.back { margin: 10px 0 0; padding: 0; border: 0; background: transparent; color: var(--ink-3); font: inherit; font-size: 12px; cursor: pointer; }
+.back:hover { color: var(--ink); }

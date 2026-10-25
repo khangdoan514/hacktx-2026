@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/khangdoan514/hacktx-2026/internal/platform"
@@ -19,6 +21,7 @@ type githubRuleView struct {
 	AgentVersion string    `json:"agent_version"`
 	EventName    string    `json:"event_name"`
 	ActionName   string    `json:"action_name"`
+	Instructions string    `json:"instructions"`
 	Enabled      bool      `json:"enabled"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -33,7 +36,7 @@ func (s *Server) listGitHubRules(_ http.ResponseWriter, r *http.Request, ctx con
 		return 0, nil, err
 	}
 	rows, err := tx.Query(ctx, `SELECT r.id::text,r.binding_id::text,b.full_name,r.agent_id,r.agent_version,
-		r.event_name,r.action_name,r.enabled,r.created_at FROM app.github_agent_rules r
+		r.event_name,r.action_name,r.instructions,r.enabled,r.created_at FROM app.github_agent_rules r
 		JOIN app.project_github_repositories b ON b.id=r.binding_id
 		WHERE b.project_id=$1 ORDER BY r.created_at DESC`, projectID)
 	if err != nil {
@@ -44,7 +47,7 @@ func (s *Server) listGitHubRules(_ http.ResponseWriter, r *http.Request, ctx con
 	for rows.Next() {
 		var item githubRuleView
 		if err := rows.Scan(&item.ID, &item.BindingID, &item.FullName, &item.AgentID, &item.AgentVersion,
-			&item.EventName, &item.ActionName, &item.Enabled, &item.CreatedAt); err != nil {
+			&item.EventName, &item.ActionName, &item.Instructions, &item.Enabled, &item.CreatedAt); err != nil {
 			return 0, nil, err
 		}
 		items = append(items, item)
@@ -62,25 +65,25 @@ func (s *Server) createGitHubRule(w http.ResponseWriter, r *http.Request, ctx co
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<10)
 	var input struct {
-		BindingID  string `json:"binding_id"`
-		EventName  string `json:"event_name"`
-		ActionName string `json:"action_name"`
+		BindingID    string `json:"binding_id"`
+		EventName    string `json:"event_name"`
+		ActionName   string `json:"action_name"`
+		Instructions string `json:"instructions"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || !projectUUID.MatchString(input.BindingID) || !validGitHubRule(input.EventName, input.ActionName) {
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || !projectUUID.MatchString(input.BindingID) || !validGitHubRule(input.EventName, input.ActionName) || utf8.RuneCountInString(input.Instructions) > 2000 {
 		return 0, nil, platform.Fail(http.StatusBadRequest, "invalid_input", "Choose a repository and supported GitHub event")
 	}
 	var id string
 	err := s.DB.Admin(ctx, func(ctx context.Context, admin pgx.Tx) error {
 		return admin.QueryRow(ctx, `INSERT INTO app.github_agent_rules
-			(binding_id,agent_id,agent_version,event_name,action_name,created_by)
-			SELECT b.id,'github-repo-reviewer','1.0.0',$3,$4,$5
+			(binding_id,agent_id,agent_version,event_name,action_name,instructions,created_by)
+			SELECT b.id,'github-repo-reviewer','1.0.0',$3,$4,$5,$6
 			FROM app.project_github_repositories b WHERE b.id=$1 AND b.project_id=$2 AND b.enabled
-			AND EXISTS (SELECT 1 FROM app.delivery_grants WHERE project_id=$2 AND user_id=$5 AND status='active')
-			ON CONFLICT (binding_id,agent_id,agent_version,event_name,action_name)
-			DO UPDATE SET enabled=true,updated_at=now() RETURNING id::text`,
-			input.BindingID, projectID, input.EventName, input.ActionName, actor.ID).Scan(&id)
+			AND EXISTS (SELECT 1 FROM app.delivery_grants WHERE project_id=$2 AND user_id=$6 AND status='active')
+			RETURNING id::text`,
+			input.BindingID, projectID, input.EventName, input.ActionName, strings.TrimSpace(input.Instructions), actor.ID).Scan(&id)
 	})
 	if err == pgx.ErrNoRows {
 		return 0, nil, platform.Fail(http.StatusNotFound, "not_found", "Enabled repository binding not found")

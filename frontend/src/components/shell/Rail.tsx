@@ -20,7 +20,6 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/agents", label: "Agents", icon: "bot" },
     { href: "/automations", label: "Automations", icon: "clock" },
     { href: "/tools", label: "Tools", icon: "wrench" },
-    { href: "/github", label: "GitHub", icon: "code" },
   ],
 ];
 

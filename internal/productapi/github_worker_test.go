@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,5 +98,17 @@ func TestGitHubDeliveryWorkerStartsScopedAgentOnce(t *testing.T) {
 	var state string
 	if err := db.Pool.QueryRow(ctx, `SELECT state FROM app.github_rule_runs WHERE delivery_id=$1`, deliveryID).Scan(&state); err != nil || state != "succeeded" {
 		t.Fatalf("state=%s err=%v", state, err)
+	}
+}
+
+func TestGitHubEventQuestionAddsTriggerTask(t *testing.T) {
+	job := githubDispatch{FullName: "demo/private", Branch: "main", EventName: "issues", ActionName: "opened",
+		Payload: json.RawMessage(`{"issue":{"number":3}}`)}
+	if question := githubEventQuestion(job); !strings.Contains(question, "issue #3") || strings.Contains(question, "Task from the project") {
+		t.Fatalf("question without task = %q", question)
+	}
+	job.Instructions = "Suggest labels for the issue."
+	if question := githubEventQuestion(job); !strings.HasSuffix(question, "Task from the project: Suggest labels for the issue.") {
+		t.Fatalf("question with task = %q", question)
 	}
 }

@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import { readToken } from "@/product/api";
 import { useEmployee } from "@/components/shell/ConsoleGate";
+import GitHubRepos, { GitHubReturn } from "./GitHubRepos";
 import s from "./ToolPacks.module.css";
 
 type PackTool = { id: string; name: string; description: string; side_effect: string };
@@ -56,6 +57,10 @@ export default function ToolPacks() {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"discover" | "connected">("discover");
   const [notice, setNotice] = useState<Notice | null>(null);
+  // GitHub offers a personal account or the repository App; null means the
+  // setup dialog is still asking which one.
+  const [githubMode, setGithubMode] = useState<"account" | null>(null);
+  const [repos, setRepos] = useState<{ open: boolean; initial: GitHubReturn | null }>({ open: false, initial: null });
   const popupRef = useRef<Window | null>(null);
 
   const refresh = useCallback(async () => {
@@ -69,7 +74,22 @@ export default function ToolPacks() {
     // The OAuth callback returns here with ?pack=&result=.
     const params = new URLSearchParams(window.location.search);
     const result = params.get("result");
-    if (result) {
+    if (params.get("github") === "repositories") {
+      // The GitHub App sign-in returns here with ?github=repositories&project=&setup=&result=.
+      const back = { project: params.get("project") ?? "", setup: params.get("setup") ?? "", result: result ?? "" };
+      if (window.opener && window.opener !== window) {
+        try {
+          window.opener.postMessage({ type: "github-app-setup", ...back }, window.location.origin);
+          window.close();
+          return;
+        } catch {
+          // The opener navigated away; finish setup in this window instead.
+        }
+      }
+      setRepos({ open: true, initial: back.project ? back : null });
+      for (const key of ["github", "project", "setup", "result"]) params.delete(key);
+      window.history.replaceState(null, "", window.location.pathname + (params.size ? `?${params}` : ""));
+    } else if (result) {
       setNotice(oauthResults[result] ?? { tone: "err", text: "Sign-in failed." });
       params.delete("pack");
       params.delete("result");
@@ -179,7 +199,7 @@ export default function ToolPacks() {
                 {pack.connected ? (
                   <button type="button" className={`${s.switch} ${s.switchOn}`} role="switch" aria-checked="true" aria-label={`Disable ${pack.name}`} disabled={busy === pack.id} onClick={() => disconnect(pack)}><span /></button>
                 ) : (
-                  <button type="button" className={s.addButton} aria-label={`Set up ${pack.name}`} title={`Set up ${pack.name}`} disabled={busy === pack.id || (!pack.oauth_available && !pack.token_accepted)} onClick={() => setSelected(pack)}><span aria-hidden="true">+</span></button>
+                  <button type="button" className={s.addButton} aria-label={`Set up ${pack.name}`} title={`Set up ${pack.name}`} disabled={busy === pack.id || (pack.id !== "github" && !pack.oauth_available && !pack.token_accepted)} onClick={() => { setGithubMode(null); setSelected(pack); }}><span aria-hidden="true">+</span></button>
                 )}
               </header>
               {pack.connected && <p className={s.account}>{pack.account || "Connected"} · {pack.method === "oauth" ? "Signed in" : "Access token"}</p>}
@@ -191,9 +211,10 @@ export default function ToolPacks() {
                   ))}
                 </ul>
               </details>
-              {pack.connected && (
+              {(pack.connected || pack.id === "github") && (
                 <div className={s.actions}>
-                  <button type="button" className="btn" disabled={busy !== null} onClick={() => testConnection(pack)}>{busy === pack.id ? "Checking…" : "Test connection"}</button>
+                  {pack.connected && <button type="button" className="btn" disabled={busy !== null} onClick={() => testConnection(pack)}>{busy === pack.id ? "Checking…" : "Test connection"}</button>}
+                  {pack.id === "github" && <button type="button" className="btn" onClick={() => setRepos({ open: true, initial: null })}>Repositories</button>}
                 </div>
               )}
             </article>
@@ -206,6 +227,20 @@ export default function ToolPacks() {
           <button type="button" className={s.close} aria-label="Close setup" onClick={() => setSelected(null)}><Icon name="x" size={17} /></button>
           <span className={s.dialogIcon} aria-hidden="true">{selected.name.slice(0, 1)}</span>
           <h2 id="connect-title">Connect {selected.name}</h2>
+          {selected.id === "github" && githubMode === null ? <>
+            <p className={s.dialogLead}>Choose how agents reach GitHub. You can set up both.</p>
+            <div className={s.choices}>
+              <button type="button" className={s.choice} disabled={!selected.oauth_available && !selected.token_accepted} onClick={() => setGithubMode("account")}>
+                <b>Your GitHub account</b>
+                <span>Agents you chat with can search and read the repositories your account can see.</span>
+              </button>
+              <button type="button" className={s.choice} onClick={() => { setSelected(null); setRepos({ open: true, initial: null }); }}>
+                <b>Selected repositories</b>
+                <span>Install the GitHub App on chosen repositories and run agents automatically on issues and pull requests.</span>
+              </button>
+            </div>
+          </> : <>
+          {selected.id === "github" && <button type="button" className={s.back} onClick={() => setGithubMode(null)}>← Other ways to connect</button>}
           <p className={s.dialogLead}>Sign in to your {selected.name} account to let your agents use its tools.</p>
           {selected.oauth_available ? <button type="button" className={`btn solid ${s.signIn}`} disabled={busy === selected.id} onClick={() => signIn(selected)}>Continue with {selected.name}</button> : <p className={s.hint}>Account sign-in is not configured on this server yet.</p>}
           {selected.token_accepted && <>
@@ -218,8 +253,11 @@ export default function ToolPacks() {
             </form>
           </>}
           <p className={s.privacy}>Credentials are stored by the agent service and never shown again.</p>
+          </>}
         </section>
       </div>}
+
+      {repos.open && <GitHubRepos initial={repos.initial} onClose={() => setRepos({ open: false, initial: null })} />}
     </>
   );
 }

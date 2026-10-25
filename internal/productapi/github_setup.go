@@ -124,7 +124,10 @@ func (s *Server) githubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := url.Values{"project": {projectID}, "setup": {id}, "result": {result}}
-	http.Redirect(w, r, returnURL+"/github?"+query.Encode(), http.StatusSeeOther)
+	// The Tools page owns the GitHub add-on setup; it reads these parameters
+	// (or forwards them from the sign-in popup to its opener).
+	query.Set("github", "repositories")
+	http.Redirect(w, r, returnURL+"/tools?"+query.Encode(), http.StatusSeeOther)
 }
 
 func (s *Server) getGitHubSetup(_ http.ResponseWriter, r *http.Request, ctx context.Context, tx pgx.Tx, actor platform.Actor) (int, any, error) {
