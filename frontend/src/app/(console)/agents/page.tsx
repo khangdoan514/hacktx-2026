@@ -121,8 +121,13 @@ function ProjectContext({ agents }: { agents: AgentDef[] }) {
   </section>;
 }
 
+// Cards show this many delegate and tool chips; the drawer lists the rest.
+const CHIPS = 4;
+
 function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
   const { openAgent } = useStore();
+  const chips = [...a.delegates.map((d) => ({ id: d, tool: false })), ...a.tools.map((t) => ({ id: t, tool: true }))];
+  const shown = chips.length > CHIPS + 1 ? chips.slice(0, CHIPS) : chips;
   return (
     <div id={a.id} className={s.card}>
       <button type="button" className={s.cardOpen} onClick={() => openAgent(a.id)} aria-label={`View ${a.name} details`}>
@@ -136,16 +141,16 @@ function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
         </div>
         <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
         <div className={s.chips}>
-          {a.delegates.map((d) => <span key={d} className="tag">{d}</span>)}
-          {a.tools.map((t) => <span key={t} className="tag accent">{t}</span>)}
-          {a.tools.length + a.delegates.length === 0 && <span className="tag">model only</span>}
+          {shown.map((c) => <span key={c.id} className={`tag ${c.tool ? "accent" : ""}`} title={c.id}>{c.id}</span>)}
+          {chips.length > shown.length && <span className="tag" title={chips.slice(shown.length).map((c) => c.id).join("\n")}>+{chips.length - shown.length} more</span>}
+          {chips.length === 0 && <span className="tag">model only</span>}
         </div>
       </button>
       <div className={s.foot}>
         <span><b>{st.n}</b> runs</span>
         <span><b>{st.rate}%</b> ok</span>
         <span><b>{st.avg ? secs(st.avg) : "—"}</b> avg</span>
-        <Link href={`/agents/new?from=${encodeURIComponent(a.id)}`} className="btn sm" aria-label={`Edit ${a.name} in graph`}>Edit graph</Link>
+        <Link href={`/agents/new?from=${encodeURIComponent(a.id)}`} className="btn sm" aria-label={`Edit ${a.name}`}><Icon name="settings" size={13} />Edit</Link>
       </div>
     </div>
   );

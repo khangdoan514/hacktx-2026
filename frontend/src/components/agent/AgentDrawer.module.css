@@ -3,6 +3,7 @@
 .drawer[open] { display: flex; flex-direction: column; animation: slide .35s var(--ease); }
 @keyframes slide { from { transform: translateX(30px); opacity: 0; } }
 .head { display: flex; align-items: center; gap: 14px; padding: 22px 22px 16px; }
+.head > a { margin-left: auto; flex-shrink: 0; }
 .ico { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); flex: none; }
 .head h3 { font: 500 20px/1.2 var(--sans); letter-spacing: -.02em; }
 .id { font: 400 12px var(--mono); color: var(--ink-3); }

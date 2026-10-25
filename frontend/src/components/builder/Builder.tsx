@@ -11,7 +11,7 @@ import { useEmployee } from "@/components/shell/ConsoleGate";
 import Icon from "@/components/ui/Icon";
 import {
   autoLayout, blankFlow, canConnect, connectedSteps, flowFromAgent, flowFromStages, newStep, presetById, presets,
-  problems, sizeOf, stagesOf, templates, toSpecs, uid,
+  problems, sizeOf, stagesOf, templates, toSpecs, uid, unchanged,
   type Flow, type FlowNode, type PresetId,
 } from "@/lib/builder";
 import s from "./Builder.module.css";
@@ -82,7 +82,8 @@ export default function Builder() {
   }, [agentById, ready]);
 
   useEffect(() => {
-    if (!ready) return;
+    // Editing an existing agent leaves the new-agent draft alone.
+    if (!ready || fromId.current) return;
     try { window.localStorage.setItem(STORE, JSON.stringify(flow)); } catch { /* storage can be unavailable */ }
   }, [flow, ready]);
 
@@ -239,7 +240,10 @@ export default function Builder() {
     const actor = employee?.display_name || employee?.email || "console";
     try {
       const specs = toSpecs(flow);
+      // Steps loaded from an agent and left untouched keep their current version.
+      const keep = new Set(flow.nodes.filter(unchanged).map((n) => n.source!.id));
       for (const spec of specs) {
+        if (keep.has(spec.id) && spec !== specs[specs.length - 1]) continue;
         if (publish) await definitionsApi.publish(actor, spec);
         else await definitionsApi.draft(actor, spec);
       }
@@ -379,7 +383,7 @@ export default function Builder() {
 
         <aside className={`card ${s.inspector}`} aria-label="Details">
           {selected && selected.kind === "step" ? (
-            <StepForm n={selected} agentName={steps.length === 1 ? flow.name : undefined} onAgentNameChange={(name) => setFlow((f) => ({ ...f, name, nodes: f.nodes.map((n) => n.id === selected.id ? { ...n, name: name || "Agent" } : n) }))} onChange={(c) => patch(selected.id, c)} onRemove={() => remove({ kind: "node", id: selected.id })} />
+            <StepForm key={selected.id} n={selected} agentName={steps.length === 1 ? flow.name : undefined} onAgentNameChange={(name) => setFlow((f) => ({ ...f, name, nodes: f.nodes.map((n) => n.id === selected.id ? { ...n, name: name || "Agent" } : n) }))} onChange={(c) => patch(selected.id, c)} onRemove={() => remove({ kind: "node", id: selected.id })} />
           ) : selectedEdge ? (
             <>
               <div className="ch"><h2>Connection</h2></div>
@@ -431,6 +435,8 @@ export default function Builder() {
 
 function StepForm({ n, agentName, onAgentNameChange, onChange, onRemove }: { n: FlowNode; agentName?: string; onAgentNameChange: (name: string) => void; onChange: (c: Partial<FlowNode>) => void; onRemove: () => void }) {
   const toggle = (id: string) => onChange({ tools: n.tools.includes(id) ? n.tools.filter((t) => t !== id) : [...n.tools, id] });
+  // Tools an existing agent was given that have no tile; listed so they can be seen and removed.
+  const [others] = useState(() => n.tools.filter((id) => !pickable.some((t) => t.id === id)));
   return (
     <>
       <div className="ch"><h2>{n.name || "Step"}</h2><div className="right"><button type="button" className="btn ghost sm" onClick={onRemove}>Delete</button></div></div>
@@ -463,6 +469,13 @@ function StepForm({ n, agentName, onAgentNameChange, onChange, onRemove }: { n: 
               );
             })}
           </div>
+          {others.length > 0 && (
+            <div className={s.others}>
+              {others.map((id) => (
+                <button key={id} type="button" className={`tag ${n.tools.includes(id) ? "accent" : ""}`} aria-pressed={n.tools.includes(id)} onClick={() => toggle(id)} title={n.tools.includes(id) ? "Click to remove" : "Click to add back"}>{id}</button>
+              ))}
+            </div>
+          )}
         </div>
         <details>
           <summary>Advanced</summary>
