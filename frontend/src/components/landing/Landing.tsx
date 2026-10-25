@@ -19,7 +19,7 @@ export default function Landing() {
             <h1 id="landing-title"><img className={s.wordmark} src="/brand/nmc3-dark.png" alt="NMC³" /></h1>
             <p className={s.slogan}>Cloud, Compute,<br />Consolidate.</p>
             <p className={s.description}>A shared context for your agents,<br />your teams, and the work between them.</p>
-            <Link className={s.explore} href="/runs">Explore <span aria-hidden="true">↗</span></Link>
+            <Link className={s.explore} href="/dashboard">Explore <span aria-hidden="true">↗</span></Link>
           </div>
           <p className={s.note}>One framework. Collective intelligence.</p>
         </section>

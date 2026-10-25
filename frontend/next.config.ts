@@ -6,7 +6,6 @@ const nextConfig: NextConfig = {
   async redirects() {
     // Pages folded into the agent, run and settings views keep working for old links.
     return [
-      { source: "/", destination: "/dashboard", permanent: false },
       { source: "/runs", destination: "/dashboard", permanent: false },
       { source: "/runs/:id", destination: "/live-run/:id", permanent: false },
       { source: "/definitions", destination: "/agents/new", permanent: false },
