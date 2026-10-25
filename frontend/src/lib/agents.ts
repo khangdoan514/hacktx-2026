@@ -7,7 +7,7 @@ type WireSpec = {
   id: string; version: string; name: string; role?: string; instructions?: string;
   input_schema?: unknown; output_schema?: unknown; allowed_tools?: string[]; allowed_delegates?: string[]; limits?: WireLimits;
 };
-type WireDefinition = { spec: WireSpec; state?: string };
+type WireDefinition = { spec: WireSpec; state?: string; published_at?: string; updated_at?: string };
 
 export const limitsFromWire = (l: WireLimits): Limits => ({
   turns: l.max_model_turns, tools: l.max_tool_calls, delegations: l.max_delegations, parallel: l.max_concurrent_agents, seconds: l.timeout_seconds,
@@ -19,6 +19,39 @@ export const limitsToWire = (l: Limits, base?: Partial<WireLimits>): WireLimits 
 });
 
 const NO_LIMITS: Limits = { turns: 0, tools: 0, delegations: 0, parallel: 0, seconds: 0 };
+
+function versionParts(version: string): number[] {
+  return version.split(".").map((part) => Number(part) || 0);
+}
+
+function newerVersion(left: string, right: string): boolean {
+  const a = versionParts(left);
+  const b = versionParts(right);
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+function newerDefinition(next: WireDefinition, prior: WireDefinition): boolean {
+  if (newerVersion(next.spec.version, prior.spec.version)) return true;
+  if (newerVersion(prior.spec.version, next.spec.version)) return false;
+  return (next.published_at ?? next.updated_at ?? "") >= (prior.published_at ?? prior.updated_at ?? "");
+}
+
+/** One card per agent. A republish keeps the older version for past runs. */
+function latestVersions(definitions: WireDefinition[]): WireDefinition[] {
+  const byID = new Map<string, WireDefinition>();
+  for (const definition of definitions) {
+    const id = definition.spec?.id;
+    if (!id) continue;
+    const current = byID.get(id);
+    if (!current || newerDefinition(definition, current)) byID.set(id, definition);
+  }
+  return [...byID.values()];
+}
 
 function fromSpec(spec: WireSpec, state: string): AgentDef {
   const kind = spec.role === "orchestrator" || (spec.allowed_delegates?.length ?? 0) > 0 ? "orchestrator" : "specialist";
@@ -49,7 +82,8 @@ export async function loadAgents(): Promise<AgentDef[]> {
   if (res.ok) {
     const body = (await res.json()) as { definitions?: WireDefinition[] };
     const published = (body.definitions ?? []).filter((d) => d.state === "published" || d.state === undefined);
-    if (published.length) return published.map((d) => fromSpec(d.spec, d.state ?? "published"));
+    const latest = latestVersions(published);
+    if (latest.length) return latest.map((d) => fromSpec(d.spec, d.state ?? "published"));
   }
   if (res.status === 401) throw new AgentRequestError("Session expired", 401);
   const { agents } = await agentApi.agents();

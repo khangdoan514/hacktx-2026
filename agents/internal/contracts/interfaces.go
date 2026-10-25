@@ -88,3 +88,7 @@ type EventSink interface {
 type Coordinator interface {
 	Start(ctx context.Context, request StartRunRequest) (Run, error)
 }
+
+// DefinitionSource returns the currently published agent versions. Run start
+// reads it again so a newly published agent is available without a restart.
+type DefinitionSource func(context.Context) ([]AgentDefinition, error)

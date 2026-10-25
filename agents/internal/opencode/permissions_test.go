@@ -77,7 +77,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 	if !strings.Contains(joined, "catalog-mcp") {
 		t.Fatalf("command=%v", catalogServer.Command)
 	}
-	for _, id := range []string{"catalog-specialist", "accessibility-specialist", "denial-specialist"} {
+	for _, id := range []string{"catalog-specialist", "accessibility-specialist", "denial-specialist", "interval-reporter", "project-span-reporter"} {
 		agent := cfg.Agents[id]
 		if agent.Mode != "subagent" {
 			t.Fatalf("%s mode=%s", id, agent.Mode)
@@ -92,7 +92,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 		t.Fatal("depth gate mismatch")
 	}
 
-	for _, id := range []string{"vendor-orchestrator", "denial-orchestrator", "workspace-assistant", "catalog-specialist", "accessibility-specialist", "denial-specialist", "build", "plan", "general", "explore"} {
+	for _, id := range []string{"vendor-orchestrator", "denial-orchestrator", "workspace-assistant", "partner-analytics", "internal-analytics", "catalog-specialist", "accessibility-specialist", "denial-specialist", "interval-reporter", "project-span-reporter", "build", "plan", "general", "explore"} {
 		for _, rule := range cfg.Agents[id].Permissions {
 			if rule.Effect == "ask" {
 				t.Fatalf("%s uses ask: %+v", id, rule)
@@ -177,6 +177,37 @@ func TestDepthEscalationDenied(t *testing.T) {
 		got := permissionEffect(effectiveRules(cfg, tc.agent), tc.action, tc.resource)
 		if got != tc.want {
 			t.Fatalf("%s %s %s: got %s want %s", tc.agent, tc.action, tc.resource, got, tc.want)
+		}
+	}
+}
+
+func TestThreadToolsRequireApprovalForOperations(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	cfg, err := loadProjectPolicy(filepath.Join(filepath.Dir(file), "..", "..", "opencode.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := effectiveRules(cfg, "thread")
+	checks := []struct{ action, resource, want string }{
+		{"read", "README.md", "allow"},
+		{"read", ".env", "deny"},
+		{"read", "/app/agents/.nmc3/users/employee/credentials.json", "deny"},
+		{"read", "/app/agents/.nmc3/oauth-states/attempt.json", "deny"},
+		{"read", "/home/employee/.config/opencode/service.json", "deny"},
+		{"glob", "*.go", "allow"},
+		{"grep", "API_KEY", "ask"},
+		{"shell", "pwd", "ask"},
+		{"edit", "README.md", "ask"},
+		{"catalog_search", "*", "allow"},
+		{"tools_github_get_file", "*", "allow"},
+		{"tools_notion_get_page", "*", "allow"},
+		{"tools_slack_get_thread", "*", "allow"},
+		{"websearch", "OpenCode", "allow"},
+		{"subagent", "general", "deny"},
+	}
+	for _, check := range checks {
+		if got := permissionEffect(rules, check.action, check.resource); got != check.want {
+			t.Errorf("%s %q: got %q, want %q", check.action, check.resource, got, check.want)
 		}
 	}
 }

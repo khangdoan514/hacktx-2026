@@ -94,7 +94,7 @@ function Spec({ def }: { def: AgentDef }) {
         </div>
       </Sec>
       <Sec title="Configure">
-        <p className={s.note}>This is version {def.version} ({def.state}). <Link href={`/agents/new?from=${def.id}`} className="btn sm">Open in builder</Link></p>
+        <p className={s.note}>This is version {def.version} ({def.state}). <Link href={`/agents/new?from=${def.id}`} className="btn sm">Edit in builder</Link></p>
       </Sec>
     </>
   );
@@ -119,8 +119,22 @@ function useInvocations(id: string) {
   }), [runs, id]);
 }
 
+type Report = { title?: string; period?: string; scope?: string; sections?: { heading?: string; body?: string }[] };
+
+function asReport(output: unknown): Report | null {
+  if (!output || typeof output !== "object") return null;
+  const body = output as Report;
+  if (typeof body.title !== "string" && typeof body.period !== "string" && typeof body.scope !== "string") return null;
+  return body;
+}
+
+const analyticsAgent = (id: string) => id === "partner-analytics" || id === "internal-analytics";
+
 function Activity({ def }: { def: AgentDef }) {
   const inv = useInvocations(def.id);
+  const reports = analyticsAgent(def.id)
+    ? inv.filter((i) => i.run.plan.agent === def.id && i.st === "SUCCEEDED").map((i) => ({ run: i.run, report: asReport(i.run.plan.output) })).filter((i) => i.report)
+    : [];
   const done = inv.filter((i) => i.st !== "RUNNING");
   const ok = done.filter((i) => i.st === "SUCCEEDED").length;
   const toolCounts = new Map<string, number>();
@@ -129,6 +143,30 @@ function Activity({ def }: { def: AgentDef }) {
 
   return (
     <>
+      {reports.length > 0 && (
+        <Sec title="Reports">
+          <Link href={`/live-run/${reports[0].run.plan.id}`} className={s.note}>
+            <b>Latest · {reports[0].report?.period}</b>
+            <p>{reports[0].report?.title}</p>
+            <p>{reports[0].report?.scope}</p>
+          </Link>
+          {reports.length > 1 && (
+            <ul className={s.hist}>
+              {reports.slice(1).map((item) => (
+                <li key={item.run.plan.id}>
+                  <Link href={`/live-run/${item.run.plan.id}`}>
+                    <i className={`dot ${stateColor("SUCCEEDED")}`} />
+                    <div style={{ minWidth: 0 }}>
+                      <b>{item.report?.title}</b>
+                      <small>{item.report?.period} · {item.report?.scope}</small>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Sec>
+      )}
       <div className={s.stats}>
         <div><small>Runs</small><b>{inv.length}</b></div>
         <div><small>Succeeded</small><b>{done.length ? Math.round((ok / done.length) * 100) : 0}%</b></div>

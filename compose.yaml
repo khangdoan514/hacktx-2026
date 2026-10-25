@@ -18,6 +18,25 @@ services:
     ports:
       - "127.0.0.1:54330:5432"
 
+  minio:
+    # Upstream MinIO community images are no longer publicly available.
+    # PGSTY Silo is a maintained, S3-compatible MinIO fork.
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-nmc3-local}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-nmc3-local-secret}
+    volumes:
+      - objectdata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
   api:
     build:
       context: .
@@ -26,12 +45,18 @@ services:
       ENVIRONMENT: local
       DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-replace-with-a-long-random-string}
+      JWT_ISSUER: ${JWT_ISSUER:-https://vocvwmiypifqnncxhfpj.supabase.co/auth/v1}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-authenticated}
+      JWT_JWKS_URL: ${JWT_JWKS_URL:-https://vocvwmiypifqnncxhfpj.supabase.co/auth/v1/.well-known/jwks.json}
       ALLOW_LOCAL_AUTH: "true"
       AGENT_EXECUTION_MODE: dummy
       ADDR: ":8000"
       STORAGE_DIR: /app/var/storage
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      AGENT_API_URL: ${AGENT_API_URL:-http://agent:8080}
+      # Host .env sets AGENT_API_URL to 127.0.0.1 for a process on the machine.
+      # Inside this network the agent is the agent service. Set
+      # COMPOSE_AGENT_API_URL only when the agent runs on the host instead.
+      AGENT_API_URL: ${COMPOSE_AGENT_API_URL:-http://agent:8080}
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,13 +72,33 @@ services:
       DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
       NMC3_DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
       NMC3_ADDR: 0.0.0.0:8080
+      NMC3_WORKDIR: ${NMC3_WORKDIR:-/workspace/agents}
+      NMC3_TOOLS_DIR: ${NMC3_TOOLS_DIR:-.nmc3}
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-docker-opencode}
-      OPENCODE_URL: ${OPENCODE_URL:-http://host.docker.internal:49374}
+      # The host OpenCode process must listen on 0.0.0.0:49374. 127.0.0.1 is
+      # not reachable from this container.
+      OPENCODE_SERVICE_FILE: /run/opencode/service.json
+      OPENCODE_URL: ${OPENCODE_DOCKER_URL:-http://host.docker.internal:49374}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/beam-free}
+      OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-}
+      NMC3_DEFINITIONS_FILE: ${NMC3_WORKDIR:-/workspace/agents}/examples/definitions.json
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-nmc3-local}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-nmc3-local-secret}
+      S3_BUCKET: ${S3_BUCKET:-nmc3-threads}
+      S3_USE_SSL: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Read the current OpenCode service registration, which can rotate.
+      - ${HOME}/.config/opencode/service.json:/run/opencode/service.json:ro
+      # OpenCode runs on the host and resolves this absolute directory there.
+      # Mounting at the same path lets the agent container validate and use it.
+      - ${PROJECT_ROOT:-/workspace}:${PROJECT_ROOT:-/workspace}
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   web:
@@ -62,7 +107,7 @@ services:
       dockerfile: script/docker/web.Dockerfile
       args:
         BACKEND_URL: http://api:8000
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://vocvwmiypifqnncxhfpj.supabase.co}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL-https://vocvwmiypifqnncxhfpj.supabase.co}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     environment:
       BACKEND_URL: http://api:8000
@@ -70,6 +115,8 @@ services:
       - api
     ports:
       - "3010:3000"
+      - "3000:3000"
 
 volumes:
   pgdata:
+  objectdata:

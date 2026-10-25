@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { models, toolTiles as pickable } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
@@ -30,8 +31,9 @@ const curve = (x1: number, y1: number, x2: number, y2: number) => {
 };
 
 export default function Builder() {
+  const router = useRouter();
   const employee = useEmployee();
-  const { agentById } = useStore();
+  const { agentById, refreshAgents } = useStore();
   const [flow, setFlow] = useState<Flow>(blankFlow);
   const [sel, setSel] = useState<Sel>(null);
   const [link, setLink] = useState<{ from: string; x: number; y: number } | null>(null);
@@ -51,8 +53,17 @@ export default function Builder() {
   // Load: ?from=<agent id> opens an existing agent once the roster has it, otherwise resume the last draft.
   const fromId = useRef<string | null>(null);
   useEffect(() => {
-    fromId.current = new URLSearchParams(window.location.search).get("from");
+    const query = new URLSearchParams(window.location.search);
+    fromId.current = query.get("from");
     if (!fromId.current) {
+      if (query.get("template") === "single") {
+        const single = flowFromStages([["custom"]]);
+        setFlow(single);
+        setSel({ kind: "node", id: single.nodes.find((n) => n.kind === "step")!.id });
+        setReady(true);
+        setFitTick((n) => n + 1);
+        return;
+      }
       try {
         const saved = window.localStorage.getItem(STORE);
         if (saved) setFlow(JSON.parse(saved) as Flow);
@@ -232,7 +243,12 @@ export default function Builder() {
         if (publish) await definitionsApi.publish(actor, spec);
         else await definitionsApi.draft(actor, spec);
       }
-      setNotice({ tone: "ok", text: publish ? `Published ${flow.name.trim()} ${flow.version}.` : `Draft of ${flow.name.trim()} saved.` });
+      if (publish) {
+        await refreshAgents();
+        router.push(`/agents#${encodeURIComponent(specs[specs.length - 1].id)}`);
+      } else {
+        setNotice({ tone: "ok", text: `Draft of ${flow.name.trim()} saved.` });
+      }
     } catch (err) {
       const text = err instanceof DefinitionAPIError
         ? (err.fields[0] ? `${err.fields[0].field}: ${err.fields[0].message}` : err.message)
@@ -249,8 +265,8 @@ export default function Builder() {
     <>
       <PageHeader
         crumbs={<><Link href="/agents">Agents</Link><span>/</span><b>{flow.name.trim() || "New agent"}</b></>}
-        title="Build an agent"
-        sub="Drag steps onto the canvas and connect them. Steps that start from the same place run in parallel."
+        title={fromId.current ? "Edit agent" : "Build an agent"}
+        sub={steps.length === 1 ? "Name the agent, describe its job, then publish it." : "Drag steps onto the canvas and connect them. Steps that start from the same place run in parallel."}
         actions={
           <>
             <button type="button" className="btn" onClick={() => setJson((v) => !v)} aria-pressed={json}><Icon name="code" size={15} />{json ? "Hide JSON" : "View JSON"}</button>
@@ -334,7 +350,7 @@ export default function Builder() {
                   <span className={s.ico}><Icon name={p.icon} size={18} /></span>
                   <b>{n.name || "Untitled step"}</b>
                   <span className={s.sub}>
-                    {loose ? "Not connected" : parallel.has(n.id) ? "Runs in parallel" : models[n.model]?.label ?? n.model}
+                    {loose ? "Not connected" : parallel.has(n.id) ? "Runs in parallel" : n.model ? models[n.model]?.label ?? n.model : "Service default"}
                   </span>
                   <i data-port="out" className={`${s.port} ${s.out}`} onPointerDown={(e) => startLink(e, n)} title="Drag to the next step" />
                 </div>
@@ -363,7 +379,7 @@ export default function Builder() {
 
         <aside className={`card ${s.inspector}`} aria-label="Details">
           {selected && selected.kind === "step" ? (
-            <StepForm n={selected} onChange={(c) => patch(selected.id, c)} onRemove={() => remove({ kind: "node", id: selected.id })} />
+            <StepForm n={selected} agentName={steps.length === 1 ? flow.name : undefined} onAgentNameChange={(name) => setFlow((f) => ({ ...f, name, nodes: f.nodes.map((n) => n.id === selected.id ? { ...n, name: name || "Agent" } : n) }))} onChange={(c) => patch(selected.id, c)} onRemove={() => remove({ kind: "node", id: selected.id })} />
           ) : selectedEdge ? (
             <>
               <div className="ch"><h2>Connection</h2></div>
@@ -413,20 +429,24 @@ export default function Builder() {
   );
 }
 
-function StepForm({ n, onChange, onRemove }: { n: FlowNode; onChange: (c: Partial<FlowNode>) => void; onRemove: () => void }) {
+function StepForm({ n, agentName, onAgentNameChange, onChange, onRemove }: { n: FlowNode; agentName?: string; onAgentNameChange: (name: string) => void; onChange: (c: Partial<FlowNode>) => void; onRemove: () => void }) {
   const toggle = (id: string) => onChange({ tools: n.tools.includes(id) ? n.tools.filter((t) => t !== id) : [...n.tools, id] });
   return (
     <>
       <div className="ch"><h2>{n.name || "Step"}</h2><div className="right"><button type="button" className="btn ghost sm" onClick={onRemove}>Delete</button></div></div>
       <div className={s.form}>
-        <label>Name
+        {agentName !== undefined && <label>Agent name
+          <input className="input" value={agentName} placeholder="e.g. Research assistant" onChange={(e) => onAgentNameChange(e.target.value)} />
+        </label>}
+        {agentName === undefined && <label>Step name
           <input className="input" value={n.name} onChange={(e) => onChange({ name: e.target.value })} />
-        </label>
+        </label>}
         <label>What should it do?
           <textarea className="input" rows={5} value={n.instructions} placeholder="Describe the job in plain language." onChange={(e) => onChange({ instructions: e.target.value })} />
         </label>
         <label>Model
           <select className="input" value={n.model} onChange={(e) => onChange({ model: e.target.value })}>
+            <option value="">Service default</option>
             {Object.entries(models).map(([id, m]) => <option key={id} value={id}>{m.label}</option>)}
           </select>
         </label>

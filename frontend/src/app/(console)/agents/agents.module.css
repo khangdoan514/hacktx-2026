@@ -1,6 +1,7 @@
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-align: left; cursor: pointer; transition: border-color .2s, transform .25s var(--ease), box-shadow .25s; color: inherit; }
 .card:hover { border-color: var(--line-2); transform: translateY(-1px); box-shadow: var(--node-sh); }
+.card:target { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--node-sh); }
 .top { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
 .top b { display: block; font-size: 14.5px; font-weight: 500; color: var(--ink); }
 .top small { display: block; font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -16,3 +17,6 @@
 .add b { font-size: 14.5px; font-weight: 500; color: var(--ink); }
 .add p { font-size: 13px; color: var(--ink-3); }
 .addIco { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; border: 1px dashed var(--line-2); color: var(--ink-3); }
+.cardOpen { display: flex; flex: 1; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.cardOpen:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+.foot a { margin-left: auto; }

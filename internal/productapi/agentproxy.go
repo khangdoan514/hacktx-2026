@@ -1,7 +1,10 @@
 package productapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -31,7 +34,7 @@ func (s *Server) proxyAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	if err := allowAgent(actor, r.Method, r.URL.Path); err != nil {
+	if err := allowAgent(actor, r.Method, r.URL.Path, runAgentID(r)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -71,7 +74,10 @@ func (s *Server) bearerIdentity(r *http.Request) (platform.Identity, error) {
 	return organization.EmployeeIdentity(r.Context(), s.DB, identity.UserID, identity.Email)
 }
 
-func allowAgent(actor platform.Actor, method, path string) error {
+func allowAgent(actor platform.Actor, method, path, agentID string) error {
+	if path == "/agent-api/threads" || strings.HasPrefix(path, "/agent-api/threads/") {
+		return organization.Require(actor, "requester", "ai_engineer", "operator", "administrator")
+	}
 	if method == http.MethodGet || method == http.MethodHead {
 		return nil
 	}
@@ -87,7 +93,29 @@ func allowAgent(actor platform.Actor, method, path string) error {
 	if strings.Contains(path, "/approvals/") && strings.HasSuffix(path, "/decision") {
 		return organization.Require(actor, "release_approver", "administrator", "security_reviewer")
 	}
+	if actor.Has("analyst") && !actor.Has("ai_engineer") && !actor.Has("operator") && !actor.Has("administrator") {
+		if strings.HasSuffix(path, "/agent-runs") && (agentID == "partner-analytics" || agentID == "internal-analytics") {
+			return nil
+		}
+		return platform.Fail(http.StatusForbidden, "forbidden", "You cannot do that")
+	}
 	return organization.Require(actor, "ai_engineer", "operator", "administrator")
+}
+
+func runAgentID(r *http.Request) string {
+	if r.Body == nil || r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/agent-runs") {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return ""
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var payload struct {
+		AgentID string `json:"agent_id"`
+	}
+	_ = json.Unmarshal(body, &payload)
+	return payload.AgentID
 }
 
 func agentUpstreamPath(path string) string {

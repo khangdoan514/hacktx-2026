@@ -90,7 +90,7 @@ The guarded application proxy supplies the employee and organization IDs. Accoun
 
 Pending OAuth attempts are persisted for ten minutes, tied to the initiating employee and a callback-browser cookie, and consumed once. This lets a sign-in survive an agent API restart. Older links created before this implementation must be replaced by a fresh connection attempt.
 
-New OpenCode sessions use an isolated configuration location per employee. Their tools process receives the corresponding credential directory, without secrets in prompts or configuration. Threads allow read-only GitHub/Drive tools and catalog search; direct file reads, shell, editing, and subagent calls remain disabled. Opening or sending to another employee's thread is refused. Previously unowned threads must be recreated to use personal connections.
+New OpenCode sessions use an isolated configuration location per employee. Their tools process receives the corresponding credential directory, without secrets in prompts or configuration. Threads support connected-account tools, catalog search, file reads, and web tools. Shell commands, edits, and grep require the per-call permission decision in the Threads UI. Subagent calls and reads of environment files, connection credentials, OAuth state, and OpenCode service registration remain denied. Opening or sending to another employee's thread is refused. Previously unowned threads must be recreated to use personal connections.
 
 Custom MCP servers now emit newline-delimited JSON; they continue accepting old framed input for compatibility. Catalog specialists use `catalog_search`, rather than direct catalog file reads.
 

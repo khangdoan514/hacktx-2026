@@ -24,14 +24,17 @@ type Store = {
   live: RunPlan | null;
   plan: (id: string) => RunPlan | undefined;
   /** Starts a run on the service and resolves with its id. Rejects with the service's message. */
-  startRun: (o: { agent: string; task: string; limits?: Limits }) => Promise<string>;
+  startRun: (o: { agent: string; task: string; period?: string; limits?: Limits }) => Promise<string>;
   cancelRun: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
+  refreshAgents: () => Promise<void>;
   drawer: DrawerState;
   openAgent: (agent: string, o?: { run?: string; tab?: "spec" | "activity" | "prompts" }) => void;
   closeAgent: () => void;
   toasts: Toast[];
   toast: (msg: string) => void;
+  /** Set when the agent roster or run list could not be loaded. */
+  serviceError: string | null;
 };
 
 const StoreCtx = createContext<Store | null>(null);
@@ -47,6 +50,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [runs, setRuns] = useState<RunPlan[]>([]);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [serviceError, setServiceError] = useState<string | null>(null);
   const agentsRef = useRef<AgentDef[]>([]);
   agentsRef.current = agents;
 
@@ -63,10 +67,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       setRuns(await loadRuns(agentsRef.current));
+      setServiceError(null);
     } catch (err) {
       if (err instanceof AgentRequestError && err.status === 401) expire();
+      else if (err instanceof Error) setServiceError(err.message);
     }
   }, [expire]);
+
+  const refreshAgents = useCallback(async () => {
+    const defs = await loadAgents();
+    agentsRef.current = defs;
+    setAgents(defs);
+  }, []);
 
   useEffect(() => {
     let stop = false;
@@ -78,6 +90,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setAgents(defs);
       } catch (err) {
         if (err instanceof AgentRequestError && err.status === 401) { expire(); return; }
+        if (err instanceof Error) setServiceError(err.message);
       }
       await refresh();
       if (stop) return;
@@ -89,11 +102,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { stop = true; clearInterval(poll); clearInterval(tick); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startRun = useCallback<Store["startRun"]>(async ({ agent, task, limits }) => {
+  const startRun = useCallback<Store["startRun"]>(async ({ agent, task, period, limits }) => {
     const def = agentsRef.current.find((a) => a.id === agent);
     if (!def) throw new Error(`Unknown agent ${agent}`);
+    const input = period ? { task, period } : { task };
     const started = await agentApi.start({
-      agent_id: def.id, agent_version: def.version, input: { task },
+      agent_id: def.id, agent_version: def.version, input,
       limits: limitsToWire(limits ?? def.limits, { max_tokens: def.maxTokens || undefined, max_cost_usd: def.maxCostUsd || undefined }),
     });
     await refresh();
@@ -111,11 +125,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const agentById = useCallback((id: string) => agents.find((a) => a.id === id), [agents]);
 
   const value = useMemo<Store>(() => ({
-    agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer,
+    agents, agentById, runs, live, plan, startRun, cancelRun, refresh, refreshAgents, drawer,
     openAgent: (agent, o) => { setDrawer({ agent, ...o }); },
     closeAgent: () => setDrawer(null),
-    toasts, toast,
-  }), [agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer, toasts, toast]);
+    toasts, toast, serviceError,
+  }), [agents, agentById, runs, live, plan, startRun, cancelRun, refresh, refreshAgents, drawer, toasts, toast, serviceError]);
 
   if (!ready) return null;
   return (
