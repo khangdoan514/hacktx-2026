@@ -32,6 +32,8 @@ type Store = {
   closeAgent: () => void;
   toasts: Toast[];
   toast: (msg: string) => void;
+  /** Set when the agent roster or run list could not be loaded. */
+  serviceError: string | null;
 };
 
 const StoreCtx = createContext<Store | null>(null);
@@ -47,6 +49,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [runs, setRuns] = useState<RunPlan[]>([]);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [serviceError, setServiceError] = useState<string | null>(null);
   const agentsRef = useRef<AgentDef[]>([]);
   agentsRef.current = agents;
 
@@ -63,8 +66,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       setRuns(await loadRuns(agentsRef.current));
+      setServiceError(null);
     } catch (err) {
       if (err instanceof AgentRequestError && err.status === 401) expire();
+      else if (err instanceof Error) setServiceError(err.message);
     }
   }, [expire]);
 
@@ -78,6 +83,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setAgents(defs);
       } catch (err) {
         if (err instanceof AgentRequestError && err.status === 401) { expire(); return; }
+        if (err instanceof Error) setServiceError(err.message);
       }
       await refresh();
       if (stop) return;
@@ -115,8 +121,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer,
     openAgent: (agent, o) => { setDrawer({ agent, ...o }); },
     closeAgent: () => setDrawer(null),
-    toasts, toast,
-  }), [agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer, toasts, toast]);
+    toasts, toast, serviceError,
+  }), [agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer, toasts, toast, serviceError]);
 
   if (!ready) return null;
   return (

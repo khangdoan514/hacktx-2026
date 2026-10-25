@@ -19,14 +19,14 @@ function stats(id: string, runs: RunView[]) {
 
 export default function AgentsPage() {
   const runs = useAllRuns();
-  const { agents } = useStore();
+  const { agents, serviceError } = useStore();
   // Agents that run other agents come first; the rest follow in service order.
   const sorted = [...agents].sort((x, y) => Number(y.kind === "orchestrator") - Number(x.kind === "orchestrator"));
 
   return (
     <>
       <PageHeader title="Agents" sub="Click an agent for its details and history." actions={<Link href="/agents/new" className="btn solid"><Icon name="plus" size={15} />New agent</Link>} />
-      {agents.length === 0 && <p className="muted">The agent service has no agents.</p>}
+      {agents.length === 0 && <p className="muted">{serviceError ?? "The agent service has no agents."}</p>}
       <div className={`${s.grid} rise`}>
         {sorted.map((a) => <AgentCard key={a.id} a={a} st={stats(a.id, runs)} />)}
         <Link href="/agents/new" className={`${s.card} ${s.add}`}>

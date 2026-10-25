@@ -16,12 +16,14 @@ const FILTERS: ("ALL" | State)[] = ["ALL", "RUNNING", "SUCCEEDED", "FAILED", "CA
 export default function DashboardPage() {
   const runs = useAllRuns();
   const now = useNow();
-  const { agentById } = useStore();
+  const { agentById, agents, openAgent, serviceError } = useStore();
   const [st, setSt] = useState<"ALL" | State>("ALL");
   const [agent, setAgent] = useState("all");
   const [dialog, setDialog] = useState(false);
   const rows = runs.filter((r) => (st === "ALL" || r.state === st) && (agent === "all" || r.plan.agent === agent));
-  const rootAgents = [...new Set(runs.map((r) => r.plan.agent))];
+  const picks = [...agents].sort((x, y) => Number(y.kind === "orchestrator") - Number(x.kind === "orchestrator"));
+  const listed = picks.length ? picks.map((a) => a.id) : [...new Set(runs.map((r) => r.plan.agent))];
+  const empty = serviceError && runs.length === 0 ? serviceError : runs.length === 0 ? "No runs yet." : "No runs match.";
 
   return (
     <>
@@ -36,11 +38,22 @@ export default function DashboardPage() {
         </div>
         <select className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>
           <option value="all">All agents</option>
-          {rootAgents.map((id) => <option key={id} value={id}>{agentById(id)?.name ?? id}</option>)}
+          {listed.map((id) => <option key={id} value={id}>{agentById(id)?.name ?? id}</option>)}
         </select>
       </div>
       <section className="card">
-        {rows.length === 0 ? <p className="muted" style={{ padding: 20 }}>No runs match.</p> : (
+        {rows.length === 0 ? (
+          <div className={s.empty}>
+            <p className="muted">{empty}</p>
+            {runs.length === 0 && picks.length > 0 && (
+              <div className={s.picks}>
+                {picks.map((a) => (
+                  <button key={a.id} type="button" className="btn" onClick={() => openAgent(a.id)}>{a.name}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
           <div className={s.scroll}>
             <table className={s.table}>
               <thead><tr><th>Run</th><th>Agent</th><th>Task</th><th>State</th><th className={s.r}>Tokens</th><th className={s.r}>Cost</th><th className={s.r}>Time</th><th className={s.r}>Started</th></tr></thead>

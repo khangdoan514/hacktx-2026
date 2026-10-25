@@ -34,7 +34,10 @@ services:
       ADDR: ":8000"
       STORAGE_DIR: /app/var/storage
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      AGENT_API_URL: ${AGENT_API_URL:-http://agent:8080}
+      # Host .env sets AGENT_API_URL to 127.0.0.1 for a process on the machine.
+      # Inside this network the agent is the agent service. Set
+      # COMPOSE_AGENT_API_URL only when the agent runs on the host instead.
+      AGENT_API_URL: ${COMPOSE_AGENT_API_URL:-http://agent:8080}
     depends_on:
       postgres:
         condition: service_healthy
