@@ -111,7 +111,7 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	if err := Validate(definition.InputSchema, req.Input); err != nil {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "input does not match agent schema: " + err.Error()}
 	}
-	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", providerID, modelID)
+	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", definition.ID, providerID, modelID, PermissionsFor(definition))
 	if err != nil {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
@@ -134,16 +134,16 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 	var sb strings.Builder
 	sb.WriteString("You are " + definition.Name + " (" + definition.Role + "). " + definition.Instructions + "\n")
 	sb.WriteString("Input (JSON): " + string(input) + "\n")
-	if len(definition.AllowedDelegates) > 0 {
-		sb.WriteString("You may delegate to subagents in parallel. Available specialists and their input schemas:\n")
+	if len(definition.AllowedDelegates) > 0 && definition.Role != "specialist" {
+		sb.WriteString("Call the subagent tool once for each of these agents, in parallel:\n")
 		for _, target := range definition.AllowedDelegates {
 			if child, ok := defs[target+"@"+definition.Version]; ok {
-				sb.WriteString("- " + child.ID + ": " + string(child.InputSchema) + "\n")
+				sb.WriteString("- agent " + child.ID + " input " + string(child.InputSchema) + "\n")
 			}
 		}
-		sb.WriteString("Delegation input must contain only the fields in the specialist's input schema.\n")
+		sb.WriteString("Do not read the catalog yourself. Specialists read catalog/vendors.json and must cite only its vendor ids.\n")
 	}
-	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. Cite source IDs for every claim.\n")
+	sb.WriteString("Do not use shell, glob, grep, edit, or web tools.\n")
 	sb.WriteString("Reply with ONLY a single JSON object matching this output schema, no other text: " + string(definition.OutputSchema))
 	return sb.String()
 }
@@ -238,8 +238,24 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 	}
 	usage := contracts.Usage{InputTokens: session.Tokens.Input, OutputTokens: session.Tokens.Output, CostUSD: session.Cost}
 	var invocations []contracts.AgentInvocation
+	children := map[string]string{}
 	var tools []contracts.ToolInvocation
 	var lastText string
+	ensureChild := func(agent string, at time.Time) string {
+		if agent == "" || agent == definition.ID || agent == "build" {
+			return ""
+		}
+		if childID, ok := children[agent]; ok {
+			return childID
+		}
+		finished := at
+		child := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, ParentID: &root.ID, AgentID: agent, AgentVersion: definition.Version, Depth: 1, State: contracts.StateSucceeded, Input: json.RawMessage(`{}`), StartedAt: &at, FinishedAt: &finished}
+		invocations = append(invocations, child)
+		children[agent] = child.ID
+		c.emit(run.ID, &child.ID, "AGENT_STARTED", map[string]any{"depth": 1})
+		c.emit(run.ID, &child.ID, "AGENT_SUCCEEDED", nil)
+		return child.ID
+	}
 	// The message list is newest-first; walk chronologically so progress
 	// events stay ordered and the final text is the newest one.
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -250,20 +266,7 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 		for _, part := range message.Content {
 			switch part.Type {
 			case "tool":
-				toolInvocation := contracts.ToolInvocation{ID: id("tool-"), RunID: run.ID, AgentInvocationID: root.ID, ToolID: part.Name, ToolVersion: "opencode", StartedAt: now()}
-				finished := now()
-				toolInvocation.FinishedAt = &finished
-				c.emit(run.ID, &root.ID, "TOOL_STARTED", map[string]any{"tool_id": part.Name})
-				if status, _ := part.State["status"].(string); status == "completed" || status == "" {
-					failure, _ := part.State["error"].(string)
-					if failure != "" {
-						toolInvocation.Error = &contracts.RunError{Code: contracts.ErrInternal, Message: "tool call failed"}
-						c.emit(run.ID, &root.ID, "TOOL_FAILED", map[string]any{"tool_id": part.Name})
-					} else {
-						c.emit(run.ID, &root.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": part.Name})
-					}
-				}
-				tools = append(tools, toolInvocation)
+				at := now()
 				if part.Name == "subagent" {
 					agent := "subagent"
 					if input, ok := part.State["input"].(map[string]any); ok {
@@ -271,11 +274,28 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 							agent = name
 						}
 					}
-					child := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, ParentID: &root.ID, AgentID: agent, AgentVersion: definition.Version, Depth: 1, State: contracts.StateSucceeded, Input: json.RawMessage(`{}`), StartedAt: &toolInvocation.StartedAt, FinishedAt: &finished}
-					invocations = append(invocations, child)
-					c.emit(run.ID, &child.ID, "AGENT_STARTED", map[string]any{"depth": 1})
-					c.emit(run.ID, &child.ID, "AGENT_SUCCEEDED", nil)
+					ensureChild(agent, at)
+					continue
 				}
+				ownerID := root.ID
+				ownerAgent := definition.ID
+				if childID := ensureChild(message.Agent, at); childID != "" {
+					ownerID = childID
+					ownerAgent = message.Agent
+				}
+				toolID := catalogToolID(part.Name, ownerAgent, part.State, c.defs, definition.Version)
+				toolInvocation := contracts.ToolInvocation{ID: id("tool-"), RunID: run.ID, AgentInvocationID: ownerID, ToolID: toolID, ToolVersion: "opencode", StartedAt: at}
+				finished := at
+				toolInvocation.FinishedAt = &finished
+				c.emit(run.ID, &ownerID, "TOOL_STARTED", map[string]any{"tool_id": toolID})
+				failure, _ := part.State["error"].(string)
+				if failure != "" {
+					toolInvocation.Error = &contracts.RunError{Code: contracts.ErrInternal, Message: "tool call failed"}
+					c.emit(run.ID, &ownerID, "TOOL_FAILED", map[string]any{"tool_id": toolID})
+				} else {
+					c.emit(run.ID, &ownerID, "TOOL_SUCCEEDED", map[string]any{"tool_id": toolID})
+				}
+				tools = append(tools, toolInvocation)
 			case "text":
 				if part.Text != "" {
 					lastText = part.Text
@@ -284,11 +304,50 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 		}
 	}
 	if session.Outcome != "" && session.Outcome != "succeeded" {
-		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session ended as " + session.Outcome}
+		message := "agent session ended as " + session.Outcome
+		for _, item := range messages {
+			if item.Error != nil && item.Error.Message != "" {
+				message = item.Error.Message
+			}
+		}
+		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrInternal, Message: message}
 	}
 	extracted := extractFirstObject(lastText)
 	if err := Validate(definition.OutputSchema, json.RawMessage(extracted)); err != nil {
 		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrOutputSchemaInvalid, Message: "agent output does not match schema: " + err.Error()}
 	}
 	return json.RawMessage(extracted), usage, invocations, tools, nil
+}
+
+// catalogToolID reports a catalog read as the agent's catalog tool. Other
+// OpenCode tools keep their own names.
+func catalogToolID(toolName, agentID string, state map[string]any, defs map[string]contracts.AgentDefinition, version string) string {
+	if toolName == "read" && strings.Contains(resourcePath(state), "vendors.json") {
+		if def, ok := defs[agentID+"@"+version]; ok {
+			for _, tool := range def.AllowedTools {
+				if tool == "catalog.search" || tool == "catalog.query" {
+					return tool
+				}
+			}
+		}
+		return "catalog.search"
+	}
+	return toolName
+}
+
+func resourcePath(state map[string]any) string {
+	if state == nil {
+		return ""
+	}
+	if input, ok := state["input"].(map[string]any); ok {
+		for _, key := range []string{"path", "filePath", "file", "target"} {
+			if value, ok := input[key].(string); ok {
+				return value
+			}
+		}
+	}
+	if title, ok := state["title"].(string); ok {
+		return title
+	}
+	return ""
 }

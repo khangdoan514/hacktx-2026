@@ -24,7 +24,7 @@
       "action": {
         "type": "DELEGATE",
         "delegation": {
-          "agent_id": "accessibility-specialist",
+          "agent_id": "pricing-specialist",
           "input": {
             "criteria": [
               "price",
@@ -57,7 +57,7 @@
               "summary": "Within budget"
             },
             {
-              "agent_id": "accessibility-specialist",
+              "agent_id": "pricing-specialist",
               "source_ids": [
                 "vendor-a"
               ],
@@ -109,6 +109,31 @@
         "output_tokens": 25,
         "cost_usd": 0.001
       }
+    }
+  ],
+  "pricing-specialist": [
+    {
+      "action": {
+        "type": "TOOL",
+        "tool_call": {
+          "tool_id": "catalog.search",
+          "input": {
+            "criteria": ["price"],
+            "budget_usd": 1000
+          }
+        }
+      },
+      "usage": { "input_tokens": 100, "output_tokens": 25, "cost_usd": 0.001 }
+    },
+    {
+      "action": {
+        "type": "FINISH",
+        "output": {
+          "source_ids": ["vendor-a"],
+          "summary": "Vendor A is the lowest price that meets the budget."
+        }
+      },
+      "usage": { "input_tokens": 100, "output_tokens": 25, "cost_usd": 0.001 }
     }
   ],
   "accessibility-specialist": [

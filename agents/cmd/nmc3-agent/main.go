@@ -64,11 +64,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	workdir := envDefault("NMC3_WORKDIR", os.TempDir()+"/nmc3-sessions")
-	if err := os.MkdirAll(workdir, 0o755); err != nil {
-		return fmt.Errorf("create session workdir: %w", err)
+	workdir := envDefault("NMC3_WORKDIR", os.TempDir()+"/nmc3-opencode")
+	model := envDefault("OPENCODE_MODEL", "opencode/beam-free")
+	catalog := envDefault("NMC3_CATALOG", "fixtures/catalog/vendors.json")
+	if err := opencode.PrepareProject(workdir, catalog, definitions, model); err != nil {
+		return err
 	}
-	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, envDefault("OPENCODE_MODEL", "opencode/beam-free"))
+	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, model)
 	if err != nil {
 		return err
 	}

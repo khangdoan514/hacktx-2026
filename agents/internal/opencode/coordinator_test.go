@@ -18,6 +18,7 @@ type fakeBackend struct {
 	auth     []string
 	requests []string
 	model    map[string]string
+	agent    string
 	messages []Message
 	outcome  string
 	tokens   struct{ in, out int }
@@ -42,6 +43,7 @@ func (f *fakeBackend) handler() http.Handler {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.mu.Lock()
+			f.agent = stringOf(body["agent"])
 			if model, ok := body["model"].(map[string]any); ok {
 				f.model = map[string]string{"providerID": stringOf(model["providerID"]), "id": stringOf(model["id"])}
 			}
@@ -130,8 +132,9 @@ func testDefs() []contracts.AgentDefinition {
 		AllowedDelegates: []string{"one"},
 		Limits:           contracts.Limits{MaxDelegations: 2, MaxConcurrentAgents: 2, MaxToolCalls: 2, MaxModelTurns: 4, MaxTokens: 100, MaxCostUSD: 1, TimeoutSeconds: 5},
 	}, {
-		ID: "one", Version: "1.0.0", Name: "one", InputSchema: json.RawMessage(`{"type":"object"}`),
-		Limits: contracts.Limits{MaxDelegations: 2, MaxConcurrentAgents: 2, MaxToolCalls: 2, MaxModelTurns: 4, MaxTokens: 100, MaxCostUSD: 1, TimeoutSeconds: 5},
+		ID: "one", Version: "1.0.0", Name: "one", Role: "specialist", InputSchema: json.RawMessage(`{"type":"object"}`),
+		AllowedTools: []string{"catalog.search"},
+		Limits:       contracts.Limits{MaxDelegations: 2, MaxConcurrentAgents: 2, MaxToolCalls: 2, MaxModelTurns: 4, MaxTokens: 100, MaxCostUSD: 1, TimeoutSeconds: 5},
 	}}
 }
 
@@ -221,18 +224,73 @@ func TestSuccessfulRunMapsSession(t *testing.T) {
 		}
 		types[e.Type] = true
 	}
-	for _, want := range []string{"RUN_STARTED", "AGENT_STARTED", "MODEL_STARTED", "TOOL_STARTED", "TOOL_SUCCEEDED", "MODEL_SUCCEEDED", "AGENT_SUCCEEDED", "RUN_SUCCEEDED"} {
+	for _, want := range []string{"RUN_STARTED", "AGENT_STARTED", "MODEL_STARTED", "MODEL_SUCCEEDED", "AGENT_SUCCEEDED", "RUN_SUCCEEDED"} {
 		if !types[want] {
 			t.Fatalf("missing %s in %v", want, types)
 		}
 	}
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
-	if backend.model["providerID"] != "openai" || backend.model["id"] != "gpt-4o-mini" {
-		t.Fatalf("model mapping=%v", backend.model)
+	if backend.model["providerID"] != "openai" || backend.model["id"] != "gpt-4o-mini" || backend.agent != "root" {
+		t.Fatalf("model mapping=%v agent=%s", backend.model, backend.agent)
 	}
 	if len(backend.auth) == 0 || backend.auth[0] != "opencode:secret:ok" {
 		t.Fatalf("auth=%v", backend.auth)
+	}
+}
+
+func TestCatalogReadBelongsToSpecialist(t *testing.T) {
+	backend := &fakeBackend{outcome: "succeeded"}
+	read := assistantMessage(map[string]any{"type": "tool", "name": "read", "state": map[string]any{"status": "completed", "input": map[string]any{"path": "catalog/vendors.json"}}})
+	read.Agent = "one"
+	parent := assistantMessage(
+		map[string]any{"type": "tool", "name": "subagent", "state": map[string]any{"status": "completed", "input": map[string]any{"agent": "one"}}},
+		map[string]any{"type": "text", "text": `{"ok":true}`},
+	)
+	backend.messages = []Message{parent, read}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, err := NewClient(server.URL, "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := newMemory()
+	c, err := New(testDefs(), client, mem, mem, t.TempDir(), "opencode/beam-free")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, _ := start(t, c, "")
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateSucceeded {
+		t.Fatalf("run=%+v", run)
+	}
+	if len(run.ToolInvocations) != 1 || run.ToolInvocations[0].ToolID != "catalog.search" || run.ToolInvocations[0].AgentInvocationID == run.Invocations[0].ID {
+		t.Fatalf("tools=%+v", run.ToolInvocations)
+	}
+	for _, rule := range PermissionsFor(testDefs()[1]) {
+		if rule.Action == "subagent" && rule.Effect == "allow" {
+			t.Fatal("specialist can delegate")
+		}
+	}
+}
+
+func TestProviderErrorIsTheRunMessage(t *testing.T) {
+	backend := &fakeBackend{outcome: "failed"}
+	msg := assistantMessage()
+	msg.Error = &struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}{Message: "OpenCode's free tier can only be used from within OpenCode."}
+	backend.messages = []Message{msg}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, _ := NewClient(server.URL, "secret", server.Client())
+	mem := newMemory()
+	c, _ := New(testDefs(), client, mem, mem, t.TempDir(), "opencode/beam-free")
+	started, _ := start(t, c, "")
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateFailed || run.Error == nil || !strings.Contains(run.Error.Message, "free tier") {
+		t.Fatalf("run=%+v", run)
 	}
 }
 

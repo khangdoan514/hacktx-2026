@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -111,7 +112,11 @@ func (c *Client) callWithTimeout(ctx context.Context, method, path string, body 
 		return fmt.Errorf("read OpenCode response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("OpenCode returned HTTP %d", response.StatusCode)
+		detail := strings.TrimSpace(string(data))
+		if len(detail) > 180 {
+			detail = detail[:180]
+		}
+		return fmt.Errorf("OpenCode returned HTTP %d: %s", response.StatusCode, detail)
 	}
 	if out != nil && len(data) > 0 {
 		if err := json.Unmarshal(data, out); err != nil {
@@ -159,13 +164,21 @@ type Message struct {
 		ID    string         `json:"id"`
 		State map[string]any `json:"state"`
 	} `json:"content"`
+	Error *struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
-func (c *Client) CreateSession(ctx context.Context, directory, title, providerID, modelID string) (Session, error) {
+func (c *Client) CreateSession(ctx context.Context, directory, title, agent, providerID, modelID string, permissions []Permission) (Session, error) {
 	var out sessionEnvelope
 	body := map[string]any{
 		"location": map[string]string{"directory": directory},
 		"title":    title,
+		"agent":    agent,
+	}
+	if len(permissions) > 0 {
+		body["permissions"] = permissions
 	}
 	if providerID != "" && modelID != "" {
 		body["model"] = map[string]string{"providerID": providerID, "id": modelID}

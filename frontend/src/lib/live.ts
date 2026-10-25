@@ -101,6 +101,7 @@ export function planFromRun(run: AgentRun): RunPlan {
     ideas: run.state === "SUCCEEDED" ? ideasOf(run.output) : [],
     final: terminal ? run.state : "RUNNING",
     error: code && knownErrors.has(code as ErrorCode) ? code as ErrorCode : undefined,
+    errorDetail: run.error?.message,
     trigger: "API",
     cancelledAt: run.state === "CANCELLED" ? start + span : undefined,
   };
