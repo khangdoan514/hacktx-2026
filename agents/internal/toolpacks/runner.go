@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -17,22 +18,26 @@ const maxText = 100 << 10 // bytes of file text returned to a model
 // Runner executes pack tools against the real service APIs using the stored
 // credential. Base URLs are fields so tests can point them at a stub.
 type Runner struct {
-	Store     *Store
-	Client    *http.Client
-	GitHubAPI string
-	DriveAPI  string
-	NotionAPI string
-	SlackAPI  string
+	Store         *Store
+	Client        *http.Client
+	GitHubAPI     string
+	DriveAPI      string
+	NotionAPI     string
+	SlackAPI      string
+	AppAPIURL     string
+	InternalToken string
 }
 
 func NewRunner(store *Store) *Runner {
 	return &Runner{
-		Store:     store,
-		Client:    &http.Client{Timeout: 20 * time.Second},
-		GitHubAPI: "https://api.github.com",
-		DriveAPI:  "https://www.googleapis.com/drive/v3",
-		NotionAPI: "https://api.notion.com/v1",
-		SlackAPI:  "https://slack.com/api",
+		Store:         store,
+		Client:        &http.Client{Timeout: 20 * time.Second},
+		GitHubAPI:     "https://api.github.com",
+		DriveAPI:      "https://www.googleapis.com/drive/v3",
+		NotionAPI:     "https://api.notion.com/v1",
+		SlackAPI:      "https://slack.com/api",
+		AppAPIURL:     os.Getenv("NMC3_APP_API_URL"),
+		InternalToken: os.Getenv("NMC3_INTERNAL_TOKEN"),
 	}
 }
 
@@ -63,11 +68,14 @@ func (r *Runner) Call(ctx context.Context, packID, tool string, args json.RawMes
 			return nil, errors.New("arguments must be a JSON object")
 		}
 	}
+	a := arguments(in)
+	if packID == "repo" {
+		return r.repository(ctx, tool, a)
+	}
 	cred, err := r.credential(ctx, packID)
 	if err != nil {
 		return nil, err
 	}
-	a := arguments(in)
 	if packID == "github" {
 		return r.github(ctx, cred, tool, a)
 	}

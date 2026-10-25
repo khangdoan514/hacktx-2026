@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -75,6 +76,9 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 	runner := a.personal(r)
 	views := make([]packView, 0)
 	for _, p := range Packs() {
+		if p.ID == "repo" { // resolved per run, not a user-connected plugin
+			continue
+		}
 		prov, _ := ProviderFor(p.ID)
 		v := packView{ID: p.ID, Name: p.Name, Description: p.Description, TokenAccepted: p.TokenHint != "", TokenHint: p.TokenHint, OAuthAvailable: prov.Configured(), Tools: []toolView{}}
 		if cred, ok := runner.Store.Get(p.ID); ok {
@@ -149,6 +153,7 @@ func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	attempt.Popup = r.URL.Query().Get("popup") == "true"
 	if err := a.saveState(state, attempt); err != nil {
 		writeError(w, http.StatusInternalServerError, "Sign-in could not be started.")
 		return
@@ -158,14 +163,18 @@ func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	back := func(result string) {
-		target := a.AppURL + "/tools?" + url.Values{"pack": {id}, "result": {result}}.Encode()
-		http.Redirect(w, r, target, http.StatusSeeOther)
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	state := r.URL.Query().Get("state")
 	p, stateErr := a.readState(state, id)
+	back := func(result string) {
+		target := a.AppURL + "/tools?" + url.Values{"pack": {id}, "result": {result}}.Encode()
+		if stateErr == nil && p.Popup {
+			a.oauthPopupResult(w, id, result, target)
+			return
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+	}
 	cookie, cookieErr := r.Cookie("nmc3_oauth_" + state)
 	if stateErr != nil || cookieErr != nil || cookie.Value != p.Browser {
 		back("invalid_state")
@@ -235,6 +244,20 @@ func (a *API) origin(id string) string {
 }
 
 func (a *API) redirectURI(id string) string { return a.origin(id) + "/oauth/" + id + "/callback" }
+
+func (a *API) oauthPopupResult(w http.ResponseWriter, pack, result, fallback string) {
+	origin := a.AppURL
+	if parsed, err := url.Parse(a.AppURL); err == nil {
+		origin = parsed.Scheme + "://" + parsed.Host
+	}
+	message, _ := json.Marshal(map[string]string{"type": "agent-tool-oauth", "pack": pack, "result": result})
+	originJSON, _ := json.Marshal(origin)
+	fallbackJSON, _ := json.Marshal(fallback)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>Integration setup</title></head><body><p>Returning to the app…</p><script>if(window.opener){window.opener.postMessage(%s,%s);window.setTimeout(function(){window.close()},100)}else{window.location.replace(%s)}</script></body></html>`, message, originJSON, fallbackJSON)
+}
 
 func randomState() string {
 	b := make([]byte, 24)
