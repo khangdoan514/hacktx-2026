@@ -142,14 +142,14 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 	var sb strings.Builder
 	sb.WriteString("You are " + definition.Name + " (" + definition.Role + "). " + definition.Instructions + "\n")
 	sb.WriteString("Input (JSON): " + string(input) + "\n")
-	if len(definition.AllowedDelegates) > 0 {
-		sb.WriteString("You may delegate to subagents in parallel. Available specialists and their input schemas:\n")
+	if len(definition.AllowedDelegates) > 0 && definition.Role != "specialist" {
+		sb.WriteString("Call the subagent tool once for each of these agents, in parallel:\n")
 		for _, target := range definition.AllowedDelegates {
 			if child, ok := defs[target+"@"+definition.Version]; ok {
-				sb.WriteString("- " + child.ID + ": " + string(child.InputSchema) + "\n")
+				sb.WriteString("- agent " + child.ID + " input " + string(child.InputSchema) + "\n")
 			}
 		}
-		sb.WriteString("Delegation input must contain only the fields in the specialist's input schema.\n")
+		sb.WriteString("Do not read the catalog yourself. Specialists read catalog/vendors.json and must cite only its vendor ids.\n")
 	}
 	if listed(definition.AllowedTools, "catalog.search") {
 		sb.WriteString("Search the fictional catalog with the catalog_search tool. Do not read catalog files.\n")
@@ -506,7 +506,13 @@ func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDe
 		return nil, usage, invocations, tools, stop
 	}
 	if session.Outcome != "" && session.Outcome != "succeeded" {
-		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session ended as " + session.Outcome}
+		message := "agent session ended as " + session.Outcome
+		for _, item := range messages {
+			if item.Error != nil && item.Error.Message != "" {
+				message = item.Error.Message
+			}
+		}
+		return nil, usage, invocations, tools, &contracts.RunError{Code: contracts.ErrInternal, Message: message}
 	}
 	extracted := extractFirstObject(lastText)
 	if err := Validate(definition.OutputSchema, json.RawMessage(extracted)); err != nil {

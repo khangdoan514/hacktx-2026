@@ -112,8 +112,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (stop) return;
       if (remote && remote.length) {
         remote.forEach((plan) => backendIds.current.add(plan.id));
-        setHistory(remote.slice(1));
-        setLive(remote[0]);
+        const featured = remote.find((plan) => plan.final === "SUCCEEDED") ?? remote[0];
+        setHistory(remote.filter((plan) => plan.id !== featured.id));
+        setLive(featured);
       } else {
         setHistory(seedHistory(t));
         setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));

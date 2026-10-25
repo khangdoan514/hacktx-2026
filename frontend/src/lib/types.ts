@@ -116,6 +116,7 @@ export type RunPlan = {
   ideas: Idea[];
   final: State;
   error?: ErrorCode;
+  errorDetail?: string;
   trigger: string;
   cancelledAt?: number;
 };

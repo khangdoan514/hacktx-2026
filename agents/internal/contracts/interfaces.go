@@ -33,10 +33,10 @@ type DelegateRequest struct {
 }
 
 type ModelInput struct {
-	Definition AgentDefinition   `json:"definition"`
-	Invocation AgentInvocation   `json:"invocation"`
-	Context    RunContext        `json:"context"`
-	History    []ActionResult    `json:"history"`
+	Definition AgentDefinition `json:"definition"`
+	Invocation AgentInvocation `json:"invocation"`
+	Context    RunContext      `json:"context"`
+	History    []ActionResult  `json:"history"`
 	// Delegates carries the allowlisted delegate definitions (same version)
 	// so a provider can shape delegation input to the delegate's schema.
 	// Tools carries the agent's allowed tool definitions for the same reason.

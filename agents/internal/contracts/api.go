@@ -22,6 +22,10 @@ type RunResponse struct {
 	Run Run `json:"run"`
 }
 
+type RunsResponse struct {
+	Runs []Run `json:"runs"`
+}
+
 type EventsResponse struct {
 	RunID  string     `json:"run_id"`
 	Events []RunEvent `json:"events"`

@@ -67,6 +67,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	model := envDefault("OPENCODE_MODEL", "meta/muse-spark-1.3-contributor")
 	// The session directory must be this module so OpenCode loads
 	// opencode.jsonc (deny-by-default agents and the catalog MCP server).
 	// A temp directory would fall through to the unrestricted built-in agent.
@@ -74,7 +75,7 @@ func run() error {
 	if _, err := os.Stat(filepath.Join(workdir, "opencode.jsonc")); err != nil {
 		return fmt.Errorf("OpenCode config %s: run from agents/ or set NMC3_WORKDIR to that directory", filepath.Join(workdir, "opencode.jsonc"))
 	}
-	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, envDefault("OPENCODE_MODEL", "meta/muse-spark-1.3-contributor"))
+	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, model)
 	if err != nil {
 		return err
 	}

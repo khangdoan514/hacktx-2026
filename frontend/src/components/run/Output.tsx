@@ -23,7 +23,7 @@ export function OutputBadge({ view }: { view: RunView }) {
 
 export default function Output({ view }: { view: RunView }) {
   if (view.state === "CANCELLED") return <div className={s.empty}><Icon name="circle-slash" />Cancelled</div>;
-  if (view.state === "FAILED") return <div className={`${s.empty} ${s.fail}`}><Icon name="shield-x" /><span className="mono">{view.plan.error}</span></div>;
+  if (view.state === "FAILED") return <div className={`${s.empty} ${s.fail}`}><Icon name="shield-x" /><span>{view.plan.errorDetail || view.plan.error || "Run failed"}</span></div>;
   if (view.state !== "SUCCEEDED") {
     return (
       <div className={s.skel}>

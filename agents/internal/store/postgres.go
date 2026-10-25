@@ -77,6 +77,36 @@ func (s *Postgres) Get(ctx context.Context, runID string) (contracts.Run, error)
 	return run, nil
 }
 
+func (s *Postgres) ListRuns(ctx context.Context, limit int) ([]contracts.Run, error) {
+	if limit <= 0 || limit > 40 {
+		limit = 40
+	}
+	rows, err := s.Pool.Query(ctx, `select snapshot from nmc3.runs order by created_at desc limit $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := []contracts.Run{}
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var run contracts.Run
+		if err := json.Unmarshal(raw, &run); err != nil {
+			return nil, err
+		}
+		if run.Invocations == nil {
+			run.Invocations = []contracts.AgentInvocation{}
+		}
+		if run.ToolInvocations == nil {
+			run.ToolInvocations = []contracts.ToolInvocation{}
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 func (s *Postgres) Update(ctx context.Context, run contracts.Run) error {
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
