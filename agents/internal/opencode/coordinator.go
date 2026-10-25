@@ -295,7 +295,11 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 		c.emit(run.ID, &root.ID, "MODEL_FAILED", map[string]any{"code": root.Error.Code})
 		c.emit(run.ID, &root.ID, "AGENT_FAILED", map[string]any{"code": root.Error.Code})
 	} else {
-		c.emit(run.ID, &root.ID, "MODEL_SUCCEEDED", map[string]any{"action": "FINISH", "usage": usage})
+		rootUsage := usage
+		if root.Usage != nil {
+			rootUsage = *root.Usage
+		}
+		c.emit(run.ID, &root.ID, "MODEL_SUCCEEDED", map[string]any{"action": "FINISH", "usage": rootUsage})
 		root.Output = output
 		root.State = contracts.StateSucceeded
 		c.emit(run.ID, &root.ID, "AGENT_SUCCEEDED", nil)
@@ -474,6 +478,8 @@ waitLoop:
 
 func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDefinition, root *contracts.AgentInvocation, limits contracts.Limits, session Session, messages []Message) (json.RawMessage, contracts.Usage, []contracts.AgentInvocation, []contracts.ToolInvocation, error) {
 	usage := usageFrom(session)
+	own := usage
+	root.Usage = &own
 	var invocations []contracts.AgentInvocation
 	var tools []contracts.ToolInvocation
 	var lastText string
@@ -520,8 +526,27 @@ func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDe
 					c.emit(run.ID, &root.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": part.Name})
 					tools = append(tools, toolInvocation)
 					child := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, ParentID: &root.ID, AgentID: agent, AgentVersion: definition.Version, Depth: 1, State: contracts.StateSucceeded, Input: json.RawMessage(`{}`), StartedAt: &toolInvocation.StartedAt, FinishedAt: &finished}
-					invocations = append(invocations, child)
 					c.emit(run.ID, &child.ID, "AGENT_STARTED", map[string]any{"depth": 1})
+					if report, ok := c.childReport(childSessionID(part.State)); ok {
+						// The specialist ran in its own session: record its usage, tool calls and answer.
+						childUsage := usageFrom(report.session)
+						usage.InputTokens += childUsage.InputTokens
+						usage.OutputTokens += childUsage.OutputTokens
+						usage.CostUSD += childUsage.CostUSD
+						child.Output = report.output
+						child.Usage = &childUsage
+						for _, call := range report.tools {
+							call.RunID, call.AgentInvocationID = run.ID, child.ID
+							if call.Error != nil {
+								c.emit(run.ID, &child.ID, "TOOL_FAILED", map[string]any{"tool_id": call.ToolID, "code": call.Error.Code, "agent_id": agent})
+							} else {
+								c.emit(run.ID, &child.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": call.ToolID})
+							}
+							tools = append(tools, call)
+						}
+						c.emit(run.ID, &child.ID, "MODEL_SUCCEEDED", map[string]any{"action": "FINISH", "usage": childUsage})
+					}
+					invocations = append(invocations, child)
 					c.emit(run.ID, &child.ID, "AGENT_SUCCEEDED", nil)
 					break
 				}
@@ -576,4 +601,68 @@ func (c *Coordinator) Cancel(ctx context.Context, runID string) error {
 	_ = c.client.Interrupt(interruptCtx, entry.sessionID)
 	entry.cancel()
 	return nil
+}
+
+// childSessionID reads the delegated agent's OpenCode session from a subagent
+// tool call. OpenCode reports it in the tool state's metadata.
+func childSessionID(state map[string]any) string {
+	meta, _ := state["metadata"].(map[string]any)
+	id, _ := meta["sessionID"].(string)
+	return id
+}
+
+type childReport struct {
+	session Session
+	output  json.RawMessage
+	tools   []contracts.ToolInvocation
+}
+
+// childReport reads a delegated agent's own session: its usage, final answer
+// and tool calls. A permission rejection is recorded as TOOL_NOT_ALLOWED. It
+// is best-effort: when the session cannot be read the delegation is recorded
+// without detail, as before.
+func (c *Coordinator) childReport(sessionID string) (childReport, bool) {
+	if sessionID == "" {
+		return childReport{}, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := c.client.GetSession(ctx, sessionID)
+	if err != nil {
+		return childReport{}, false
+	}
+	messages, err := c.client.Messages(ctx, sessionID)
+	if err != nil {
+		return childReport{}, false
+	}
+	report := childReport{session: session}
+	var lastText string
+	for i := len(messages) - 1; i >= 0; i-- { // newest-first from OpenCode
+		if messages[i].Type != "assistant" {
+			continue
+		}
+		for _, part := range messages[i].Content {
+			switch part.Type {
+			case "text":
+				if part.Text != "" {
+					lastText = part.Text
+				}
+			case "tool":
+				t := now()
+				call := contracts.ToolInvocation{ID: id("tool-"), ToolID: canonicalToolID(part.Name), ToolVersion: "opencode", StartedAt: t, FinishedAt: &t}
+				if status, _ := part.State["status"].(string); status == "error" {
+					code := contracts.ErrInternal
+					if e, _ := part.State["error"].(map[string]any); e != nil && e["type"] == "permission.rejected" {
+						code = contracts.ErrToolNotAllowed
+					}
+					call.Error = &contracts.RunError{Code: code, Message: "tool call denied"}
+				}
+				report.tools = append(report.tools, call)
+			}
+		}
+	}
+	if extracted := extractFirstObject(lastText); json.Valid([]byte(extracted)) {
+		report.output = json.RawMessage(extracted)
+	}
+	return report, true
 }

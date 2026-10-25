@@ -106,6 +106,8 @@ type AgentInvocation struct {
 	Error        *RunError       `json:"error,omitempty"`
 	StartedAt    *time.Time      `json:"started_at,omitempty"`
 	FinishedAt   *time.Time      `json:"finished_at,omitempty"`
+	// Usage is this invocation's own model usage. Run.Usage is the sum over invocations.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 type ToolInvocation struct {

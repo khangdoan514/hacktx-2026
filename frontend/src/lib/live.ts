@@ -71,7 +71,7 @@ export function planFromRun(run: AgentRun, agents: AgentDef[], events?: RunEvent
       const data = (e.data ?? {}) as { tool_id?: string; code?: string; depth?: number; action?: string; usage?: { input_tokens?: number; output_tokens?: number; cost_usd?: number } };
       const agent = (e.invocation_id && agentOf.get(e.invocation_id)) || run.agent_id;
       if (EVENT_TYPES.has(e.type as EventType)) {
-        const detail = data.tool_id ?? data.code ?? (data.depth !== undefined ? `depth ${data.depth}` : undefined);
+        const detail = data.tool_id && data.code ? `${data.tool_id} · ${data.code}` : data.tool_id ?? data.code ?? (data.depth !== undefined ? `depth ${data.depth}` : undefined);
         ops.push({ at, k: "event", type: e.type as EventType, agent, detail });
       } else if (e.type === "MODEL_SUCCEEDED" && data.usage) {
         const owner = invocations.find((i) => i.id === e.invocation_id);

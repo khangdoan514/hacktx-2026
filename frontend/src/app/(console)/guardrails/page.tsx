@@ -10,12 +10,12 @@ export default function GuardrailsPage() {
   const runs = useRunDetails();
   const { agents } = useStore();
   const stopped = runs.filter((r) => r.error || r.final === "FAILED");
-  // Denials are recorded two ways: a failed tool invocation, and TOOL_FAILED / DELEGATION_REJECTED events.
-  const denied = runs.flatMap((r) => [
-    ...r.calls.filter((c) => c.denied).map((c) => ({ key: c.id, run: r.id, what: c.name, agent: c.agent, code: "denied" })),
-    ...r.ops.flatMap((o) => (o.k === "event" && (o.type === "TOOL_FAILED" || o.type === "DELEGATION_REJECTED")
-      ? [{ key: `${r.id}-${o.at}-${o.type}`, run: r.id, what: o.detail ?? o.type, agent: o.agent, code: o.type }] : [])),
-  ]);
+  // The service records each denial as an event (with its code) and as a failed tool invocation; events carry the code, so use them.
+  const denied = runs.flatMap((r) => {
+    const events = r.ops.flatMap((o, i) => (o.k === "event" && (o.type === "TOOL_FAILED" || o.type === "DELEGATION_REJECTED")
+      ? [{ key: `${r.id}-${i}`, run: r.id, what: o.detail ?? o.type, agent: o.agent }] : []));
+    return events.length ? events : r.calls.filter((c) => c.denied).map((c) => ({ key: c.id, run: r.id, what: c.name, agent: c.agent }));
+  });
 
   return (
     <>
@@ -44,7 +44,7 @@ export default function GuardrailsPage() {
           <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
             {denied.map((d) => (
               <li key={d.key} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
-                <span className="tag err">{d.what}</span> {d.code} · {d.agent} in <Link href={`/live-run/${d.run}`} className="mono">{d.run}</Link>
+                <span className="tag err">{d.what}</span> {d.agent} in <Link href={`/live-run/${d.run}`} className="mono">{d.run}</Link>
               </li>
             ))}
           </ul>

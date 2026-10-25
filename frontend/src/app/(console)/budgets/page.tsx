@@ -23,7 +23,7 @@ export default function BudgetsPage() {
 
   return (
     <>
-      <PageHeader title="Budgets" sub="Each definition caps tokens, cost and time per run; a run that would go over stops with BUDGET_EXCEEDED. Spend is summed from the model turns the service reported. Delegated specialists are billed inside their parent run, so their rows read “in parent run”." />
+      <PageHeader title="Budgets" sub="Each definition caps tokens, cost and time per run; a run that would go over stops with BUDGET_EXCEEDED. Spend is summed from each agent’s own model turns. Runs recorded before the service reported specialist usage show those agents as “in parent run”." />
       <section className="card" style={{ display: "flex", gap: 32, padding: "18px 20px", flexWrap: "wrap" }}>
         <div><small className="muted mono">Total spend (all runs)</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{usd(total)}</div></div>
         <div><small className="muted mono">Tokens</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{compact(tokens)}</div></div>

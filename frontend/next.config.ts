@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The default bottom-left dev badge covers the profile avatar in the rail.
+  devIndicators: { position: "bottom-right" },
   async redirects() {
     return [
       { source: "/", destination: "/dashboard", permanent: false },
