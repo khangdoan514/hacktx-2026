@@ -39,7 +39,7 @@ export default function GuardrailsPage() {
           <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
             {denied.map(({ run, call }) => (
               <li key={call.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
-                <span className="tag err">{call.name}</span> by {call.agent} in <Link href={`/runs/${run}`} className="mono">{run}</Link>
+                <span className="tag err">{call.name}</span> by {call.agent} in <Link href={`/live-run/${run}`} className="mono">{run}</Link>
               </li>
             ))}
           </ul>
@@ -51,7 +51,7 @@ export default function GuardrailsPage() {
           <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
             {stopped.map((p) => (
               <li key={p.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
-                <span className="tag err">{p.error ?? "FAILED"}</span> <Link href={`/runs/${p.id}`} className="mono">{p.id}</Link> {p.errorDetail}
+                <span className="tag err">{p.error ?? "FAILED"}</span> <Link href={`/live-run/${p.id}`} className="mono">{p.id}</Link> {p.errorDetail}
               </li>
             ))}
           </ul>

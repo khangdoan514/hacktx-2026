@@ -12,8 +12,7 @@ import s from "./Rail.module.css";
 
 const groups: { href: string; label: string; icon: IconName }[][] = [
   [
-    { href: "/dashboard", label: "Live run", icon: "activity" },
-    { href: "/runs", label: "Runs", icon: "play" },
+    { href: "/dashboard", label: "Dashboard", icon: "activity" },
     { href: "/agents", label: "Agents", icon: "bot" },
   ],
   [
@@ -54,7 +53,7 @@ export default function Rail() {
   const employee = useEmployee();
   const { live } = useStore();
   const running = live ? !isTerminal(live.final) : false;
-  const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
+  const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" || path.startsWith("/live-run") : path.startsWith(href));
   const label = employee?.display_name || employee?.email || "Signed in";
 
   return (

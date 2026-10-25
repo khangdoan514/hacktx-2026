@@ -148,7 +148,7 @@ function Activity({ def }: { def: AgentDef }) {
         <ul className={s.hist}>
           {inv.slice(0, 12).map((i) => (
             <li key={i.run.plan.id}>
-              <Link href={`/runs/${i.run.plan.id}`}>
+              <Link href={`/live-run/${i.run.plan.id}`}>
                 <i className={`dot ${stateColor(i.st)} ${i.st === "RUNNING" ? "live" : ""}`} />
                 <div style={{ minWidth: 0 }}>
                   <b>{i.result}</b>
@@ -179,7 +179,7 @@ function Prompts({ def, runId }: { def: AgentDef; runId?: string }) {
   return (
     <>
       <p className={s.note} style={{ marginTop: 12 }}>
-        Run <Link href={`/runs/${view.plan.id}`} className="mono">{view.plan.id}</Link> · {turns.length} model turns
+        Run <Link href={`/live-run/${view.plan.id}`} className="mono">{view.plan.id}</Link> · {turns.length} model turns
       </p>
       {turns.length === 0 && <p className={s.note}>This agent has not run in this run yet.</p>}
       <div className={s.turns}>

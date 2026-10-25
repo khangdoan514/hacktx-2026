@@ -46,7 +46,7 @@ export default function NewRunDialog({ open, onClose, agent: initial }: { open: 
       setTask("");
       onClose();
       toast("Run started");
-      router.push(`/runs/${id}`);
+      router.push(`/live-run/${id}`);
     } catch (err) {
       toast(err instanceof Error ? err.message : "The run could not be started");
     } finally {

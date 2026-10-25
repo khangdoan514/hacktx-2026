@@ -28,7 +28,7 @@ export default function RunInspector({ view }: { view: RunView }) {
   return (
     <>
       <PageHeader
-        crumbs={<><Link href="/runs">Runs</Link><span>/</span><b className={s.crumbId}>{p.id}</b></>}
+        crumbs={<><Link href="/dashboard">Dashboard</Link><span>/</span><b className={s.crumbId}>{p.id}</b></>}
         title={<><span>{def?.name ?? p.agent}</span><StatePill state={view.state} big /></>}
         sub={p.task}
         actions={
@@ -58,7 +58,7 @@ export default function RunInspector({ view }: { view: RunView }) {
           <Output view={view} />
         </section>
         <section className="card rise" style={{ "--d": "160ms" } as React.CSSProperties}>
-          <div className="ch"><h2>Runs</h2><span className="n">{runs.length}</span><Link href="/runs" className="right btn ghost sm">All</Link></div>
+          <div className="ch"><h2>Runs</h2><span className="n">{runs.length}</span><Link href="/dashboard" className="right btn ghost sm">All</Link></div>
           <RunList runs={runs.slice(0, 6)} current={p.id} />
         </section>
       </div>

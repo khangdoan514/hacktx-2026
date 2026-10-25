@@ -13,7 +13,7 @@ export default function RunPage() {
     return (
       <div className="card" style={{ padding: 28 }}>
         <p className="mono c-err">NOT_FOUND</p>
-        <p className="muted" style={{ marginTop: 6 }}>No run {id}. <Link href="/runs" className="c-run">All runs</Link></p>
+        <p className="muted" style={{ marginTop: 6 }}>No run {id}. <Link href="/dashboard" className="c-run">Dashboard</Link></p>
       </div>
     );
   }

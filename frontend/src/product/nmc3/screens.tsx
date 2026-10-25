@@ -253,7 +253,7 @@ export function RequestDetailScreen({ id }: { id: string }) {
           setRunId(started.run_id);
         }} data-testid="start-run">Run PR Review Assistant</button>
       ) : null}
-      {runId ? <Link href={`/runs/${runId}`} data-testid="open-run">Open run</Link> : null}
+      {runId ? <Link href={`/live-run/${runId}`} data-testid="open-run">Open run</Link> : null}
     </article>
   );
 }

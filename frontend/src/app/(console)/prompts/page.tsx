@@ -23,7 +23,7 @@ export default function PromptsPage() {
           <p style={{ padding: "14px 20px", color: "var(--ink-2)", whiteSpace: "pre-wrap" }}>{a.instructions || "No instructions recorded."}</p>
           {last && (
             <div style={{ padding: "0 20px 16px" }}>
-              <small className="mono muted">Latest turn · <Link href={`/runs/${last.run}`}>{last.run}</Link> · {last.t.action ?? "—"}</small>
+              <small className="mono muted">Latest turn · <Link href={`/live-run/${last.run}`}>{last.run}</Link> · {last.t.action ?? "—"}</small>
               <pre className="mono" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ink-2)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{last.t.output || last.t.input}</pre>
             </div>
           )}

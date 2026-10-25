@@ -15,7 +15,7 @@ export default function RunList({ runs, current, showAgent }: { runs: RunView[];
     <ul className={s.runs}>
       {runs.map((r) => (
         <li key={r.plan.id} className={r.plan.id === current ? s.cur : ""}>
-          <Link href={`/runs/${r.plan.id}`}>
+          <Link href={`/live-run/${r.plan.id}`}>
             <i className={`dot ${stateColor(r.state)} ${r.state === "RUNNING" ? "live" : ""}`} />
             <div style={{ minWidth: 0 }}>
               <b>{r.plan.task}</b>
