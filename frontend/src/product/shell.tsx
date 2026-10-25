@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Logo from "@/components/brand/Logo";
 import { endSession, restoreSession } from "./supabase";
 
 const PUBLIC = [/^\/sign-in$/, /^\/auth\/callback$/, /^\/invitations\/accept$/];
@@ -40,8 +41,8 @@ export default function ProductShell({ children }: { children: React.ReactNode }
     <div className="min-h-screen bg-[#f6f7f9] text-gray-900">
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <Link href={onDashboard ? "/workspaces" : "/org"} className="text-sm font-semibold tracking-wide">
-            NMC3
+          <Link href={onDashboard ? "/workspaces" : "/org"} aria-label="NMC³">
+            <Logo theme="light" className="block h-auto w-[132px]" />
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             {onDashboard ? (

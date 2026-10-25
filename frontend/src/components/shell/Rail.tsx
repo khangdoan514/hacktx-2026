@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import Logo from "@/components/brand/Logo";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import { endSession } from "@/product/supabase";
 import { useNow, useStore } from "@/lib/store";
@@ -26,6 +27,7 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/definitions", label: "Definitions", icon: "scroll-text" },
     { href: "/tools", label: "Tools", icon: "wrench" },
     { href: "/approvals", label: "Approvals", icon: "badge-check" },
+    { href: "/org", label: "Organization", icon: "building" },
   ],
 ];
 
@@ -60,7 +62,7 @@ export default function Rail() {
 
   return (
     <nav className={s.rail} aria-label="Primary">
-      <Link href="/" className={s.mark} aria-label="NMC³ home"><span>N³</span></Link>
+      <Link href="/" className={s.mark} aria-label="NMC³ home"><Logo /></Link>
       {groups.map((g, i) => (
         <div key={i} className={s.group}>
           {i > 0 && <span className={s.sep} />}

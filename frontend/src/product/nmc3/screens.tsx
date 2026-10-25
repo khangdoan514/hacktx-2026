@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import Logo from "@/components/brand/Logo";
+import PageHeader from "@/components/shell/PageHeader";
 import { supabase } from "@/product/supabase";
 import { nmc } from "./client";
+import org from "./org.module.css";
 import signIn from "./signin.module.css";
 
 type RequestRow = {
@@ -61,12 +64,13 @@ export function SignInScreen() {
       return;
     }
     const next = new URLSearchParams(window.location.search).get("next");
-    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/org");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
   }
 
   return (
     <form onSubmit={onSubmit} className={signIn.page}>
       <div className={signIn.card}>
+        <Logo className={signIn.logo} />
         <div>
           <h1>Sign in</h1>
           <p className="muted">NMC2 employees use the account issued for their team.</p>
@@ -87,30 +91,43 @@ export function OrgScreen() {
     nmc<typeof data>("/api/v1/organization").then(setData).catch((err: Error) => setError(err.message));
   }, []);
   return (
-    <section className="space-y-4">
-      <h1 className="text-xl font-semibold">{data?.name || "NMC2"}</h1>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      {data?.divisions.map((division) => (
-        <div key={division.name} className="rounded-lg bg-white p-4">
-          <h2 className="font-medium">{division.name}</h2>
-          <ul className="mt-2 text-sm text-gray-700">
-            {division.teams.map((team) => <li key={team.id}>{team.name}</li>)}
-          </ul>
-        </div>
-      ))}
-      <div className="flex flex-wrap items-center gap-3">
-      <Link href="/requests" className="text-sm underline">Capability requests</Link>
-      <button
-        className="rounded border bg-white px-3 py-2 text-sm"
-        data-testid="remove-ada"
-        onClick={() => {
-          void nmc("/api/v1/members/20000000-0000-4000-8000-000000000001/remove", { method: "POST", body: "{}" }).catch((err: Error) => setError(err.message));
-        }}
-      >
-        Remove Hardware access
-      </button>
+    <>
+      <PageHeader
+        title={data?.name || "NMC2"}
+        sub="One organization. Hardware and Software are the divisions."
+        actions={
+          <>
+            <Link className="btn" href="/requests">Requests</Link>
+            <button
+              className="btn"
+              type="button"
+              data-testid="remove-ada"
+              onClick={() => {
+                void nmc("/api/v1/members/20000000-0000-4000-8000-000000000001/remove", { method: "POST", body: "{}" }).catch((err: Error) => setError(err.message));
+              }}
+            >
+              Remove Hardware access
+            </button>
+          </>
+        }
+      />
+      {error ? <p className={org.err}>{error}</p> : null}
+      <div className={org.grid}>
+        {data?.divisions.map((division) => (
+          <section key={division.name} className="card rise">
+            <div className="ch">
+              <h2>{division.name}</h2>
+              <span className={`n ${org.count}`}>{division.teams.length}</span>
+            </div>
+            <div className="rows">
+              {division.teams.map((team) => (
+                <div key={team.id} className={org.row}>{team.name}</div>
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
-    </section>
+    </>
   );
 }
 

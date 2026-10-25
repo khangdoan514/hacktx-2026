@@ -16,7 +16,7 @@ export default function Landing() {
       <main className={s.main}>
         <section className={s.intro} aria-labelledby="landing-title">
           <div className={s.content}>
-            <h1 id="landing-title">NMC<sup>3</sup></h1>
+            <h1 id="landing-title"><img className={s.wordmark} src="/brand/nmc3-dark.png" alt="NMC³" /></h1>
             <p className={s.slogan}>Cloud, Compute,<br />Consolidate.</p>
             <p className={s.description}>A shared context for your agents,<br />your teams, and the work between them.</p>
             <Link className={s.explore} href="/dashboard">Explore <span aria-hidden="true">↗</span></Link>

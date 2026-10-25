@@ -1,0 +1,4 @@
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.count { margin-left: auto; }
+.row { display: flex; align-items: center; min-height: 46px; padding: 0 20px; color: var(--ink); }
+.err { color: var(--err); font-size: 13px; }
