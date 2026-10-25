@@ -8,7 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { agentById } from "@/config/agents";
 import { budgets, guardrails, scenarios, triggers } from "@/config/workspace";
-import { agentApi } from "./api";
+import { AgentRequestError, agentApi } from "./api";
 import { loadBackendRun, loadBackendRuns, startBackendRun } from "./live";
 import { buildPlan, materialize } from "./simulate";
 import type { Limits, RunPlan, RunView } from "./types";
@@ -115,6 +115,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const featured = remote.find((plan) => plan.final === "SUCCEEDED") ?? remote[0];
         setHistory(remote.filter((plan) => plan.id !== featured.id));
         setLive(featured);
+      } else {
+        setHistory(seedHistory(t));
+        setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));
+      }
+      setNow(t);
+      setReady(true);
+    }).catch((err: unknown) => {
+      if (stop) return;
+      if (err instanceof AgentRequestError && err.status === 401) {
+        setHistory([]);
+        setLive(null);
+        toast("Sign in to use the agent API.");
       } else {
         setHistory(seedHistory(t));
         setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));

@@ -7,12 +7,14 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
@@ -20,7 +22,9 @@ import (
 	"github.com/khangdoan514/hacktx-2026/agents/internal/extensions"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/httpapi"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/policy"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
+	"github.com/khangdoan514/hacktx-2026/internal/platform"
 )
 
 func main() {
@@ -85,17 +89,12 @@ func run() error {
 	reg := extensions.NewRegistry()
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
 	extensions.NewAPI(reg, gw).Mount(mux)
-	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
-		openCtx, openCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defRegistry, err := defreg.Open(openCtx, databaseURL)
-		openCancel()
-		if err != nil {
-			return fmt.Errorf("open definition registry: %w", err)
-		}
-		defer defRegistry.Close()
-		defreg.Mount(mux, defRegistry)
+	closePlatform, err := mountPlatform(mux, platformDatabaseURL(), envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"))
+	if err != nil {
+		return err
 	}
-	server := http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	defer closePlatform()
+	server := http.Server{Addr: addr, Handler: guardInternal(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
 }
@@ -105,6 +104,87 @@ func envDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// platformDatabaseURL is the dedicated agent database. Run history may still
+// use Supabase. The business API database is not a fallback: it has a
+// different nmc3 schema.
+func platformDatabaseURL() string {
+	if v := os.Getenv("NMC3_DATABASE_URL"); v != "" {
+		return v
+	}
+	if os.Getenv("NMC3_STORE") == "postgres" {
+		return os.Getenv("DATABASE_URL")
+	}
+	return ""
+}
+
+func mountPlatform(mux *http.ServeMux, databaseURL, definitionsFile string) (func(), error) {
+	if databaseURL == "" {
+		return func() {}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	registry, err := defreg.Open(ctx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("open definition registry: %w", err)
+	}
+	raw, err := os.ReadFile(definitionsFile)
+	if err != nil {
+		registry.Close()
+		return nil, fmt.Errorf("read %s: %w", definitionsFile, err)
+	}
+	if _, err := registry.Import(ctx, "local", raw, defreg.ImportPublish); err != nil {
+		registry.Close()
+		return nil, fmt.Errorf("import definitions: %w", err)
+	}
+	defreg.Mount(mux, registry)
+	policyStore, err := policy.OpenPostgres(ctx, databaseURL)
+	if err != nil {
+		registry.Close()
+		return nil, fmt.Errorf("open policy store: %w", err)
+	}
+	mux.Handle("/v1/approvals/", policy.Handler(policy.New(policyStore), forwardedEmployee))
+	return func() {
+		policyStore.Close()
+		registry.Close()
+	}, nil
+}
+
+// guardInternal rejects callers that did not come through cmd/api when
+// NMC3_INTERNAL_TOKEN is set. Direct requests to this process are not a
+// second login.
+func guardInternal(next http.Handler) http.Handler {
+	token := os.Getenv("NMC3_INTERNAL_TOKEN")
+	if token == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := r.Header.Get(platform.InternalHeader)
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// forwardedEmployee is the employee cmd/api already resolved. This process
+// does not verify Supabase tokens.
+func forwardedEmployee(r *http.Request) (policy.Principal, error) {
+	var roles []string
+	for _, role := range strings.Split(r.Header.Get(platform.RolesHeader), ",") {
+		role = strings.TrimSpace(role)
+		if role != "" {
+			roles = append(roles, role)
+		}
+	}
+	return policy.PrincipalFromActor(platform.Actor{
+		ID:    r.Header.Get(platform.UserHeader),
+		Email: r.Header.Get(platform.EmailHeader),
+		OrgID: r.Header.Get(platform.TenantHeader),
+		Roles: roles,
+	})
 }
 
 func readJSON(path string, value any) error {

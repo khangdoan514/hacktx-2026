@@ -26,7 +26,8 @@ const (
 )
 
 // Handler serves the definition lifecycle at /v1/definitions.
-// nmc3-agent mounts it when DATABASE_URL is set. Run start still loads
+// nmc3-agent mounts it when NMC3_DATABASE_URL is set, or when NMC3_STORE is
+// postgres and DATABASE_URL is set. Run start still loads
 // examples/definitions.json and does not call ResolveAndPinRun.
 func Handler(reg *Registry) http.Handler {
 	mux := http.NewServeMux()

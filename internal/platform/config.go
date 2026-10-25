@@ -14,6 +14,9 @@ const (
 	HardwareTeamID = "10000000-0000-4000-8000-000000000004"
 	AITeamID       = "10000000-0000-4000-8000-000000000005"
 	ReviewTeamID   = "10000000-0000-4000-8000-000000000006"
+	// SupabaseAuthIssuer is the hosted Auth issuer for this project.
+	// Access tokens are RS256 or ES256 and carry the employee email.
+	SupabaseAuthIssuer = "https://vocvwmiypifqnncxhfpj.supabase.co/auth/v1"
 )
 
 type Config struct {
@@ -27,20 +30,27 @@ type Config struct {
 	AgentExecutionMode string
 	StorageDir         string
 	Addr               string
+	AgentAPIURL        string
 }
 
 func Load() Config {
+	issuer := env("JWT_ISSUER", SupabaseAuthIssuer)
+	jwks := os.Getenv("JWT_JWKS_URL")
+	if strings.TrimSpace(jwks) == "" && issuer == SupabaseAuthIssuer {
+		jwks = SupabaseAuthIssuer + "/.well-known/jwks.json"
+	}
 	return Config{
 		Environment:        env("ENVIRONMENT", "production"),
 		DatabaseURL:        os.Getenv("DATABASE_URL"),
 		JWTSecret:          os.Getenv("JWT_SECRET"),
-		JWTIssuer:          os.Getenv("JWT_ISSUER"),
+		JWTIssuer:          issuer,
 		JWTAudience:        env("JWT_AUDIENCE", "authenticated"),
-		JWKSURL:            os.Getenv("JWT_JWKS_URL"),
+		JWKSURL:            jwks,
 		AllowLocalAuth:     os.Getenv("ALLOW_LOCAL_AUTH") == "true",
 		AgentExecutionMode: env("AGENT_EXECUTION_MODE", "dummy"),
 		StorageDir:         env("STORAGE_DIR", "var/storage"),
 		Addr:               env("ADDR", ":8000"),
+		AgentAPIURL:        env("AGENT_API_URL", "http://127.0.0.1:8080"),
 	}
 }
 

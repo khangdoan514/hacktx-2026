@@ -20,6 +20,11 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/guardrails", label: "Guardrails", icon: "shield" },
     { href: "/prompts", label: "Prompts", icon: "message" },
   ],
+  [
+    { href: "/definitions", label: "Definitions", icon: "scroll-text" },
+    { href: "/tools", label: "Tools", icon: "wrench" },
+    { href: "/approvals", label: "Approvals", icon: "badge-check" },
+  ],
 ];
 
 function toggleTheme(e: React.MouseEvent<HTMLButtonElement>) {

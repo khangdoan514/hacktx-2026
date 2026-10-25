@@ -1,3 +1,5 @@
+import { readToken } from "@/product/api";
+
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init);
   if (!response.ok) throw new Error(`API request failed (${response.status})`);
@@ -29,12 +31,24 @@ export interface StartRequest {
   limits: { max_delegations: number; max_concurrent_agents: number; max_tool_calls: number;
     max_model_turns: number; max_tokens: number; max_cost_usd: number; timeout_seconds: number };
 }
+
+export class AgentRequestError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function agentRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  headers.set("X-NMC3-Console", "1");
+  const token = readToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`/agent-api${path}`, { cache: "no-store", ...init, headers });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body?.error?.message ?? body?.message ?? `Agent API failed (${response.status})`);
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new AgentRequestError(body?.error?.message ?? body?.message ?? `Agent API failed (${response.status})`, response.status);
+  }
   return body as T;
 }
 export const agentApi = {

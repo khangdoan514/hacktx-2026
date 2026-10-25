@@ -1,5 +1,5 @@
-// Client for the definitions handler. Next rewrites /agent-api/* to
-// ${AGENT_API_URL}/v1/*, so these paths land on /v1/definitions/*.
+// Client for the definitions handler. Next rewrites /agent-api/* to the
+// application API, which checks the employee token and forwards to the agent.
 // The Go process does not mount that handler until the snippet in
 // agents/internal/definitions/README.md is added.
 
@@ -253,6 +253,8 @@ function num(value: string) {
 
 async function send<T>(method: string, path: string, actor?: string, body?: unknown): Promise<T> {
   const headers = new Headers();
+  const token = typeof window === "undefined" ? null : window.localStorage.getItem("nmc3_token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (actor) headers.set(actorHeader, actor);
   if (body !== undefined) headers.set("Content-Type", "application/json");
   let response: Response;
@@ -276,8 +278,9 @@ async function send<T>(method: string, path: string, actor?: string, body?: unkn
     }
   }
   if (!response.ok) {
-    const error = parsed && typeof parsed === "object" && "error" in parsed ? (parsed as { error?: { code?: string; message?: string; fields?: FieldError[] } }).error : undefined;
-    throw new DefinitionAPIError(response.status, error?.code ?? "UNAVAILABLE", error?.message ?? `Definition API failed (${response.status})`, error?.fields ?? []);
+    const record = parsed && typeof parsed === "object" ? parsed as { error?: { code?: string; message?: string; fields?: FieldError[] }; code?: string; message?: string } : {};
+    const error = record.error;
+    throw new DefinitionAPIError(response.status, error?.code ?? record.code ?? "UNAVAILABLE", error?.message ?? record.message ?? `Definition API failed (${response.status})`, error?.fields ?? []);
   }
   return parsed as T;
 }

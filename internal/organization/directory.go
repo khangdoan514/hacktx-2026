@@ -30,6 +30,40 @@ type Profile struct {
 	Teams  []Team   `json:"teams"`
 }
 
+// EmployeeIdentity maps a verified Supabase subject and email onto the NMC2
+// employee row. The Auth user id is often not the seeded employee id, so a
+// matching email selects that employee. A subject that already is an employee
+// id wins. The caller must have verified the token first.
+func EmployeeIdentity(ctx context.Context, db *platform.DB, userID, email string) (platform.Identity, error) {
+	userID = strings.TrimSpace(userID)
+	email = strings.ToLower(strings.TrimSpace(email))
+	if userID == "" || email == "" {
+		return platform.Identity{}, platform.Fail(http.StatusUnauthorized, "unauthenticated", "Invalid or expired session")
+	}
+	var id, stored, status string
+	err := db.Admin(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT employee.user_id::text, employee.email, employee.status
+			FROM app.employees AS employee
+			JOIN app.org_memberships AS membership
+			  ON membership.user_id = employee.user_id
+			 AND membership.organization_id = employee.organization_id
+			 AND membership.status = 'active'
+			WHERE employee.organization_id = $1
+			  AND (employee.user_id::text = $2 OR lower(employee.email) = $3)
+			ORDER BY CASE WHEN employee.user_id::text = $2 THEN 0 ELSE 1 END
+			LIMIT 1
+		`, platform.OrgID, userID, email).Scan(&id, &stored, &status)
+	})
+	if platform.Missing(err) || status != "active" {
+		return platform.Identity{}, platform.Fail(http.StatusForbidden, "forbidden", "This account is not an active NMC2 employee")
+	}
+	if err != nil {
+		return platform.Identity{}, err
+	}
+	return platform.Identity{UserID: id, Email: stored}, nil
+}
+
 func Load(ctx context.Context, tx pgx.Tx, userID, email string) (platform.Actor, error) {
 	if _, err := tx.Exec(ctx, `SELECT app.provision_profile($1, $2)`, email, email); err != nil {
 		return platform.Actor{}, platform.Fail(http.StatusForbidden, "forbidden", "This account is not an NMC2 employee")

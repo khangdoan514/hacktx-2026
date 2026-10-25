@@ -31,6 +31,9 @@ func Wire(ctx context.Context, cfg platform.Config, db *platform.DB) (*Server, *
 		Mode:           cfg.AgentExecutionMode,
 		AdapterVersion: platform.AdapterVersion,
 	}
+	if cfg.AgentAPIURL == "" {
+		cfg.AgentAPIURL = "http://127.0.0.1:8080"
+	}
 	server := &Server{
 		DB: db, Config: cfg, Engine: engine, Store: store,
 		Hub: notifications.NewHub(), Keys: platform.NewJWKS(cfg.JWKSURL),

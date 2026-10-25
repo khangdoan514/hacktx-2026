@@ -33,6 +33,7 @@ type Server struct {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/agent-api/", s.proxyAgent)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -140,7 +141,11 @@ func (s *Server) identityFrom(r *http.Request) (platform.Identity, error) {
 		if err != nil {
 			return platform.Identity{}, err
 		}
-		return platform.Verify(s.Config, token, s.Keys)
+		identity, err := platform.Verify(s.Config, token, s.Keys)
+		if err != nil {
+			return platform.Identity{}, err
+		}
+		return organization.EmployeeIdentity(r.Context(), s.DB, identity.UserID, identity.Email)
 	}
 	if (s.Config.Environment == "local" || s.Config.Environment == "test") && r.Header.Get("X-NMC3-Console") == "1" {
 		return platform.Identity{UserID: organization.BaoID, Email: "bao.ai@nmc2.test"}, nil

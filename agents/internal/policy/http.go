@@ -20,7 +20,8 @@ type PrincipalFunc func(*http.Request) (Principal, error)
 //	GET  /v1/approvals/pending
 //	POST /v1/approvals/{id}/decision
 //
-// Mount it on the agent server beside the run API. main.go does not mount it yet:
+// cmd/nmc3-agent mounts this when the dedicated agent database is configured.
+// The local console principal is the caller. The product API is unchanged:
 //
 //	root := http.NewServeMux()
 //	root.Handle("/v1/approvals/", policy.Handler(engine, principals))

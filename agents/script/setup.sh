@@ -42,7 +42,12 @@ SQL
 for migration in \
   "$AGENTS/db/migrations/202610240001_nmc3_pass1.sql" \
   "$AGENTS/db/migrations/202610240002_nmc3_data_api.sql" \
-  "$AGENTS/db/migrations/202610240003_nmc3_event_source.sql"
+  "$AGENTS/db/migrations/202610240003_nmc3_event_source.sql" \
+  "$AGENTS/db/migrations/202610240004_nmc3_approvals.sql" \
+  "$AGENTS/db/migrations/202610240005_nmc3_durable.sql" \
+  "$AGENTS/db/migrations/202610240006_nmc3_definitions.sql" \
+  "$AGENTS/db/migrations/202610240009_nmc3_policy_pg.sql" \
+  "$AGENTS/db/migrations/202610240010_nmc3_context.sql"
 do
   psql "postgresql:///${DB_NAME}" -v ON_ERROR_STOP=1 -f "$migration"
 done
