@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
       { source: "/budgets", destination: "/agents", permanent: false },
       { source: "/triggers", destination: "/dashboard", permanent: false },
       { source: "/evaluate", destination: "/dashboard", permanent: false },
+      // GitHub repository setup moved into the Tools page's GitHub add-on.
+      { source: "/github", destination: "/tools?github=repositories", permanent: false },
     ];
   },
   async rewrites() {

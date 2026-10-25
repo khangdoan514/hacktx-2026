@@ -44,6 +44,8 @@ func main() {
 	}
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	defer stopWorker()
+	go (&productapi.AutomationWorker{Server: server}).Loop(workerCtx)
+	go (&productapi.GitHubDeliveryWorker{Server: server}).Loop(workerCtx)
 	if cfg.Environment == "local" || cfg.Environment == "test" {
 		go func() {
 			if err := worker.Loop(workerCtx); err != nil && workerCtx.Err() == nil {

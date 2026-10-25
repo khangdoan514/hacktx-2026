@@ -57,6 +57,7 @@ type pending struct {
 	Browser  string    `json:"browser"`
 	Expires  time.Time `json:"expires"`
 	Verifier string    `json:"verifier,omitempty"`
+	Popup    bool      `json:"popup,omitempty"`
 }
 
 var statePattern = regexp.MustCompile(`^[a-f0-9]{48}$`)

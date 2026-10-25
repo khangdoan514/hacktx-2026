@@ -55,30 +55,29 @@ export function SignInScreen() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    if (!supabase) {
-      setError("Supabase auth is not configured.");
-      return;
-    }
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInError) {
-      // Supabase rejects some seeded addresses, including ali-analytics@nmc2.test.
-      // The local employee password still signs those people in.
-      const local = await fetch("/api/v1/auth/local-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      if (local.ok) {
-        const body = (await local.json()) as { access_token?: string };
-        if (body.access_token) {
-          writeToken(body.access_token);
-          const next = new URLSearchParams(window.location.search).get("next");
-          router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
+    if (process.env.NEXT_PUBLIC_LOCAL_AUTH === "true") {
+      try {
+        const session = await nmc<{ access_token: string }>("/api/v1/auth/local-session", { method: "POST", body: JSON.stringify({ email, password }) });
+        writeToken(session.access_token);
+      } catch (err) { setError(err instanceof Error ? err.message : "Sign-in failed"); return; }
+    } else {
+      if (!supabase) { setError("Supabase auth is not configured."); return; }
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        // Supabase rejects some seeded addresses, including ali-analytics@nmc2.test.
+        // The local employee password still signs those people in.
+        const local = await fetch("/api/v1/auth/local-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const body = local.ok ? ((await local.json()) as { access_token?: string }) : null;
+        if (!body?.access_token) {
+          setError(signInError.message);
           return;
         }
+        writeToken(body.access_token);
       }
-      setError(signInError.message);
-      return;
     }
     const next = new URLSearchParams(window.location.search).get("next");
     router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
