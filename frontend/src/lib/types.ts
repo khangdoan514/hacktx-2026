@@ -50,6 +50,8 @@ export type AgentDef = {
   maxTokens: number;
   input: string;
   output: string;
+  /** The definition's default model, when it names one. */
+  model?: string;
   state: string;
 };
 

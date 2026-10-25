@@ -5,7 +5,7 @@
 // stages in order (see toSpecs).
 
 import type { IconName } from "@/components/ui/Icon";
-import type { Spec } from "@/components/definitions/api";
+import type { Schema, Spec } from "@/components/definitions/api";
 import type { AgentDef } from "@/lib/types";
 
 export type PresetId = "researcher" | "writer" | "reviewer" | "checker" | "summarizer" | "custom";
@@ -37,6 +37,22 @@ export const presets: Preset[] = [
 
 export const presetById = (id: PresetId) => presets.find((p) => p.id === id)!;
 
+/**
+ * What an edited step or agent keeps from the definition it was loaded from, so
+ * publishing adds a version to that agent instead of creating a new one.
+ */
+export type Source = {
+  id: string;
+  version: string;
+  role: Spec["role"];
+  input?: Schema;
+  output?: Schema;
+  delegates: string[];
+  limits?: Spec["limits"];
+  /** The editable fields as loaded; a step that still matches is not republished. */
+  orig: string;
+};
+
 export type FlowNode = {
   id: string;
   kind: "start" | "end" | "step";
@@ -49,9 +65,10 @@ export type FlowNode = {
   seconds: number;
   x: number;
   y: number;
+  source?: Source;
 };
 export type FlowEdge = { id: string; from: string; to: string };
-export type Flow = { name: string; goal: string; version: string; nodes: FlowNode[]; edges: FlowEdge[] };
+export type Flow = { name: string; goal: string; version: string; nodes: FlowNode[]; edges: FlowEdge[]; source?: Source };
 
 export const SIZE = {
   step: { w: 232, h: 76 },
@@ -107,22 +124,46 @@ export function flowFromStages(stages: PresetId[][], name = ""): Flow {
   return autoLayout(flow);
 }
 
+const bump = (version: string) => version.replace(/(\d+)$/, (n) => String(Number(n) + 1));
+const parse = (json: string): Schema | undefined => { try { return json ? JSON.parse(json) as Schema : undefined; } catch { return undefined; } };
+const editable = (n: Pick<FlowNode, "name" | "instructions" | "model" | "tools" | "turns" | "seconds">) =>
+  JSON.stringify([n.name, n.instructions, n.model, [...n.tools].sort(), n.turns, n.seconds]);
+
+function sourceOf(a: AgentDef): Omit<Source, "orig"> {
+  return {
+    // Published versions are immutable, so editing starts from the next patch version.
+    id: a.id, version: bump(a.version), role: a.kind === "orchestrator" ? "orchestrator" : "specialist",
+    input: parse(a.input), output: parse(a.output), delegates: a.delegates,
+    limits: a.limits.turns ? {
+      max_delegations: a.limits.delegations, max_concurrent_agents: a.limits.parallel, max_tool_calls: a.limits.tools,
+      max_model_turns: a.limits.turns, max_tokens: a.maxTokens, max_cost_usd: a.maxCostUsd, timeout_seconds: a.limits.seconds,
+    } : undefined,
+  };
+}
+
+/** Builder-made orchestrators append their run plan to the goal; strip it so it is not repeated. */
+const goalOf = (instructions: string) => instructions.split(/\n*Delegate to these specialists in order\./)[0].trim();
+
 /** Turn an existing agent definition into a flow so it can be edited visually. */
 export function flowFromAgent(def: AgentDef, agentById: (id: string) => AgentDef | undefined): Flow {
   const flow = blankFlow();
   flow.name = def.name;
-  flow.goal = def.kind === "orchestrator" ? def.instructions : "";
-  // Published versions are immutable, so editing starts from the next patch version.
-  flow.version = def.version.replace(/(\d+)$/, (n) => String(Number(n) + 1));
+  flow.version = bump(def.version);
   const make = (a: AgentDef) => {
     const n = newStep("custom", 0, 0);
-    Object.assign(n, { name: a.name, instructions: a.instructions, model: "", tools: [...a.tools], turns: a.limits.turns, seconds: a.limits.seconds });
+    Object.assign(n, { name: a.name, instructions: a.instructions, model: a.model ?? "", tools: [...a.tools], turns: a.limits.turns || 4, seconds: a.limits.seconds || 30 });
+    n.source = { ...sourceOf(a), orig: editable(n) };
     flow.nodes.push(n);
     return n.id;
   };
-  const stages: AgentDef[][] = def.kind === "orchestrator"
-    ? def.delegates.map((d) => [agentById(d)].filter((a): a is AgentDef => !!a))
-    : [[def]];
+  const delegates = def.delegates.map(agentById).filter((a): a is AgentDef => !!a);
+  // An agent that delegates is edited as its steps; anything else is one step.
+  const team = def.kind === "orchestrator" && delegates.length > 0;
+  if (team) {
+    flow.goal = goalOf(def.instructions);
+    flow.source = { ...sourceOf(def), orig: "" };
+  }
+  const stages = team ? delegates.map((a) => [a]) : [[def]];
   let prev = ["start"];
   for (const stage of stages) {
     const ids = stage.map(make);
@@ -132,6 +173,9 @@ export function flowFromAgent(def: AgentDef, agentById: (id: string) => AgentDef
   for (const from of prev) flow.edges.push({ id: uid("e"), from, to: "end" });
   return autoLayout(flow);
 }
+
+/** True when a step loaded from an existing agent has not been edited. */
+export const unchanged = (n: FlowNode) => !!n.source && n.source.orig === editable(n);
 
 const succ = (f: Flow, id: string) => f.edges.filter((e) => e.from === id).map((e) => e.to);
 const pred = (f: Flow, id: string) => f.edges.filter((e) => e.to === id).map((e) => e.from);
@@ -237,33 +281,41 @@ export const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g,
 /** One specialist per connected step, plus an orchestrator when there is more than one. */
 export function toSpecs(f: Flow): Spec[] {
   const stages = stagesOf(f);
-  const base = slug(f.name);
-  const used = new Set<string>();
+  const steps = stages.flat();
+  // An edited orchestrator stays one, even when it is down to a single step.
+  const single = steps.length === 1 && !f.source;
+  const base = f.source?.id ?? (single ? steps[0].source?.id : undefined) ?? slug(f.name);
+  const used = new Set<string>(steps.flatMap((n) => (n.source ? [n.source.id] : [])));
   const idOf = new Map<string, string>();
-  for (const n of stages.flat()) {
+  for (const n of steps) {
+    if (n.source) { idOf.set(n.id, n.source.id); continue; }
     let id = `${base}-${slug(n.name)}`;
     for (let i = 2; used.has(id); i++) id = `${base}-${slug(n.name)}-${i}`;
     used.add(id);
     idOf.set(n.id, id);
   }
   const schema = (key: string) => ({ type: "object", additionalProperties: false, properties: { [key]: { type: "string" } }, required: [key] });
-  const specialist = (n: FlowNode, id: string, name: string, role: Spec["role"]): Spec => ({
-    id, version: f.version.trim() || "1.0.0", name, role, instructions: n.instructions,
-    input_schema: schema("task"), output_schema: schema("result"),
-    allowed_tools: n.tools, allowed_delegates: [],
-    // The definition API requires positive budget caps even when the
-    // allowlists below contain no delegates or tools.
-    limits: { max_delegations: 1, max_concurrent_agents: 1, max_tool_calls: n.tools.length ? 3 : 1, max_model_turns: n.turns, max_tokens: 4000, max_cost_usd: 1, timeout_seconds: n.seconds },
-    model_policy: n.model ? { default_model: n.model } : undefined,
-  });
-  const steps = stages.flat();
-  if (steps.length === 1) return [specialist(steps[0], base, f.name.trim(), "specialist")];
+  const specialist = (n: FlowNode, id: string, name: string): Spec => {
+    const src = n.source;
+    // An edited agent keeps its schemas, delegates and budgets; only what the form edits changes.
+    const limits = src?.limits ?? { max_delegations: 1, max_concurrent_agents: 1, max_tool_calls: 1, max_model_turns: 1, max_tokens: 4000, max_cost_usd: 1, timeout_seconds: 1 };
+    return {
+      id, version: src?.version ?? (f.version.trim() || "1.0.0"), name, role: src?.role ?? "specialist", instructions: n.instructions,
+      input_schema: src?.input ?? schema("task"), output_schema: src?.output ?? schema("result"),
+      allowed_tools: n.tools, allowed_delegates: src?.delegates ?? [],
+      // The definition API requires positive budget caps even when the
+      // allowlists below contain no delegates or tools.
+      limits: { ...limits, max_tool_calls: Math.max(limits.max_tool_calls, n.tools.length ? 3 : 1), max_model_turns: n.turns, timeout_seconds: n.seconds },
+      model_policy: n.model ? { default_model: n.model } : undefined,
+    };
+  };
+  if (single) return [specialist(steps[0], base, f.name.trim())];
 
   const plan = stages.map((g, i) => `${i + 1}. ${g.map((n) => idOf.get(n.id)).join(" and ")}${g.length > 1 ? " (in parallel)" : ""}`).join("\n");
   const orchestrator: Spec = {
     id: base, version: f.version.trim() || "1.0.0", name: f.name.trim(), role: "orchestrator",
     instructions: `${f.goal.trim() ? f.goal.trim() + "\n\n" : ""}Delegate to these specialists in order. Steps in the same group run at the same time, and the next group waits for all of them:\n${plan}\nReturn the last group's result.`,
-    input_schema: schema("task"), output_schema: schema("result"),
+    input_schema: f.source?.input ?? schema("task"), output_schema: f.source?.output ?? schema("result"),
     allowed_tools: [], allowed_delegates: steps.map((n) => idOf.get(n.id)!),
     limits: {
       max_delegations: steps.length,
@@ -275,5 +327,5 @@ export function toSpecs(f: Flow): Spec[] {
       timeout_seconds: stages.reduce((a, g) => a + Math.max(...g.map((n) => n.seconds)), 0) + 15,
     },
   };
-  return [...steps.map((n) => specialist(n, idOf.get(n.id)!, n.name, "specialist")), orchestrator];
+  return [...steps.map((n) => specialist(n, idOf.get(n.id)!, n.name)), orchestrator];
 }

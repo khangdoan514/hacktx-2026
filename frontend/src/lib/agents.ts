@@ -6,6 +6,7 @@ type WireLimits = { max_delegations: number; max_concurrent_agents: number; max_
 type WireSpec = {
   id: string; version: string; name: string; role?: string; instructions?: string;
   input_schema?: unknown; output_schema?: unknown; allowed_tools?: string[]; allowed_delegates?: string[]; limits?: WireLimits;
+  model_policy?: { default_model?: string };
 };
 type WireDefinition = { spec: WireSpec; state?: string; published_at?: string; updated_at?: string };
 
@@ -63,6 +64,7 @@ function fromSpec(spec: WireSpec, state: string): AgentDef {
     limits: spec.limits ? limitsFromWire(spec.limits) : NO_LIMITS,
     maxCostUsd: spec.limits?.max_cost_usd ?? 0, maxTokens: spec.limits?.max_tokens ?? 0,
     input: spec.input_schema ? JSON.stringify(spec.input_schema) : "", output: spec.output_schema ? JSON.stringify(spec.output_schema) : "",
+    model: spec.model_policy?.default_model ?? "",
     state,
   };
 }
