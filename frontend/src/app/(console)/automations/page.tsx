@@ -9,9 +9,10 @@ import { nmc } from "@/product/nmc3/client";
 import s from "./automations.module.css";
 
 type Schedule = { kind: "once" | "interval" | "daily" | "weekly"; run_at?: string; interval_seconds?: number; local_time?: string; weekday?: number; timezone?: string };
-type Automation = { id: string; name: string; project_id?: string; agent_id: string; agent_version: string; input: { task?: string }; schedule: Schedule; status: "active" | "paused" | "completed"; next_run_at?: string; created_at: string };
+type Automation = { id: string; name: string; project_id?: string; github_binding_id?: string; agent_id: string; agent_version: string; input: { task?: string }; schedule: Schedule; status: "active" | "paused" | "completed"; next_run_at?: string; created_at: string };
 type Occurrence = { id: string; scheduled_for: string; state: string; agent_run_id?: string; attempts: number; error?: string };
 type Project = { id: string; name: string };
+type GitHubBinding = { id: string; full_name: string; branch: string | null; enabled: boolean };
 
 const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const showTime = (value?: string) => value ? new Date(value).toLocaleString() : "—";
@@ -35,6 +36,8 @@ export default function AutomationsPage() {
   const [task, setTask] = useState("");
   const [agentID, setAgentID] = useState("");
   const [projectID, setProjectID] = useState("");
+  const [githubBindings, setGitHubBindings] = useState<GitHubBinding[]>([]);
+  const [githubBindingID, setGitHubBindingID] = useState("");
   const [kind, setKind] = useState<Schedule["kind"]>("weekly");
   const [onceAt, setOnceAt] = useState("");
   const [interval, setIntervalValue] = useState(60);
@@ -63,6 +66,12 @@ export default function AutomationsPage() {
     const timer = window.setInterval(() => { void load().catch(() => {}); }, 10000);
     return () => window.clearInterval(timer);
   }, [selectedID]);
+  useEffect(() => {
+    if (!projectID) { setGitHubBindings([]); setGitHubBindingID(""); return; }
+    void nmc<{ items: GitHubBinding[] }>(`/api/v1/projects/${projectID}/github-repositories`)
+      .then((body) => { setGitHubBindings(body.items.filter((item) => item.enabled && item.branch)); setGitHubBindingID(""); })
+      .catch(() => { setGitHubBindings([]); setGitHubBindingID(""); });
+  }, [projectID]);
 
   const selected = items.find((item) => item.id === selectedID);
   const schedulableAgents = agents.filter((item) => promptField(item) !== null);
@@ -70,7 +79,7 @@ export default function AutomationsPage() {
   async function create(event: FormEvent) {
     event.preventDefault();
     const field = agent && promptField(agent);
-    if (!agent || !field || !task.trim() || !name.trim()) return;
+    if (!agent || !field || !task.trim() || !name.trim() || (agent.id === "github-repo-reviewer" && !githubBindingID)) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const schedule: Schedule = { kind, timezone };
@@ -81,7 +90,7 @@ export default function AutomationsPage() {
       const body = await nmc<{ id: string }>("/api/v1/agent-automations", {
         method: "POST",
         body: JSON.stringify({
-          name: name.trim(), project_id: projectID, agent_id: agent.id, agent_version: agent.version,
+          name: name.trim(), project_id: projectID, github_binding_id: agent.id === "github-repo-reviewer" ? githubBindingID : "", agent_id: agent.id, agent_version: agent.version,
           input: { [field]: task.trim() }, schedule,
           limits: {
             max_delegations: Math.max(1, agent.limits.delegations),
@@ -133,6 +142,9 @@ export default function AutomationsPage() {
           <label>Agent<select className="input" value={agentID} onChange={(event) => setAgentID(event.target.value)} required><option value="">Choose an agent</option>{schedulableAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {!schedulableAgents.length && <p className={s.empty}>Publish an agent with a task or question input to schedule it.</p>}
           <label>Project<select className="input" value={projectID} onChange={(event) => setProjectID(event.target.value)}><option value="">No project</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          {agentID === "github-repo-reviewer" && <label>GitHub repository and branch<select className="input" value={githubBindingID} onChange={(event) => setGitHubBindingID(event.target.value)} required>
+            <option value="">Choose a repository</option>{githubBindings.map((item) => <option key={item.id} value={item.id}>{item.full_name} · {item.branch}</option>)}
+          </select>{!githubBindings.length && <Link href="/github">Connect a repository first</Link>}</label>}
           <label>Task<textarea className="input" rows={4} value={task} onChange={(event) => setTask(event.target.value)} placeholder="Review this week's GitHub activity and summarize progress." required /></label>
           <label>When<select className="input" value={kind} onChange={(event) => setKind(event.target.value as Schedule["kind"])}><option value="once">Once</option><option value="interval">Every interval</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
           {kind === "once" && <label>Date and time<input className="input" type="datetime-local" value={onceAt} onChange={(event) => setOnceAt(event.target.value)} required /></label>}

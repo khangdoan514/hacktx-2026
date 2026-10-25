@@ -14,17 +14,18 @@ import (
 )
 
 type agentAutomation struct {
-	ID           string             `json:"id"`
-	ProjectID    *string            `json:"project_id,omitempty"`
-	Name         string             `json:"name"`
-	AgentID      string             `json:"agent_id"`
-	AgentVersion string             `json:"agent_version"`
-	Input        json.RawMessage    `json:"input"`
-	Limits       json.RawMessage    `json:"limits"`
-	Schedule     automationSchedule `json:"schedule"`
-	Status       string             `json:"status"`
-	NextRunAt    *time.Time         `json:"next_run_at,omitempty"`
-	CreatedAt    time.Time          `json:"created_at"`
+	ID              string             `json:"id"`
+	ProjectID       *string            `json:"project_id,omitempty"`
+	GitHubBindingID *string            `json:"github_binding_id,omitempty"`
+	Name            string             `json:"name"`
+	AgentID         string             `json:"agent_id"`
+	AgentVersion    string             `json:"agent_version"`
+	Input           json.RawMessage    `json:"input"`
+	Limits          json.RawMessage    `json:"limits"`
+	Schedule        automationSchedule `json:"schedule"`
+	Status          string             `json:"status"`
+	NextRunAt       *time.Time         `json:"next_run_at,omitempty"`
+	CreatedAt       time.Time          `json:"created_at"`
 }
 
 type automationOccurrence struct {
@@ -61,13 +62,14 @@ func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request, ctx co
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var input struct {
-		Name         string             `json:"name"`
-		ProjectID    string             `json:"project_id"`
-		AgentID      string             `json:"agent_id"`
-		AgentVersion string             `json:"agent_version"`
-		RunInput     json.RawMessage    `json:"input"`
-		Limits       json.RawMessage    `json:"limits"`
-		Schedule     automationSchedule `json:"schedule"`
+		Name            string             `json:"name"`
+		ProjectID       string             `json:"project_id"`
+		GitHubBindingID string             `json:"github_binding_id"`
+		AgentID         string             `json:"agent_id"`
+		AgentVersion    string             `json:"agent_version"`
+		RunInput        json.RawMessage    `json:"input"`
+		Limits          json.RawMessage    `json:"limits"`
+		Schedule        automationSchedule `json:"schedule"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -89,6 +91,28 @@ func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request, ctx co
 			return 0, nil, err
 		}
 	}
+	if input.AgentID == "github-repo-reviewer" && input.GitHubBindingID == "" {
+		return 0, nil, platform.Fail(http.StatusBadRequest, "invalid_input", "Choose a GitHub repository for the reviewer")
+	}
+	if input.GitHubBindingID != "" {
+		if input.ProjectID == "" || !projectUUID.MatchString(input.GitHubBindingID) || input.AgentID != "github-repo-reviewer" || input.AgentVersion != "1.0.0" {
+			return 0, nil, platform.Fail(http.StatusBadRequest, "invalid_input", "Choose a project repository and the GitHub reviewer")
+		}
+		var bound bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM app.project_github_repositories
+			WHERE id=$1 AND project_id=$2 AND enabled AND branch_name IS NOT NULL)`, input.GitHubBindingID, input.ProjectID).Scan(&bound); err != nil {
+			return 0, nil, err
+		}
+		if !bound {
+			return 0, nil, platform.Fail(http.StatusForbidden, "forbidden", "GitHub repository is not enabled for this project")
+		}
+		var question struct {
+			Question string `json:"question"`
+		}
+		if json.Unmarshal(input.RunInput, &question) != nil || strings.TrimSpace(question.Question) == "" {
+			return 0, nil, platform.Fail(http.StatusBadRequest, "invalid_input", "A report question is required")
+		}
+	}
 	now := time.Now().UTC()
 	if input.Schedule.Timezone == "" {
 		input.Schedule.Timezone = "UTC"
@@ -105,12 +129,16 @@ func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request, ctx co
 	if input.ProjectID != "" {
 		project = input.ProjectID
 	}
+	var githubBinding any
+	if input.GitHubBindingID != "" {
+		githubBinding = input.GitHubBindingID
+	}
 	var id string
 	err = tx.QueryRow(ctx, `INSERT INTO app.agent_automations
-		(organization_id, owner_id, project_id, name, agent_id, agent_version, input, limits,
+		(organization_id, owner_id, project_id, github_binding_id, name, agent_id, agent_version, input, limits,
 		 schedule_kind, run_at, interval_seconds, local_time, weekday, timezone, next_run_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,NULLIF($11,0),NULLIF($12,''),$13,$14,$15)
-		RETURNING id::text`, actor.OrgID, actor.ID, project, input.Name, input.AgentID, input.AgentVersion,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,NULLIF($12,0),NULLIF($13,''),$14,$15,$16)
+		RETURNING id::text`, actor.OrgID, actor.ID, project, githubBinding, input.Name, input.AgentID, input.AgentVersion,
 		string(input.RunInput), string(input.Limits), input.Schedule.Kind, input.Schedule.RunAt,
 		input.Schedule.IntervalSeconds, input.Schedule.LocalTime, input.Schedule.Weekday,
 		input.Schedule.Timezone, next).Scan(&id)
@@ -120,7 +148,7 @@ func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request, ctx co
 	return http.StatusCreated, map[string]any{"id": id, "next_run_at": next}, nil
 }
 
-const automationColumns = `id::text, project_id::text, name, agent_id, agent_version, input, limits,
+const automationColumns = `id::text, project_id::text, github_binding_id::text, name, agent_id, agent_version, input, limits,
  schedule_kind, run_at, interval_seconds, local_time, weekday, timezone, status, next_run_at, created_at`
 
 func scanAutomation(row interface{ Scan(...any) error }) (agentAutomation, error) {
@@ -129,7 +157,7 @@ func scanAutomation(row interface{ Scan(...any) error }) (agentAutomation, error
 	var interval *int32
 	var localTime *string
 	var weekday *int16
-	err := row.Scan(&item.ID, &item.ProjectID, &item.Name, &item.AgentID, &item.AgentVersion,
+	err := row.Scan(&item.ID, &item.ProjectID, &item.GitHubBindingID, &item.Name, &item.AgentID, &item.AgentVersion,
 		&item.Input, &item.Limits, &item.Schedule.Kind, &runAt, &interval, &localTime,
 		&weekday, &item.Schedule.Timezone, &item.Status, &item.NextRunAt, &item.CreatedAt)
 	if err != nil {

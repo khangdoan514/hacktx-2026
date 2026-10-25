@@ -2,7 +2,7 @@
 
 ## Decision
 
-Use a **GitHub App installation** as the production connection. A project member signs in through the website, chooses repositories on GitHub's installation page, then binds one repository and branch to an application project. GitHub webhooks trigger event-based runs. Scheduled repository reports can use the existing automation worker after a repository rule is connected to it.
+Use a **GitHub App installation** as the production connection. A project member signs in through the website, chooses repositories on GitHub's installation page, then binds one repository and branch to an application project. GitHub webhooks trigger event-based runs. The existing automation worker can run weekly reports against the same repository binding.
 
 A workflow file is useful as an optional repo-owned trigger or context-gathering adapter, but it should not be required for the standard setup. Installation already gives GitHub's repository picker, revocation, and webhook events. Editing `.github/workflows` and distributing a repo secret for every connection would make the common path harder. GitHub confirms installation permissions can be limited to selected repositories, and installation tokens can be further restricted to one repository and expire after one hour. [Installation selection](https://docs.github.com/en/apps/using-github-apps/installing-a-github-app-from-a-third-party), [installation tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app).
 
@@ -10,7 +10,7 @@ A workflow file is useful as an optional repo-owned trigger or context-gathering
 
 - `agents/internal/toolpacks` already has read-only GitHub tools: repository and code search, file, issues, and pull-request reads. The `workspace-assistant` definition can call them.
 - The current GitHub OAuth/token connection is stored as one process-wide `github` credential in `credentials.json`. Its OAuth scope is `repo read:user`. It is **not safe for multi-user project automation**: every run would inherit the same account's private-repo access. This store must not be used for project-bound GitHub runs.
-- Agent automations persist schedules and project context, but a scheduled automation does not yet select a GitHub repository rule.
+- Agent automations persist schedules and project context. A GitHub reviewer schedule selects one enabled repository/branch binding and receives the same short-lived tool scope as an event run.
 - The website at `/github` can create a project, start GitHub App user OAuth, list authorized installations and branches, bind a repository/branch, create issue or pull-request rules, pause connections, and show recent runs. The API verifies candidates against GitHub again before binding and never stores a user or installation token.
 - Signed webhook delivery, deduplication, installation revocation handling, rule dispatch, and the private repository tool broker are implemented and covered by local integration tests. Pull-request rules only run when the PR base branch matches the binding. File reads through the broker always use the bound branch.
 - The demo App is registered, but its server credentials and installation are pending. The website currently displays that the OAuth client is not configured; live GitHub sign-in and webhook delivery have not been verified.
@@ -18,7 +18,7 @@ A workflow file is useful as an optional repo-owned trigger or context-gathering
 ## User flow
 
 1. At `/github`, choose or create a project and select **Continue with GitHub**. If the App is not installed, use the install link and select repositories on GitHub. The App requests metadata, contents, issues, and pull requests read access. Installation and repository change events, issues, and pull requests are subscribed.
-2. Back on the website, select an authorized repository and one of its branches. Add an issue opened or pull-request opened/updated trigger. The current first-release agent is `github-repo-reviewer`.
+2. Back on the website, select an authorized repository and one of its branches. Add an issue opened or pull-request opened/updated trigger. The current first-release agent is `github-repo-reviewer`. For a weekly report, choose that agent and the repository/branch on `/automations`.
 3. The page shows repository/branch bindings, event rules, and recent agent runs. A project member with an agent management role can pause or enable a binding or rule. GitHub installation removal disables access.
 4. The agent receives event context and a signed repository scope. Its private broker obtains a fresh one-repository installation token for tool calls and forces file reads to the selected branch.
 
@@ -34,7 +34,8 @@ Implemented routes include `POST /api/v1/projects/{id}/github/setup`, its OAuth 
 flowchart LR
   GH[GitHub webhook] --> V[Verify signature and delivery ID]
   V --> Q[Durable delivery queue]
-  Q --> B[Resolve enabled project/repo/agent rule]
+  Q --> B[Resolve enabled project/repository binding]
+  S[Scheduled GitHub automation] --> B
   B --> T[Mint one-repository installation token]
   T --> A[Start agent with repo scope and event context]
   A --> G[GitHub tool broker enforces repository ID]

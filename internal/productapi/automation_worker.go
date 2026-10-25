@@ -130,24 +130,25 @@ func (w *AutomationWorker) claim(ctx context.Context) (string, error) {
 }
 
 type automationDispatch struct {
-	OwnerID      string
-	Email        string
-	ProjectID    *string
-	AgentID      string
-	AgentVersion string
-	Input        json.RawMessage
-	Limits       json.RawMessage
-	Attempts     int
+	OwnerID         string
+	Email           string
+	ProjectID       *string
+	GitHubBindingID *string
+	AgentID         string
+	AgentVersion    string
+	Input           json.RawMessage
+	Limits          json.RawMessage
+	Attempts        int
 }
 
 func (w *AutomationWorker) loadDispatch(ctx context.Context, id string) (automationDispatch, error) {
 	var job automationDispatch
 	err := w.Server.DB.Admin(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT a.owner_id::text,e.email,a.project_id::text,a.agent_id,a.agent_version,a.input,a.limits,r.attempts
+		return tx.QueryRow(ctx, `SELECT a.owner_id::text,e.email,a.project_id::text,a.github_binding_id::text,a.agent_id,a.agent_version,a.input,a.limits,r.attempts
 			FROM app.agent_automation_runs r
 			JOIN app.agent_automations a ON a.id=r.automation_id
 			JOIN app.employees e ON e.user_id=a.owner_id
-			WHERE r.id=$1`, id).Scan(&job.OwnerID, &job.Email, &job.ProjectID,
+			WHERE r.id=$1`, id).Scan(&job.OwnerID, &job.Email, &job.ProjectID, &job.GitHubBindingID,
 			&job.AgentID, &job.AgentVersion, &job.Input, &job.Limits, &job.Attempts)
 	})
 	return job, err
@@ -170,6 +171,49 @@ func (w *AutomationWorker) dispatch(ctx context.Context, id string) {
 	})
 	if err != nil {
 		w.finishDispatch(ctx, id, "", err, false, job.Attempts)
+		return
+	}
+	if job.GitHubBindingID != nil {
+		if job.ProjectID == nil || job.AgentID != "github-repo-reviewer" || job.AgentVersion != "1.0.0" {
+			w.finishDispatch(ctx, id, "", fmt.Errorf("GitHub automation has an invalid agent or project"), false, job.Attempts)
+			return
+		}
+		var repository, branch string
+		var repositoryID, installationID int64
+		err = w.Server.DB.Admin(ctx, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT b.full_name,b.branch_name,b.repository_id,b.installation_id
+				FROM app.project_github_repositories b JOIN app.github_installations i ON i.installation_id=b.installation_id
+				WHERE b.id=$1 AND b.project_id=$2 AND b.enabled AND b.branch_name IS NOT NULL AND i.status='active'`,
+				*job.GitHubBindingID, *job.ProjectID).Scan(&repository, &branch, &repositoryID, &installationID)
+		})
+		if err != nil {
+			w.finishDispatch(ctx, id, "", fmt.Errorf("GitHub repository is no longer available"), false, job.Attempts)
+			return
+		}
+		err = w.Server.DB.WithUser(ctx, job.OwnerID, job.Email, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := projectAccess(ctx, tx, *job.ProjectID)
+			return err
+		})
+		if err != nil {
+			w.finishDispatch(ctx, id, "", err, false, job.Attempts)
+			return
+		}
+		var question struct {
+			Question string `json:"question"`
+		}
+		if json.Unmarshal(job.Input, &question) != nil || strings.TrimSpace(question.Question) == "" {
+			w.finishDispatch(ctx, id, "", fmt.Errorf("GitHub report question is missing"), false, job.Attempts)
+			return
+		}
+		scope, err := signGitHubScope(githubScopeClaims{BindingID: *job.GitHubBindingID, ProjectID: *job.ProjectID,
+			ActorID: job.OwnerID, RepositoryID: repositoryID, InstallationID: installationID, AutomationRunID: id})
+		if err != nil {
+			w.finishDispatch(ctx, id, "", err, true, job.Attempts)
+			return
+		}
+		job.Input, _ = json.Marshal(map[string]string{"question": question.Question, "repository": repository, "branch": branch, "scope": scope})
+	} else if job.AgentID == "github-repo-reviewer" {
+		w.finishDispatch(ctx, id, "", fmt.Errorf("GitHub reviewer has no repository binding"), false, job.Attempts)
 		return
 	}
 	payload := map[string]any{"agent_id": job.AgentID, "agent_version": job.AgentVersion, "input": job.Input, "limits": job.Limits}

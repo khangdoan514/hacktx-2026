@@ -14,12 +14,13 @@ import (
 )
 
 type githubScopeClaims struct {
-	BindingID      string `json:"binding_id"`
-	ProjectID      string `json:"project_id"`
-	ActorID        string `json:"actor_id"`
-	RepositoryID   int64  `json:"repository_id"`
-	InstallationID int64  `json:"installation_id"`
-	DeliveryID     string `json:"delivery_id"`
+	BindingID       string `json:"binding_id"`
+	ProjectID       string `json:"project_id"`
+	ActorID         string `json:"actor_id"`
+	RepositoryID    int64  `json:"repository_id"`
+	InstallationID  int64  `json:"installation_id"`
+	DeliveryID      string `json:"delivery_id"`
+	AutomationRunID string `json:"automation_run_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -49,7 +50,8 @@ func parseGitHubScope(raw string) (*githubScopeClaims, error) {
 		return []byte(secret), nil
 	}, jwt.WithAudience("nmc3-github-tools"), jwt.WithIssuer("nmc3-api"), jwt.WithExpirationRequired())
 	if err != nil || !projectUUID.MatchString(claims.BindingID) || !projectUUID.MatchString(claims.ProjectID) ||
-		!projectUUID.MatchString(claims.ActorID) || !projectUUID.MatchString(claims.DeliveryID) ||
+		!projectUUID.MatchString(claims.ActorID) ||
+		(projectUUID.MatchString(claims.DeliveryID) == projectUUID.MatchString(claims.AutomationRunID)) ||
 		claims.RepositoryID <= 0 || claims.InstallationID <= 0 {
 		return nil, platform.Fail(http.StatusUnauthorized, "unauthenticated", "Invalid GitHub scope")
 	}
@@ -80,15 +82,26 @@ func (s *Server) resolveGitHubScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var fullName, branch string
+	var deliveryID, automationRunID any
+	if claims.DeliveryID != "" {
+		deliveryID = claims.DeliveryID
+	}
+	if claims.AutomationRunID != "" {
+		automationRunID = claims.AutomationRunID
+	}
 	err = s.DB.Admin(r.Context(), func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT b.full_name,b.branch_name FROM app.project_github_repositories b
 			JOIN app.github_installations i ON i.installation_id=b.installation_id
 			JOIN app.employees e ON e.user_id=$6 AND e.organization_id=b.organization_id AND e.status='active'
 			JOIN app.org_memberships m ON m.user_id=e.user_id AND m.organization_id=e.organization_id AND m.status='active'
 			WHERE b.id=$1 AND b.project_id=$2 AND b.repository_id=$3 AND b.installation_id=$4
-			AND b.enabled AND b.branch_name IS NOT NULL AND i.status='active' AND EXISTS
-			(SELECT 1 FROM app.github_webhook_deliveries d WHERE d.delivery_id=$5 AND d.repository_id=b.repository_id AND d.installation_id=b.installation_id)`,
-			claims.BindingID, claims.ProjectID, claims.RepositoryID, claims.InstallationID, claims.DeliveryID, claims.ActorID).Scan(&fullName, &branch)
+			AND b.enabled AND b.branch_name IS NOT NULL AND i.status='active' AND (
+			EXISTS (SELECT 1 FROM app.github_webhook_deliveries d WHERE d.delivery_id=$5
+				AND d.repository_id=b.repository_id AND d.installation_id=b.installation_id)
+			OR EXISTS (SELECT 1 FROM app.agent_automation_runs x JOIN app.agent_automations a ON a.id=x.automation_id
+				WHERE x.id=$7 AND a.github_binding_id=b.id AND a.project_id=b.project_id AND a.owner_id=$6
+				AND a.status<>'paused' AND x.state IN ('dispatching','started')))`,
+			claims.BindingID, claims.ProjectID, claims.RepositoryID, claims.InstallationID, deliveryID, claims.ActorID, automationRunID).Scan(&fullName, &branch)
 	})
 	if err != nil {
 		writeErr(w, platform.Fail(http.StatusForbidden, "forbidden", "Repository scope is no longer available"))

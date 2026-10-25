@@ -124,6 +124,102 @@ func TestAutomationWorkerStartsDueRunWithProjectContext(t *testing.T) {
 	}
 }
 
+func TestScheduledGitHubReviewGetsBoundRepositoryScope(t *testing.T) {
+	ctx := context.Background()
+	db := testdb.DB(t)
+	if err := organization.Seed(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	projectID := platform.UUID()
+	installationID, repositoryID := time.Now().UnixNano(), time.Now().UnixNano()+1
+	var bindingID string
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO app.delivery_projects (id,organization_id,name) VALUES ($1,$2,'Scheduled GitHub test')`, projectID, platform.OrgID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO app.delivery_grants (project_id,user_id) VALUES ($1,$2)`, projectID, organization.BaoID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO app.github_installations (installation_id,account_id,account_login) VALUES ($1,$2,'demo')`, installationID, installationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Pool.QueryRow(ctx, `INSERT INTO app.project_github_repositories
+		(project_id,organization_id,repository_id,full_name,installation_id,connected_by,branch_name)
+		VALUES ($1,$2,$3,'demo/reports',$4,$5,'release/demo') RETURNING id::text`,
+		projectID, platform.OrgID, repositoryID, installationID, organization.BaoID).Scan(&bindingID); err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	var sent map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/agent-runs":
+			starts++
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Error(err)
+			}
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"run_id":"scheduled-github-1"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/agent-runs/scheduled-github-1":
+			_, _ = w.Write([]byte(`{"run":{"state":"SUCCEEDED"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	t.Setenv("GITHUB_SCOPE_SIGNING_KEY", "scheduled-github-test-signing-key-123456")
+	cfg := platform.Config{Environment: "test", AllowLocalAuth: true, AgentExecutionMode: "dummy", JWTSecret: "test-secret-test-secret-test-secret", JWTIssuer: "http://127.0.0.1/test-auth", JWTAudience: "authenticated", StorageDir: t.TempDir(), AgentAPIURL: upstream.URL}
+	server, _, err := Wire(ctx, cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := httptest.NewServer(server.Handler())
+	defer app.Close()
+	bao := login(t, app.URL, "bao.ai@nmc2.test")
+	path := "/api/v1/agent-automations"
+	request := map[string]any{"name": "Weekly repository report", "project_id": projectID, "github_binding_id": bindingID,
+		"agent_id": "github-repo-reviewer", "agent_version": "1.0.0", "input": map[string]string{"question": "Summarize the week"},
+		"limits":   map[string]any{"max_delegations": 1, "max_concurrent_agents": 1, "max_tool_calls": 10, "max_model_turns": 12, "max_tokens": 12000, "max_cost_usd": 2, "timeout_seconds": 120},
+		"schedule": map[string]any{"kind": "once", "run_at": time.Now().UTC().Add(time.Hour).Format(time.RFC3339)}}
+	missing := map[string]any{}
+	for k, v := range request {
+		missing[k] = v
+	}
+	delete(missing, "github_binding_id")
+	if status, _ := call(t, app.URL, bao, http.MethodPost, path, missing); status != http.StatusBadRequest {
+		t.Fatalf("unbound reviewer status=%d", status)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	must(t, app.URL, bao, http.MethodPost, path, request, &created)
+	if err := db.Admin(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE app.agent_automations SET next_run_at=now()-interval '1 second' WHERE id=$1`, created.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	worker := &AutomationWorker{Server: server, Client: &http.Client{Timeout: 5 * time.Second}}
+	if err := worker.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if starts != 1 || sent["project_id"] != projectID || sent["agent_id"] != "github-repo-reviewer" {
+		t.Fatalf("starts=%d payload=%+v", starts, sent)
+	}
+	input, ok := sent["input"].(map[string]any)
+	if !ok || input["repository"] != "demo/reports" || input["branch"] != "release/demo" || input["question"] != "Summarize the week" {
+		t.Fatalf("input=%+v", input)
+	}
+	claims, err := parseGitHubScope(input["scope"].(string))
+	if err != nil || claims.BindingID != bindingID || claims.RepositoryID != repositoryID || claims.AutomationRunID == "" || claims.DeliveryID != "" {
+		t.Fatalf("scope=%+v err=%v", claims, err)
+	}
+	var runID string
+	if err := db.Pool.QueryRow(ctx, `SELECT id::text FROM app.agent_automation_runs WHERE automation_id=$1`, created.ID).Scan(&runID); err != nil || runID != claims.AutomationRunID {
+		t.Fatalf("run=%s scope=%+v err=%v", runID, claims, err)
+	}
+}
+
 func TestAutomationPauseResumeAndRunNow(t *testing.T) {
 	db := testdb.DB(t)
 	if err := organization.Seed(context.Background(), db); err != nil {
