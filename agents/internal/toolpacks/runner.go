@@ -21,6 +21,7 @@ type Runner struct {
 	Client    *http.Client
 	GitHubAPI string
 	DriveAPI  string
+	NotionAPI string
 }
 
 func NewRunner(store *Store) *Runner {
@@ -29,6 +30,7 @@ func NewRunner(store *Store) *Runner {
 		Client:    &http.Client{Timeout: 20 * time.Second},
 		GitHubAPI: "https://api.github.com",
 		DriveAPI:  "https://www.googleapis.com/drive/v3",
+		NotionAPI: "https://api.notion.com/v1",
 	}
 }
 
@@ -67,7 +69,23 @@ func (r *Runner) Call(ctx context.Context, packID, tool string, args json.RawMes
 	if packID == "github" {
 		return r.github(ctx, cred, tool, a)
 	}
+	if packID == "notion" {
+		return r.notion(ctx, cred, tool, a)
+	}
 	return r.drive(ctx, cred, tool, a)
+}
+
+func (r *Runner) account(ctx context.Context, pack, token string) (string, error) {
+	switch pack {
+	case "github":
+		return r.GitHubLogin(ctx, token)
+	case "gdrive":
+		return r.DriveAccount(ctx, token)
+	case "notion":
+		return r.NotionAccount(ctx, token)
+	default:
+		return "", fmt.Errorf("unknown account provider")
+	}
 }
 
 func (r *Runner) credential(ctx context.Context, pack string) (Credential, error) {

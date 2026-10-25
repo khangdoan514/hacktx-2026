@@ -142,7 +142,7 @@ func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Sign-in could not be started.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"url": a.PublicURL + "/oauth/" + id + "/authorize?state=" + state})
+	writeJSON(w, http.StatusOK, map[string]string{"url": a.origin(id) + "/oauth/" + id + "/authorize?state=" + state})
 }
 
 func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +167,7 @@ func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.Remove(claimed)
-	http.SetCookie(w, &http.Cookie{Name: "nmc3_oauth_" + state, Value: "", Path: "/oauth/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Secure: strings.HasPrefix(a.PublicURL, "https://")})
+	http.SetCookie(w, &http.Cookie{Name: "nmc3_oauth_" + state, Value: "", Path: "/oauth/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Secure: strings.HasPrefix(a.origin(id), "https://")})
 	code := r.URL.Query().Get("code")
 	prov, known := ProviderFor(id)
 	if r.URL.Query().Get("error") != "" || code == "" || !known {
@@ -181,11 +181,7 @@ func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		back("exchange_failed")
 		return
 	}
-	if id == "github" {
-		cred.Account, err = a.Runner.GitHubLogin(ctx, cred.AccessToken)
-	} else {
-		cred.Account, err = a.Runner.DriveAccount(ctx, cred.AccessToken)
-	}
+	cred.Account, err = a.Runner.account(ctx, id, cred.AccessToken)
 	if err != nil {
 		back("verify_failed")
 		return
@@ -209,7 +205,25 @@ func (a *API) disconnect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"connected": false})
 }
 
-func (a *API) redirectURI(id string) string { return a.PublicURL + "/oauth/" + id + "/callback" }
+func (a *API) origin(id string) string {
+	if id == "notion" {
+		if configured := strings.TrimRight(os.Getenv("NOTION_PUBLIC_URL"), "/"); configured != "" {
+			return configured
+		}
+		u, err := url.Parse(a.PublicURL)
+		if err == nil && u.Hostname() == "127.0.0.1" {
+			port := u.Port()
+			u.Host = "localhost"
+			if port != "" {
+				u.Host += ":" + port
+			}
+			return strings.TrimRight(u.String(), "/")
+		}
+	}
+	return a.PublicURL
+}
+
+func (a *API) redirectURI(id string) string { return a.origin(id) + "/oauth/" + id + "/callback" }
 
 func randomState() string {
 	b := make([]byte, 24)

@@ -122,7 +122,7 @@ export default function ToolPacks() {
           <span className="n">{packs.filter((p) => p.connected).length} connected</span>
         </div>
         <p className={s.lead}>
-          Connect Google Drive or GitHub to use your files and repositories with workspace tools.
+          Connect Google Drive, GitHub, or Notion to use your documents and repositories with workspace tools.
           Connections belong to {employee?.email || "your signed-in account"}. These tools have read-only access.
         </p>
         {loading && <p className={s.lead} role="status">Loading connections…</p>}
@@ -155,7 +155,7 @@ export default function ToolPacks() {
                 ) : (
                   <>
                     {pack.oauth_available && (
-                      <button type="button" className="btn solid" disabled={busy !== null} onClick={() => signIn(pack)}>{busy === pack.id ? "Opening sign-in…" : `Connect ${pack.id === "github" ? "GitHub" : "Google Drive"}`}</button>
+                      <button type="button" className="btn solid" disabled={busy !== null} onClick={() => signIn(pack)}>{busy === pack.id ? "Opening sign-in…" : `Connect ${pack.name}`}</button>
                     )}
                     {pack.token_accepted && (
                       <button type="button" className={pack.oauth_available ? "btn" : "btn solid"} disabled={busy !== null} onClick={() => setOpen(open === pack.id ? null : pack.id)}>Connect with token</button>

@@ -109,7 +109,7 @@ func (a *API) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Sign-in is unavailable.", http.StatusConflict)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "nmc3_oauth_" + state, Value: p.Browser, Path: "/oauth/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(a.PublicURL, "https://"), MaxAge: 600})
+	http.SetCookie(w, &http.Cookie{Name: "nmc3_oauth_" + state, Value: p.Browser, Path: "/oauth/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(a.origin(id), "https://"), MaxAge: 600})
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, prov.AuthorizeURL(a.redirectURI(id), state), http.StatusSeeOther)
@@ -129,12 +129,7 @@ func (a *API) testConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "Reconnect this account to test access.")
 		return
 	}
-	var account string
-	if id == "github" {
-		account, err = runner.GitHubLogin(ctx, cred.AccessToken)
-	} else {
-		account, err = runner.DriveAccount(ctx, cred.AccessToken)
-	}
+	account, err := runner.account(ctx, id, cred.AccessToken)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "The provider could not verify this connection. Try reconnecting your account.")
 		return

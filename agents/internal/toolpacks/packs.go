@@ -101,6 +101,17 @@ func Packs() []Pack {
 				{Name: "read_file", Description: "Read a Google Doc, Sheet, Slides deck or text file as text", Properties: map[string]any{"file_id": str("Drive file id")}, Required: []string{"file_id"}},
 			},
 		},
+		{
+			ID: "notion", Name: "Notion",
+			Description: "Search shared pages, read content, and query data sources in your connected Notion workspace. Read-only.",
+			Tools: []Tool{
+				{Name: "search", Description: "Search titles of shared Notion pages and data sources (not full page text)", Properties: map[string]any{"query": str("Title to search; omit to list accessible pages and data sources"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}},
+				{Name: "get_page", Description: "Read a Notion page's properties and source URL; use list_blocks for body content", Properties: map[string]any{"page_id": str("Notion page UUID")}, Required: []string{"page_id"}},
+				{Name: "list_blocks", Description: "Read a page or block's immediate children; follow has_children IDs to read nested sections", Properties: map[string]any{"block_id": str("Notion page or block UUID"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}, Required: []string{"block_id"}},
+				{Name: "get_database", Description: "Read a database's metadata and available data source IDs", Properties: map[string]any{"database_id": str("Notion database UUID")}, Required: []string{"database_id"}},
+				{Name: "query_data_source", Description: "Read rows of an authorized Notion data source with bounded pagination", Properties: map[string]any{"data_source_id": str("Notion data source UUID from search or get_database"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}, Required: []string{"data_source_id"}},
+			},
+		},
 	}
 }
 

@@ -1,8 +1,26 @@
 # Connecting personal accounts
 
-Employees sign in to NMC3 first, open **Tools**, and choose **Connect Google Drive** or **Connect with token** under GitHub. Google account linking is separate from the Supabase login used to access NMC3. The server's OAuth client credentials identify this application; each employee authorizes their own Google account.
+Employees sign in to NMC3 first, open **Tools**, and choose **Connect Google Drive**, **Connect Notion**, or **Connect with token** under GitHub. Provider account linking is separate from the Supabase login used to access NMC3. The server's OAuth client credentials identify this application; each employee authorizes their own account.
 
-After consent, Tools shows the account email and offers **Test connection**, **Reconnect**, and **Disconnect**. The test verifies account access without reading documents. Disconnect removes the app's local credentials; provider-side revocation remains available from the provider's account settings.
+After consent, Tools shows the account email or workspace name and offers **Test connection**, **Reconnect**, and **Disconnect**. The test verifies account access without reading documents. Disconnect removes the app's local credentials; provider-side revocation remains available from the provider's account settings.
+
+## Notion setup
+
+Create a public OAuth connection in the Notion developer portal and enable **Read content**. Register the exact local redirect URI:
+
+```text
+http://localhost:8080/oauth/notion/callback
+```
+
+Set `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, and `NOTION_PUBLIC_URL=http://localhost:8080` in the ignored `agents/.env`. Restart the agent API, sign in to NMC3, and use **Tools → Connect Notion**. Choose the workspace and pages to share in Notion's consent page. OAuth client credentials alone do not authorize workspace data. On a deployed system, set `NOTION_PUBLIC_URL` to the backend's HTTPS origin and register that callback instead.
+
+Notion uses a separate origin setting so its `localhost` callback does not change the registered Google callback. The authorization launch and browser-binding cookie both use this origin. Token exchange/refresh use JSON with HTTP Basic authentication. Access and refresh tokens are saved only to the employee's credential store, and rotated token pairs replace the previous pair.
+
+The initial pack has five read-only actions: `notion.search`, `notion.get_page`, `notion.list_blocks`, `notion.get_database`, and `notion.query_data_source`. Search matches **titles**, not full content. Page metadata and body blocks are separate reads; follow child-block IDs and pagination cursors for nested content. Data-source queries return bounded rows; they do not run SQL or modify data. The adapter pins API version `2025-09-03` and uses data-source queries rather than the deprecated database query endpoint.
+
+Use a new **Thread** after connecting, or select **Workspace assistant 1.1.0**, which adds the Notion tool allowlist. Previously published Workspace assistant 1.0.0 is unchanged in the registry. If results are empty or Notion returns 404, check the selected page access and the integration's Read content capability. A 403 may also indicate missing capabilities. The API never returns upstream error bodies that could contain private information.
+
+References: [Notion OAuth](https://developers.notion.com/guides/get-started/authorization), [title search](https://developers.notion.com/reference/post-search), and [data-source queries](https://developers.notion.com/reference/query-a-data-source).
 
 ## Google Cloud setup
 

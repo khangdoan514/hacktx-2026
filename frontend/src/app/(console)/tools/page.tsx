@@ -7,7 +7,7 @@ export default function ToolsPage() {
     <>
       <PageHeader
         title="Tools"
-        sub="Connect your accounts to give workspace agents access to your documents and repositories."
+        sub="Connect your accounts to give workspace agents access to your documents, repositories, and Notion pages."
       />
       <ToolPacks />
       <details style={{ marginTop: 24 }}>

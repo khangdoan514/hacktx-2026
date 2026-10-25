@@ -22,6 +22,7 @@ type Provider struct {
 	ClientID     string
 	ClientSecret string
 	Extra        url.Values // added to the authorize URL
+	JSONBasic    bool       // Notion uses JSON and HTTP Basic instead of form credentials
 }
 
 // Configured reports whether the deployment registered an OAuth client.
@@ -45,12 +46,21 @@ func ProviderFor(pack string) (Provider, bool) {
 			ClientID: os.Getenv("GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 			Extra: url.Values{"access_type": {"offline"}, "prompt": {"consent"}, "response_type": {"code"}},
 		}, true
+	case "notion":
+		return Provider{
+			AuthURL: "https://api.notion.com/v1/oauth/authorize", TokenURL: "https://api.notion.com/v1/oauth/token",
+			ClientID: os.Getenv("NOTION_CLIENT_ID"), ClientSecret: os.Getenv("NOTION_CLIENT_SECRET"),
+			Extra: url.Values{"owner": {"user"}, "response_type": {"code"}}, JSONBasic: true,
+		}, true
 	}
 	return Provider{}, false
 }
 
 func (p Provider) AuthorizeURL(redirect, state string) string {
 	q := url.Values{"client_id": {p.ClientID}, "redirect_uri": {redirect}, "scope": {p.Scope}, "state": {state}}
+	if p.Scope == "" {
+		q.Del("scope")
+	}
 	for k, v := range p.Extra {
 		q[k] = v
 	}
@@ -71,6 +81,25 @@ func (p Provider) token(ctx context.Context, client *http.Client, form url.Value
 		return Credential{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if p.JSONBasic {
+		payload := map[string]string{}
+		for k := range form {
+			if k != "client_id" && k != "client_secret" {
+				payload[k] = form.Get(k)
+			}
+		}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return Credential{}, err
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, p.TokenURL, strings.NewReader(string(body)))
+		if err != nil {
+			return Credential{}, err
+		}
+		req.SetBasicAuth(p.ClientID, p.ClientSecret)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Notion-Version", notionVersion)
+	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
@@ -82,8 +111,8 @@ func (p Provider) token(ctx context.Context, client *http.Client, form url.Value
 	if err := json.Unmarshal(body, &tr); err != nil {
 		return Credential{}, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
 	}
-	if tr.Error != "" || tr.AccessToken == "" {
-		return Credential{}, fmt.Errorf("token endpoint refused the request: %s", firstNonEmpty(tr.ErrorDesc, tr.Error, "no access token"))
+	if resp.StatusCode >= 400 || tr.Error != "" || tr.AccessToken == "" {
+		return Credential{}, fmt.Errorf("token endpoint refused the request (HTTP %d)", resp.StatusCode)
 	}
 	c := Credential{Kind: "oauth", AccessToken: tr.AccessToken, RefreshToken: tr.RefreshToken, ClientID: p.ClientID, ClientSecret: p.ClientSecret}
 	if tr.ExpiresIn > 0 {
