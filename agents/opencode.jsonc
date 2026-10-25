@@ -1,0 +1,178 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Phase 2 execution policy. OpenCode enforces this file; the Go service
+  // only validates schemas and records history. Last matching rule wins.
+  // Base policy allows everything, so this file starts with deny-all and
+  // then names the only exceptions.
+  "model": "meta/muse-spark-1.3-contributor",
+  "default_agent": "vendor-orchestrator",
+  "share": "disabled",
+  "snapshots": false,
+  "formatter": false,
+  "lsp": false,
+  "experimental": {
+    // Depth 1: a primary agent may launch a subagent, and that subagent
+    // cannot launch another. This is the harness backstop for the depth rule.
+    "subagent_depth": 1
+  },
+  "watcher": {
+    "ignore": [".env", ".env.*", "**/.env", "**/.env.*"]
+  },
+  "permissions": [
+    { "action": "*", "resource": "*", "effect": "deny" },
+    { "action": "shell", "resource": "*", "effect": "deny" },
+    { "action": "edit", "resource": "*", "effect": "deny" },
+    { "action": "subagent", "resource": "*", "effect": "deny" },
+    { "action": "webfetch", "resource": "*", "effect": "deny" },
+    { "action": "websearch", "resource": "*", "effect": "deny" },
+    { "action": "skill", "resource": "*", "effect": "deny" },
+    { "action": "external_directory", "resource": "*", "effect": "deny" },
+    { "action": "read", "resource": "*.env", "effect": "deny" },
+    { "action": "read", "resource": "*.env.*", "effect": "deny" },
+    { "action": "read", "resource": "*.env.example", "effect": "deny" },
+    { "action": "catalog_*", "resource": "*", "effect": "deny" },
+    { "action": "execute", "resource": "*", "effect": "deny" },
+    { "action": "opencode_list_mcp_resources", "resource": "*", "effect": "deny" },
+    { "action": "opencode_read_mcp_resource", "resource": "*", "effect": "deny" }
+  ],
+  "mcp": {
+    "servers": {
+      "catalog": {
+        "type": "local",
+        "command": ["go", "run", "./cmd/catalog-mcp"],
+        "codemode": false,
+        "timeout": { "startup": 60000, "catalog": 15000, "execution": 10000 }
+      }
+    }
+  },
+  "agents": {
+    "vendor-orchestrator": {
+      "description": "Vendor comparison orchestrator",
+      "mode": "primary",
+      "steps": 8,
+      "system": "You are Vendor comparison orchestrator (orchestrator). Use only authorized actions and cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "catalog-specialist", "effect": "allow" },
+        { "action": "subagent", "resource": "accessibility-specialist", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
+    "denial-orchestrator": {
+      "description": "Depth denial demonstration",
+      "mode": "primary",
+      "steps": 8,
+      "system": "You are Depth denial demonstration (orchestrator). Use only authorized actions and cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "denial-specialist", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
+    "catalog-specialist": {
+      "description": "Catalog specialist",
+      "mode": "subagent",
+      "steps": 8,
+      "system": "You are Catalog specialist (specialist). Use only authorized actions and cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "skill", "resource": "*", "effect": "deny" },
+        { "action": "external_directory", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "fixtures/catalog/*", "effect": "deny" },
+        { "action": "read", "resource": "*/fixtures/catalog/*", "effect": "deny" },
+        { "action": "catalog_*", "resource": "*", "effect": "deny" },
+        { "action": "catalog_search", "resource": "*", "effect": "allow" },
+        { "action": "execute", "resource": "*", "effect": "deny" },
+        { "action": "opencode_list_mcp_resources", "resource": "*", "effect": "deny" },
+        { "action": "opencode_read_mcp_resource", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" },
+        { "action": "read", "resource": "*.env.example", "effect": "deny" }
+      ]
+    },
+    "accessibility-specialist": {
+      "description": "Accessibility specialist",
+      "mode": "subagent",
+      "steps": 8,
+      "system": "You are Accessibility specialist (specialist). Use only authorized actions and cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "skill", "resource": "*", "effect": "deny" },
+        { "action": "external_directory", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "fixtures/catalog/*", "effect": "deny" },
+        { "action": "read", "resource": "*/fixtures/catalog/*", "effect": "deny" },
+        { "action": "catalog_*", "resource": "*", "effect": "deny" },
+        { "action": "catalog_search", "resource": "*", "effect": "allow" },
+        { "action": "execute", "resource": "*", "effect": "deny" },
+        { "action": "opencode_list_mcp_resources", "resource": "*", "effect": "deny" },
+        { "action": "opencode_read_mcp_resource", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" },
+        { "action": "read", "resource": "*.env.example", "effect": "deny" }
+      ]
+    },
+    // The definition lists catalog-specialist as a delegate. That request is
+    // the depth-escalation case: a specialist still cannot launch anyone.
+    "denial-specialist": {
+      "description": "Depth denial specialist",
+      "mode": "subagent",
+      "steps": 8,
+      "system": "You are Depth denial specialist (specialist). Use only authorized actions and cite fictional source IDs.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "catalog-specialist", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "skill", "resource": "*", "effect": "deny" },
+        { "action": "external_directory", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" }
+      ]
+    },
+    "build": {
+      "permissions": [{ "action": "*", "resource": "*", "effect": "deny" }]
+    },
+    "plan": {
+      "permissions": [{ "action": "*", "resource": "*", "effect": "deny" }]
+    },
+    "general": {
+      "permissions": [{ "action": "*", "resource": "*", "effect": "deny" }]
+    },
+    "explore": {
+      "permissions": [{ "action": "*", "resource": "*", "effect": "deny" }]
+    },
+    "compaction": {
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*", "effect": "allow" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" },
+        { "action": "read", "resource": "*.env.example", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" }
+      ]
+    }
+  }
+}

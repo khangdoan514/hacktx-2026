@@ -18,6 +18,7 @@ type fakeBackend struct {
 	auth     []string
 	requests []string
 	model    map[string]string
+	agent    string
 	messages []Message
 	outcome  string
 	tokens   struct{ in, out int }
@@ -45,6 +46,7 @@ func (f *fakeBackend) handler() http.Handler {
 			if model, ok := body["model"].(map[string]any); ok {
 				f.model = map[string]string{"providerID": stringOf(model["providerID"]), "id": stringOf(model["id"])}
 			}
+			f.agent = stringOf(body["agent"])
 			f.mu.Unlock()
 			_, _ = w.Write([]byte(`{"data":{"id":"ses-test","outcome":"","cost":0,"tokens":{"input":0,"output":0,"reasoning":0}}}`))
 		case strings.HasSuffix(r.URL.Path, "/prompt"):
@@ -185,7 +187,7 @@ func TestSuccessfulRunMapsSession(t *testing.T) {
 	backend := &fakeBackend{outcome: "succeeded", cost: 0.001}
 	backend.tokens.in, backend.tokens.out = 100, 20
 	backend.messages = []Message{assistantMessage(
-		map[string]any{"type": "tool", "name": "subagent", "state": map[string]any{"status": "completed", "input": map[string]any{"agent": "general"}}},
+		map[string]any{"type": "tool", "name": "subagent", "state": map[string]any{"status": "completed", "input": map[string]any{"agent": "one"}}},
 		map[string]any{"type": "text", "text": `{"ok":true}`},
 	)}
 	server := httptest.NewServer(backend.handler())
@@ -210,7 +212,7 @@ func TestSuccessfulRunMapsSession(t *testing.T) {
 	if run.Usage.InputTokens != 100 || run.Usage.OutputTokens != 20 || run.Usage.CostUSD != 0.001 {
 		t.Fatalf("usage=%+v", run.Usage)
 	}
-	if len(run.Invocations) != 2 || run.Invocations[1].Depth != 1 || run.Invocations[1].AgentID != "general" {
+	if len(run.Invocations) != 2 || run.Invocations[1].Depth != 1 || run.Invocations[1].AgentID != "one" {
 		t.Fatalf("invocations=%+v", run.Invocations)
 	}
 	events, _ := mem.List(context.Background(), run.ID, 0)
@@ -230,6 +232,9 @@ func TestSuccessfulRunMapsSession(t *testing.T) {
 	defer backend.mu.Unlock()
 	if backend.model["providerID"] != "openai" || backend.model["id"] != "gpt-4o-mini" {
 		t.Fatalf("model mapping=%v", backend.model)
+	}
+	if backend.agent != "root" {
+		t.Fatalf("agent=%s", backend.agent)
 	}
 	if len(backend.auth) == 0 || backend.auth[0] != "opencode:secret:ok" {
 		t.Fatalf("auth=%v", backend.auth)
@@ -274,6 +279,124 @@ func TestStartValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeniedDelegationDoesNotCreateChild(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state map[string]any
+		code  contracts.ErrorCode
+	}{
+		{"outside allowlist", map[string]any{"status": "completed", "input": map[string]any{"agent": "general"}}, contracts.ErrAgentNotAllowed},
+		{"depth rejected", map[string]any{"status": "error", "error": "denied", "input": map[string]any{"agent": "one"}}, contracts.ErrDelegationDepthExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeBackend{outcome: "succeeded"}
+			backend.messages = []Message{assistantMessage(
+				map[string]any{"type": "tool", "name": "subagent", "state": tc.state},
+				map[string]any{"type": "text", "text": `{"ok":true}`},
+			)}
+			server := httptest.NewServer(backend.handler())
+			defer server.Close()
+			client, _ := NewClient(server.URL, "secret", server.Client())
+			mem := newMemory()
+			c, _ := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+			started, _ := start(t, c, "")
+			run := waitRun(t, mem, started.ID)
+			if run.State != contracts.StateSucceeded || len(run.Invocations) != 1 {
+				t.Fatalf("run=%+v", run)
+			}
+			if len(run.ToolInvocations) != 1 || run.ToolInvocations[0].Error == nil || run.ToolInvocations[0].Error.Code != tc.code {
+				t.Fatalf("tools=%+v", run.ToolInvocations)
+			}
+			events, _ := mem.List(context.Background(), run.ID, 0)
+			if !eventCode(t, events, "TOOL_FAILED", string(tc.code)) {
+				t.Fatalf("events=%+v", events)
+			}
+		})
+	}
+}
+
+func TestDisallowedToolIsDenied(t *testing.T) {
+	backend := &fakeBackend{outcome: "succeeded"}
+	backend.messages = []Message{assistantMessage(
+		map[string]any{"type": "tool", "name": "shell", "state": map[string]any{"status": "completed"}},
+		map[string]any{"type": "text", "text": `{"ok":true}`},
+	)}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, _ := NewClient(server.URL, "secret", server.Client())
+	mem := newMemory()
+	c, _ := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+	started, _ := start(t, c, "")
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateSucceeded || len(run.Invocations) != 1 {
+		t.Fatalf("run=%+v", run)
+	}
+	if len(run.ToolInvocations) != 1 || run.ToolInvocations[0].Error == nil || run.ToolInvocations[0].Error.Code != contracts.ErrToolNotAllowed {
+		t.Fatalf("tools=%+v", run.ToolInvocations)
+	}
+	events, _ := mem.List(context.Background(), run.ID, 0)
+	if !eventCode(t, events, "TOOL_FAILED", string(contracts.ErrToolNotAllowed)) {
+		t.Fatalf("events=%+v", events)
+	}
+	for _, e := range events {
+		if e.Type == "TOOL_SUCCEEDED" {
+			t.Fatal("disallowed tool was recorded as success")
+		}
+	}
+}
+
+func TestBuildPromptNamesCatalogFile(t *testing.T) {
+	got := buildPrompt(contracts.AgentDefinition{
+		Name: "Catalog specialist", Role: "specialist",
+		Instructions: "Use only authorized actions and cite fictional source IDs.",
+		AllowedTools: []string{"catalog.search"},
+		OutputSchema: json.RawMessage(`{}`),
+	}, map[string]contracts.AgentDefinition{}, json.RawMessage(`{}`))
+	if !strings.Contains(got, "catalog_search") || strings.Contains(got, "fixtures/catalog/vendors.json") || !strings.Contains(got, "Use only authorized actions and cite fictional source IDs.") {
+		t.Fatal(got)
+	}
+}
+
+func TestCatalogSearchMapsToContractTool(t *testing.T) {
+	backend := &fakeBackend{outcome: "succeeded"}
+	backend.messages = []Message{assistantMessage(
+		map[string]any{"type": "tool", "name": "catalog_search", "state": map[string]any{"status": "completed"}},
+		map[string]any{"type": "text", "text": `{"ok":true}`},
+	)}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, _ := NewClient(server.URL, "secret", server.Client())
+	mem := newMemory()
+	defs := testDefs()
+	defs[0].AllowedTools = []string{"catalog.search"}
+	c, _ := New(defs, client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+	started, _ := start(t, c, "")
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateSucceeded || len(run.ToolInvocations) != 1 {
+		t.Fatalf("run=%+v", run)
+	}
+	if run.ToolInvocations[0].Error != nil || run.ToolInvocations[0].ToolID != "catalog.search" {
+		t.Fatalf("tools=%+v", run.ToolInvocations)
+	}
+}
+
+func eventCode(t *testing.T, events []contracts.RunEvent, typ, code string) bool {
+	t.Helper()
+	for _, e := range events {
+		if e.Type != typ {
+			continue
+		}
+		var data map[string]any
+		if err := json.Unmarshal(e.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data["code"] == code {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNewestFirstMessageOrder(t *testing.T) {

@@ -5,9 +5,10 @@ package opencode
 // OpenCode session, and returns immediately; a background goroutine waits
 // for completion, maps session messages to ordered NMC3 events and an
 // invocation tree, validates the structured result, and persists the run.
-// All execution rules the old hand-built runtime enforced (delegation,
-// tools, budgets) are now owned by OpenCode configuration and permissions;
-// this layer owns validation, provenance, and history.
+// OpenCode configuration owns live tool and subagent policy. This layer
+// validates requests and structured results, records denials and session
+// usage, and enforces the wait deadline. Token and cost figures are stored
+// from that usage; they are not stop conditions here.
 
 import (
 	"context"
@@ -111,7 +112,7 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	if err := Validate(definition.InputSchema, req.Input); err != nil {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "input does not match agent schema: " + err.Error()}
 	}
-	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", providerID, modelID)
+	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", definition.ID, providerID, modelID)
 	if err != nil {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
@@ -143,9 +144,71 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 		}
 		sb.WriteString("Delegation input must contain only the fields in the specialist's input schema.\n")
 	}
-	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. Cite source IDs for every claim.\n")
+	if listed(definition.AllowedTools, "catalog.search") {
+		sb.WriteString("Search the fictional catalog with the catalog_search tool. Do not read catalog files.\n")
+	}
+	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. Cite source IDs for every claim. If a tool or delegation is denied, do not retry it through the shell, the network, or another agent.\n")
 	sb.WriteString("Reply with ONLY a single JSON object matching this output schema, no other text: " + string(definition.OutputSchema))
 	return sb.String()
+}
+
+// canonicalToolID maps OpenCode's MCP tool name back to the NMC3 contract
+// id. OpenCode names a local server tool "<server>_<tool>".
+func canonicalToolID(name string) string {
+	if name == "catalog_search" {
+		return "catalog.search"
+	}
+	return name
+}
+
+func listed(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func delegatedAgent(state map[string]any) string {
+	if input, ok := state["input"].(map[string]any); ok {
+		if name, ok := input["agent"].(string); ok && name != "" {
+			return name
+		}
+	}
+	return "subagent"
+}
+
+func callFailed(state map[string]any) bool {
+	status, _ := state["status"].(string)
+	if status != "" && status != "completed" {
+		return true
+	}
+	failure, _ := state["error"].(string)
+	return failure != ""
+}
+
+// delegationDenial refuses a child when the target is outside the allowlist
+// or OpenCode rejected the call. A rejected allowlisted call is the depth
+// gate (a specialist cannot launch another agent). No child is created.
+func delegationDenial(definition contracts.AgentDefinition, agent string, state map[string]any) (contracts.ErrorCode, bool) {
+	if !listed(definition.AllowedDelegates, agent) {
+		return contracts.ErrAgentNotAllowed, true
+	}
+	if callFailed(state) {
+		return contracts.ErrDelegationDepthExceeded, true
+	}
+	return "", false
+}
+
+func toolDenial(definition contracts.AgentDefinition, name string, state map[string]any) (contracts.ErrorCode, bool) {
+	if !listed(definition.AllowedTools, name) {
+		return contracts.ErrToolNotAllowed, true
+	}
+	if callFailed(state) {
+		return contracts.ErrInternal, true
+	}
+	return "", false
 }
 
 func (c *Coordinator) emit(runID string, invocationID *string, typ string, data any) {
@@ -250,32 +313,35 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 		for _, part := range message.Content {
 			switch part.Type {
 			case "tool":
-				toolInvocation := contracts.ToolInvocation{ID: id("tool-"), RunID: run.ID, AgentInvocationID: root.ID, ToolID: part.Name, ToolVersion: "opencode", StartedAt: now()}
+				toolID := canonicalToolID(part.Name)
+				toolInvocation := contracts.ToolInvocation{ID: id("tool-"), RunID: run.ID, AgentInvocationID: root.ID, ToolID: toolID, ToolVersion: "opencode", StartedAt: now()}
 				finished := now()
 				toolInvocation.FinishedAt = &finished
-				c.emit(run.ID, &root.ID, "TOOL_STARTED", map[string]any{"tool_id": part.Name})
-				if status, _ := part.State["status"].(string); status == "completed" || status == "" {
-					failure, _ := part.State["error"].(string)
-					if failure != "" {
-						toolInvocation.Error = &contracts.RunError{Code: contracts.ErrInternal, Message: "tool call failed"}
-						c.emit(run.ID, &root.ID, "TOOL_FAILED", map[string]any{"tool_id": part.Name})
-					} else {
-						c.emit(run.ID, &root.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": part.Name})
-					}
-				}
-				tools = append(tools, toolInvocation)
+				c.emit(run.ID, &root.ID, "TOOL_STARTED", map[string]any{"tool_id": toolID})
 				if part.Name == "subagent" {
-					agent := "subagent"
-					if input, ok := part.State["input"].(map[string]any); ok {
-						if name, ok := input["agent"].(string); ok && name != "" {
-							agent = name
-						}
+					agent := delegatedAgent(part.State)
+					code, denied := delegationDenial(definition, agent, part.State)
+					if denied {
+						toolInvocation.Error = &contracts.RunError{Code: code, Message: "delegation denied"}
+						c.emit(run.ID, &root.ID, "TOOL_FAILED", map[string]any{"tool_id": part.Name, "code": code, "agent_id": agent})
+						tools = append(tools, toolInvocation)
+						break
 					}
+					c.emit(run.ID, &root.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": part.Name})
+					tools = append(tools, toolInvocation)
 					child := contracts.AgentInvocation{ID: id("inv-"), RunID: run.ID, ParentID: &root.ID, AgentID: agent, AgentVersion: definition.Version, Depth: 1, State: contracts.StateSucceeded, Input: json.RawMessage(`{}`), StartedAt: &toolInvocation.StartedAt, FinishedAt: &finished}
 					invocations = append(invocations, child)
 					c.emit(run.ID, &child.ID, "AGENT_STARTED", map[string]any{"depth": 1})
 					c.emit(run.ID, &child.ID, "AGENT_SUCCEEDED", nil)
+					break
 				}
+				if code, denied := toolDenial(definition, toolID, part.State); denied {
+					toolInvocation.Error = &contracts.RunError{Code: code, Message: "tool call denied"}
+					c.emit(run.ID, &root.ID, "TOOL_FAILED", map[string]any{"tool_id": toolID, "code": code})
+				} else {
+					c.emit(run.ID, &root.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": toolID})
+				}
+				tools = append(tools, toolInvocation)
 			case "text":
 				if part.Text != "" {
 					lastText = part.Text

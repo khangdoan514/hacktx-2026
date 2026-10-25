@@ -161,11 +161,17 @@ type Message struct {
 	} `json:"content"`
 }
 
-func (c *Client) CreateSession(ctx context.Context, directory, title, providerID, modelID string) (Session, error) {
+func (c *Client) CreateSession(ctx context.Context, directory, title, agent, providerID, modelID string) (Session, error) {
 	var out sessionEnvelope
 	body := map[string]any{
 		"location": map[string]string{"directory": directory},
 		"title":    title,
+	}
+	// The agent id selects the opencode.jsonc profile (instructions and
+	// deny-by-default permissions). An empty id leaves OpenCode's default,
+	// which this project locks down as well.
+	if agent != "" {
+		body["agent"] = agent
 	}
 	if providerID != "" && modelID != "" {
 		body["model"] = map[string]string{"providerID": providerID, "id": modelID}

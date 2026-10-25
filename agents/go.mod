@@ -2,9 +2,15 @@ module github.com/khangdoan514/hacktx-2026/agents
 
 go 1.23.0
 
-require github.com/jackc/pgx/v5 v5.7.6
+require (
+	github.com/jackc/pgx/v5 v5.7.6
+	github.com/khangdoan514/hacktx-2026 v0.0.0
+)
+
+replace github.com/khangdoan514/hacktx-2026 => ../
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
