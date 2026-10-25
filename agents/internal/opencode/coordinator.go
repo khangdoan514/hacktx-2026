@@ -538,7 +538,11 @@ func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDe
 						for _, call := range report.tools {
 							call.RunID, call.AgentInvocationID = run.ID, child.ID
 							if call.Error != nil {
-								c.emit(run.ID, &child.ID, "TOOL_FAILED", map[string]any{"tool_id": call.ToolID, "code": call.Error.Code, "agent_id": agent})
+								event := "TOOL_FAILED"
+								if call.Error.Code == contracts.ErrDelegationDepthExceeded {
+									event = "DELEGATION_REJECTED"
+								}
+								c.emit(run.ID, &child.ID, event, map[string]any{"tool_id": call.ToolID, "code": call.Error.Code, "agent_id": agent})
 							} else {
 								c.emit(run.ID, &child.ID, "TOOL_SUCCEEDED", map[string]any{"tool_id": call.ToolID})
 							}
@@ -654,6 +658,10 @@ func (c *Coordinator) childReport(sessionID string) (childReport, bool) {
 					code := contracts.ErrInternal
 					if e, _ := part.State["error"].(map[string]any); e != nil && e["type"] == "permission.rejected" {
 						code = contracts.ErrToolNotAllowed
+					}
+					// Specialists sit at depth 1 and cannot delegate further.
+					if part.Name == "subagent" {
+						code = contracts.ErrDelegationDepthExceeded
 					}
 					call.Error = &contracts.RunError{Code: code, Message: "tool call denied"}
 				}

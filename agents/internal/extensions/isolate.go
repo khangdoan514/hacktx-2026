@@ -141,6 +141,11 @@ func ReadFile(ctx context.Context, path string) ([]byte, error) {
 		path = filepath.Join(rootEval, path)
 	}
 	cleaned := filepath.Clean(path)
+	// Compare resolved paths: the root was resolved above, so an absolute path
+	// under a symlinked prefix (such as /var on macOS) must be too.
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
 	if outside(rootEval, cleaned) {
 		return nil, fail(CodeFilesystemDenied, "path is outside the worker filesystem root")
 	}
