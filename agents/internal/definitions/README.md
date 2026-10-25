@@ -13,7 +13,7 @@ This package is the Pass 2 definition lifecycle. It stores agent definitions as 
 
 `SaveDraft` creates a version or replaces a draft. `Test` checks the stored draft and records the tester. `Publish` checks again, records the publisher, and freezes the version. Publishing the same bytes again does not change the publisher or timestamp. `Revise` saves a new version and leaves the source version alone. `Retire` is allowed only from `published`; a second retire keeps the first timestamp.
 
-A draft may name a delegate that is not published yet. `Test` accepts a delegate in `draft`, `testing`, or `published` at the same version. `Publish` requires that delegate to already be published, or to be in the same import batch. Tool ids must be registered. `catalog.search` `1.0.0` is seeded and is the tool used by the example file.
+A draft may name a delegate that is not published yet. `Test` accepts a delegate in `draft`, `testing`, or `published` at the same version. `Publish` requires that delegate to already be published, or to be in the same import batch. Tool ids must be registered. `catalog.search` and `serpapi.search` version `1.0.0` are seeded for the fictional catalog and live web research examples. Seeding metadata does not grant an agent permission or configure provider credentials.
 
 Specialists may list delegates. `denial-specialist` does, and the registry accepts that reference. Depth is still enforced by the runtime, not here.
 

@@ -38,7 +38,7 @@ func WithTenant(id string) Option {
 	return func(r *Registry) { r.tenant = id }
 }
 
-// NewMemory returns an in-memory registry seeded with catalog.search 1.0.0.
+// NewMemory returns an in-memory registry seeded with the example tools.
 func NewMemory(opts ...Option) (*Registry, error) {
 	r, err := newRegistry(opts)
 	if err != nil {
@@ -99,7 +99,16 @@ func (r *Registry) Close() {
 }
 
 func (r *Registry) seed(ctx context.Context) error {
-	return r.RegisterTool(ctx, builtinCatalogTool())
+	if err := r.RegisterTool(ctx, builtinCatalogTool()); err != nil {
+		return err
+	}
+	return r.RegisterTool(ctx, Tool{
+		ID: "serpapi.search", Version: "1.0.0",
+		Description:  "Live web search through the official SerpApi MCP server.",
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{"params":{"type":"object","additionalProperties":true},"mode":{"type":"string","enum":["compact","complete"]}},"required":["params"],"additionalProperties":false}`),
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"sources":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"url":{"type":"string"},"snippet":{"type":"string"}},"required":["title","url","snippet"],"additionalProperties":false}}},"required":["sources"],"additionalProperties":false}`),
+		SideEffect:   "READ_ONLY", TimeoutSeconds: 30,
+	})
 }
 
 func builtinCatalogTool() Tool {

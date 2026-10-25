@@ -51,7 +51,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 	if cfg.DefaultAgent != "vendor-orchestrator" {
 		t.Fatalf("default_agent=%s", cfg.DefaultAgent)
 	}
-	if cfg.MCP == nil || len(cfg.MCP.Servers) != 1 {
+	if cfg.MCP == nil || len(cfg.MCP.Servers) != 2 {
 		t.Fatalf("catalog mcp missing: %+v", cfg.MCP)
 	}
 	raw, ok := cfg.MCP.Servers["catalog"]

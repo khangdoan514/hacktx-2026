@@ -7,3 +7,5 @@ With the Go API and Supabase Postgres running, execute `agents/script/replay.sh`
 For the browser, copy `frontend/.env.example` to `frontend/.env.local`, run `npm ci` and `npm run dev` in `frontend/`, and open `/runs`. The Next.js server proxies `/agent-api/*` to the Go service; the browser never receives database or provider credentials. Paste a saved run ID to inspect it after restarting the API. To see a denied depth-1 delegation, change the request's agent ID to `denial-orchestrator`. `opencode.jsonc` denies that specialist's attempt to launch `catalog-specialist`, and it also denies shell, edits, network tools, and direct reads of the catalog file. Catalog specialists use the `catalog_search` MCP tool.
 
 Run history persists in Postgres. In-flight work does not automatically resume after an API restart; that is planned for Pass 3.
+
+For live web research, use `bash script/replay.sh examples/web-research.json` from `agents/`. The `web-researcher` definition requires SerpApi credentials in the OpenCode server environment. See [web research setup and output](../docs/web-research.md).

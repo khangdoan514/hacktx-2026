@@ -35,6 +35,11 @@ The product application's scripted adapter (`internal/agents/dummy`, script
 `examples/deterministic-actions.json`) is a separate path and is not this
 service.
 
+Live public web research is available through `web-researcher@1.0.0` and the
+official SerpApi MCP server. See [setup, API output, and validation](docs/web-research.md).
+It requires `SERPAPI_API_KEY` in the OpenCode server environment. Existing
+vendor examples still use fictional data.
+
 The first pass is not fully complete. This machine's CLI is `opencode
 v2.1.4`. A live policy check against that binary has not been run.
 `db/migrations/202610240003_nmc3_event_source.sql` is applied on the hosted
@@ -50,7 +55,7 @@ database.
 
 Run `go test ./...` in `agents/`, and `npm run lint && npm run build` in `frontend/`. Postgres tests skip without `NMC3_TEST_DATABASE_URL`. The scripted OpenCode tests need no provider credentials and no database. Live runs need the local OpenCode service and Supabase, or `NMC3_STORE=postgres` with `DATABASE_URL`.
 
-Pass 1 persists completed run history and ordered events. An in-flight run interrupted by an API restart is **not** automatically resumed; automatic recovery belongs to Pass 3. Submitted limits must be positive. The wait deadline is enforced (`TIMEOUT` when `timeout_seconds` elapses). Token and cost on the run are copied from OpenCode session usage; crossing `max_tokens` or `max_cost_usd` does not stop the run. Turn, tool-call, delegation, and concurrency limits are not stop conditions in this service. This local API has no production authentication or tenant isolation and should use fictional data only.
+Pass 1 persists completed run history and ordered events. An in-flight run interrupted by an API restart is **not** automatically resumed; automatic recovery belongs to Pass 3. Submitted limits must be positive. The wait deadline is enforced (`TIMEOUT` when `timeout_seconds` elapses). Token and cost on the run are copied from OpenCode session usage; crossing `max_tokens` or `max_cost_usd` does not stop the run. Turn, tool-call, delegation, and concurrency limits are not stop conditions in this service. This local API has no production authentication or tenant isolation; use fictional or public, non-sensitive inputs only.
 
 ## Guiding rules
 

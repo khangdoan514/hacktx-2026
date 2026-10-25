@@ -295,5 +295,89 @@
       "max_cost_usd": 2,
       "timeout_seconds": 60
     }
+  },
+  {
+    "id": "web-researcher",
+    "version": "1.0.0",
+    "name": "Web research agent",
+    "role": "orchestrator",
+    "instructions": "Research the task using live SerpApi Google search. Cite the exact organic result URLs in source_ids and explain uncertainty in limitations. Never fabricate sources or claim to have read full pages. The backend resolves source_ids into sources.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "recommendation": {
+          "type": "string"
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "url",
+              "snippet"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "recommendation",
+        "source_ids",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [
+      "serpapi.search"
+    ],
+    "allowed_delegates": [],
+    "limits": {
+      "max_delegations": 1,
+      "max_concurrent_agents": 1,
+      "max_tool_calls": 4,
+      "max_model_turns": 8,
+      "max_tokens": 12000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 120
+    }
   }
 ]
