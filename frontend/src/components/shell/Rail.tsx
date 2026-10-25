@@ -5,8 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import Logo from "@/components/brand/Logo";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import { endSession } from "@/product/supabase";
-import { useNow, useStore } from "@/lib/store";
-import { materialize } from "@/lib/simulate";
+import { isTerminal } from "@/lib/live";
+import { useStore } from "@/lib/store";
 import { useEmployee } from "./ConsoleGate";
 import s from "./Rail.module.css";
 
@@ -17,8 +17,6 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/agents", label: "Agents", icon: "bot" },
   ],
   [
-    { href: "/evaluate", label: "Evaluate", icon: "flask" },
-    { href: "/triggers", label: "Triggers", icon: "zap" },
     { href: "/budgets", label: "Budgets", icon: "gauge" },
     { href: "/guardrails", label: "Guardrails", icon: "shield" },
     { href: "/prompts", label: "Prompts", icon: "message" },
@@ -55,8 +53,7 @@ export default function Rail() {
   const router = useRouter();
   const employee = useEmployee();
   const { live } = useStore();
-  const now = useNow();
-  const running = live ? materialize(live, now).state === "RUNNING" : false;
+  const running = live ? !isTerminal(live.final) : false;
   const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
   const label = employee?.display_name || employee?.email || "Signed in";
 

@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { agentById } from "@/config/agents";
-import { toolById } from "@/config/tools";
 import Icon from "@/components/ui/Icon";
 import { layoutRun, type Box } from "@/lib/layout";
 import { useStore } from "@/lib/store";
@@ -37,7 +35,7 @@ function Edge({ d, state, hidden }: { d: string; state: EdgeState; hidden?: bool
 }
 
 export default function ExecutionGraph({ view }: { view: RunView }) {
-  const { openAgent } = useStore();
+  const { openAgent, agentById } = useStore();
   const layout = useMemo(() => layoutRun(view.plan), [view.plan]);
   const stage = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -84,27 +82,26 @@ export default function ExecutionGraph({ view }: { view: RunView }) {
           })}
         </svg>
 
-        <div className={`${s.node} ${s.you}`} style={pos(layout.you)} title="You · POST /v1/agent-runs">KD</div>
+        <div className={`${s.node} ${s.you}`} style={pos(layout.you)} title="You · POST /v1/agent-runs">You</div>
 
         {layout.nodes.map((n) => {
           if (n.kind === "agent") {
-            const def = agentById(n.id)!;
+            const def = agentById(n.id);
             const v = view.agents[n.id] ?? { st: "PENDING", now: "Waiting" };
             return (
-              <button key={n.id} type="button" className={s.node} data-st={v.st} style={pos(n.box)} title={`${def.id}@${def.version}`}
+              <button key={n.id} type="button" className={s.node} data-st={v.st} style={pos(n.box)} title={def ? `${def.id}@${def.version}` : n.id}
                 onClick={() => openAgent(n.id, { run: view.plan.id })}>
-                <span className={s.ico}><Icon name={def.icon} size={18} /><span className={s.badge}><Icon name="check" size={9} strokeWidth={3.5} /></span></span>
-                <b>{def.name}</b>
+                <span className={s.ico}><Icon name={def?.icon ?? "bot"} size={18} /><span className={s.badge}><Icon name="check" size={9} strokeWidth={3.5} /></span></span>
+                <b>{def?.name ?? n.id}</b>
                 <span className={s.now}>{v.now}</span>
               </button>
             );
           }
           const c = view.calls.find((x) => x.id === n.id)!;
-          const tool = toolById(c.name);
           return (
             <div key={n.id} className={`${s.tool} ${c.visible ? "" : s.hide} ${c.denied ? s.deny : ""} ${c.st === "RUNNING" ? s.running : ""}`} style={pos(n.box)} title={c.name}>
-              <span className={s.t}>{c.denied ? "×" : tool?.mark ?? "→"}</span>
-              <span className={s.nm}>{c.name.replace(/^serpapi\./, "")}</span>
+              <span className={s.t}>{c.denied ? "×" : "→"}</span>
+              <span className={s.nm}>{c.name}</span>
               <span className={s.rs}>{c.text}</span>
             </div>
           );

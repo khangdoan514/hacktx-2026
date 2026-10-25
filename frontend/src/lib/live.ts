@@ -1,149 +1,125 @@
-import { agentById } from "@/config/agents";
-import { AgentRequestError, agentApi, type AgentRun, type RunState } from "@/lib/api";
-import type { Call, ErrorCode, Idea, Limits, Op, RunPlan, Turn } from "@/lib/types";
+import { AgentRequestError, agentApi, type AgentRun, type RunEvent } from "@/lib/api";
+import type { AgentDef, Call, ErrorCode, EventType, Limits, Op, RunPlan, State, Turn } from "@/lib/types";
 
 const knownErrors = new Set<ErrorCode>([
   "DELEGATION_DEPTH_EXCEEDED", "TOOL_NOT_ALLOWED", "BUDGET_EXCEEDED", "TIMEOUT", "OUTPUT_SCHEMA_INVALID",
 ]);
+const EVENT_TYPES = new Set<EventType>([
+  "RUN_STARTED", "AGENT_STARTED", "TOOL_STARTED", "TOOL_SUCCEEDED", "TOOL_FAILED", "DELEGATION_REJECTED",
+  "AGENT_SUCCEEDED", "AGENT_FAILED", "RUN_SUCCEEDED", "RUN_FAILED", "RUN_CANCELLED",
+]);
+const TERMINAL = new Set<State>(["SUCCEEDED", "FAILED", "CANCELLED"]);
+const NO_LIMITS: Limits = { turns: 0, tools: 0, delegations: 0, parallel: 0, seconds: 0 };
 
-function limitsOf(agent: string): Limits {
-  return agentById(agent)?.limits ?? { turns: 8, tools: 4, delegations: 2, parallel: 2, seconds: 60 };
-}
+export const isTerminal = (state: State) => TERMINAL.has(state);
 
-function ideasOf(output: unknown): Idea[] {
-  if (!output || typeof output !== "object") return [];
-  const body = output as { ideas?: { title?: string; why?: string; score?: number; novelty?: number; source_ids?: string[] }[]; recommendation?: string; source_ids?: string[] };
-  if (Array.isArray(body.ideas) && body.ideas.length) {
-    return body.ideas.map((idea) => ({
-      title: idea.title || "Result",
-      why: idea.why || "",
-      score: typeof idea.score === "number" ? idea.score : typeof idea.novelty === "number" ? idea.novelty : 0,
-      sources: idea.source_ids ?? [],
-    }));
-  }
-  if (body.recommendation) {
-    return [{ title: body.recommendation, why: "Recommendation from the run.", score: 1, sources: body.source_ids ?? [] }];
-  }
-  return [];
-}
+const ms = (iso?: string) => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? t : undefined;
+};
 
-function taskOf(input: unknown): string {
+export function taskOf(input: unknown): string {
   if (input && typeof input === "object" && "task" in input && typeof (input as { task: unknown }).task === "string") {
     return (input as { task: string }).task;
   }
-  return "Run";
+  return typeof input === "string" ? input : "Run";
 }
 
-/** A persisted API run, drawn with the console's existing timeline shape. */
-export function planFromRun(run: AgentRun): RunPlan {
-  const created = Date.parse(run.created_at);
-  const updated = Date.parse(run.updated_at);
-  const start = Number.isFinite(created) ? created : Date.now();
-  const duration = Math.max(800, (Number.isFinite(updated) ? updated : start) - start);
-  const agent = run.agent_id;
-  const limits = limitsOf(agent);
-  const ops: Op[] = [{ at: 0, k: "event", type: "RUN_STARTED", agent }];
+const text = (value: unknown) => (value === undefined || value === null ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2));
+
+/**
+ * A persisted run laid out on its real timeline. Agent and tool spans use the
+ * start and finish times the service stored; model turns come from
+ * MODEL_SUCCEEDED events when `events` is given, else usage is one lump.
+ */
+export function planFromRun(run: AgentRun, agents: AgentDef[], events?: RunEvent[]): RunPlan {
+  const start = ms(run.created_at) ?? Date.now();
+  const terminal = isTerminal(run.state);
+  const end = ms(run.updated_at) ?? start;
+  const durationMs = terminal ? Math.max(1, end - start) : Math.max(Date.now() - start, end - start) + 600_000;
+  const rel = (iso?: string, fallback = 0) => Math.max(0, (ms(iso) ?? start + fallback) - start);
+  const def = agents.find((a) => a.id === run.agent_id && a.version === run.agent_version) ?? agents.find((a) => a.id === run.agent_id);
+  const invocations = run.invocations ?? [];
+  const agentOf = new Map(invocations.map((i) => [i.id, i.agent_id]));
+  const ops: Op[] = [{ at: 0, k: "event", type: "RUN_STARTED", agent: run.agent_id }];
   const calls: Call[] = [];
   const turns: Turn[] = [];
-  const terminal = run.state === "SUCCEEDED" || run.state === "FAILED" || run.state === "CANCELLED";
-  const span = terminal ? duration : Math.max(duration, 60_000);
-  const invocations = run.invocations ?? [];
-  invocations.forEach((invocation, index) => {
-    const at = Math.round((span * (index + 1)) / (invocations.length + 2));
-    ops.push({ at, k: "agent", agent: invocation.agent_id, st: "RUNNING", now: invocation.depth === 0 ? "Planning" : "Working" });
-    ops.push({ at, k: "event", type: "AGENT_STARTED", agent: invocation.agent_id, detail: `depth ${invocation.depth}` });
-    if (invocation.depth === 1) ops.push({ at, k: "use", key: "delegations", delta: 1 });
-    const done = invocation.state === "PENDING" || invocation.state === "RUNNING" ? null : invocation.state;
-    if (done) {
-      const end = Math.min(span, at + 400);
-      ops.push({ at: end, k: "agent", agent: invocation.agent_id, st: done as RunState, now: done === "SUCCEEDED" ? "Done" : done });
-      ops.push({ at: end, k: "event", type: done === "SUCCEEDED" ? "AGENT_SUCCEEDED" : done === "CANCELLED" ? "RUN_CANCELLED" : "AGENT_FAILED", agent: invocation.agent_id, detail: invocation.error?.code });
-    }
-  });
-  const reported = run.usage ?? { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
-  (run.tool_invocations ?? []).forEach((tool, index) => {
-    const owner = invocations.find((invocation) => invocation.id === tool.agent_invocation_id)?.agent_id ?? agent;
-    const at = Math.round(span * 0.45) + index * 200;
-    calls.push({ id: tool.id, agent: owner, name: tool.tool_id, denied: Boolean(tool.error), kind: "tool" });
-    ops.push({ at, k: "call", call: tool.id, st: tool.error ? "BLOCKED" : "SUCCEEDED", text: tool.error?.code ?? tool.tool_id });
-    ops.push({ at, k: "event", type: tool.error ? "TOOL_FAILED" : "TOOL_SUCCEEDED", agent: owner, detail: tool.tool_id });
-    ops.push({ at, k: "use", key: "tools", delta: 1 });
-    turns.push({
-      id: `${run.id}-t${index + 1}`, agent: owner, n: index + 1, at, ms: 300,
-      system: "", input: taskOf(run.input), output: "",
-      tokensIn: index === 0 ? reported.input_tokens : 0,
-      tokensOut: index === 0 ? reported.output_tokens : 0,
-      cost: index === 0 ? reported.cost_usd : 0,
-    });
-  });
-  if (turns.length === 0 && (reported.input_tokens || reported.output_tokens || reported.cost_usd)) {
-    turns.push({
-      id: `${run.id}-usage`, agent, n: 1, at: span, ms: duration,
-      system: "", input: taskOf(run.input), output: "",
-      tokensIn: reported.input_tokens, tokensOut: reported.output_tokens, cost: reported.cost_usd,
-    });
+
+  for (const inv of invocations) {
+    const at = rel(inv.started_at);
+    ops.push({ at, k: "agent", agent: inv.agent_id, st: "RUNNING", now: inv.depth === 0 ? "Planning" : "Working" });
+    if (inv.depth >= 1) ops.push({ at, k: "use", key: "delegations", delta: 1 });
+    if (inv.state === "PENDING" || inv.state === "RUNNING") continue;
+    const finish = Math.max(at, rel(inv.finished_at, durationMs));
+    ops.push({ at: finish, k: "agent", agent: inv.agent_id, st: inv.state, now: inv.state === "SUCCEEDED" ? "Done" : inv.error?.code ?? inv.state });
   }
-  if (terminal) {
-    const type = run.state === "SUCCEEDED" ? "RUN_SUCCEEDED" : run.state === "CANCELLED" ? "RUN_CANCELLED" : "RUN_FAILED";
-    ops.push({ at: span, k: "event", type, agent, detail: run.error?.code });
+
+  (run.tool_invocations ?? []).forEach((tool) => {
+    const owner = agentOf.get(tool.agent_invocation_id) ?? run.agent_id;
+    const at = rel(tool.started_at);
+    const done = Math.max(at, rel(tool.finished_at, at));
+    const failed = Boolean(tool.error);
+    calls.push({ id: tool.id, agent: owner, name: tool.tool_id, denied: failed, kind: tool.tool_id === "subagent" ? "delegate" : "tool" });
+    ops.push({ at, k: "call", call: tool.id, st: "RUNNING", text: "running…" });
+    ops.push({ at, k: "use", key: "tools", delta: 1 });
+    ops.push({ at: done, k: "call", call: tool.id, st: failed ? "BLOCKED" : "SUCCEEDED", text: failed ? tool.error?.code ?? "failed" : `${((done - at) / 1000).toFixed(1)}s` });
+  });
+
+  if (events) {
+    for (const e of events) {
+      const at = rel(e.timestamp);
+      const data = (e.data ?? {}) as { tool_id?: string; code?: string; depth?: number; action?: string; usage?: { input_tokens?: number; output_tokens?: number; cost_usd?: number } };
+      const agent = (e.invocation_id && agentOf.get(e.invocation_id)) || run.agent_id;
+      if (EVENT_TYPES.has(e.type as EventType)) {
+        const detail = data.tool_id ?? data.code ?? (data.depth !== undefined ? `depth ${data.depth}` : undefined);
+        ops.push({ at, k: "event", type: e.type as EventType, agent, detail });
+      } else if (e.type === "MODEL_SUCCEEDED" && data.usage) {
+        const owner = invocations.find((i) => i.id === e.invocation_id);
+        const n = turns.filter((t) => t.agent === agent).length + 1;
+        turns.push({
+          id: `${run.id}-t${turns.length + 1}`, agent, n, at, ms: 0,
+          system: agents.find((a) => a.id === agent)?.instructions ?? "", input: text(owner?.input ?? run.input),
+          output: text(owner?.output), action: data.action,
+          tokensIn: data.usage.input_tokens ?? 0, tokensOut: data.usage.output_tokens ?? 0, cost: data.usage.cost_usd ?? 0,
+        });
+        ops.push({ at, k: "use", key: "turns", delta: 1 });
+      }
+    }
+  } else {
+    // List view: only the totals are known.
+    const u = run.usage ?? { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+    if (u.input_tokens || u.output_tokens || u.cost_usd) {
+      turns.push({ id: `${run.id}-usage`, agent: run.agent_id, n: 1, at: durationMs, ms: 0, system: "", input: taskOf(run.input), output: "", tokensIn: u.input_tokens, tokensOut: u.output_tokens, cost: u.cost_usd });
+    }
   }
   const code = run.error?.code;
+  ops.sort((a, b) => a.at - b.at);
   return {
-    id: run.id,
-    agent,
-    task: taskOf(run.input),
-    limits,
-    createdAt: start,
-    durationMs: terminal ? span : span,
-    ops,
-    calls,
-    turns,
-    ideas: run.state === "SUCCEEDED" ? ideasOf(run.output) : [],
-    final: terminal ? run.state : "RUNNING",
-    error: code && knownErrors.has(code as ErrorCode) ? code as ErrorCode : undefined,
+    id: run.id, agent: run.agent_id, task: taskOf(run.input),
+    limits: def?.limits ?? NO_LIMITS, createdAt: start, durationMs, ops, calls, turns,
+    output: run.state === "SUCCEEDED" ? run.output : undefined,
+    invocations: invocations.map((i) => ({ id: i.id, agent: i.agent_id, parent: i.parent_id, depth: i.depth })),
+    model: run.model_id,
+    usage: { tokensIn: run.usage?.input_tokens ?? 0, tokensOut: run.usage?.output_tokens ?? 0, cost: run.usage?.cost_usd ?? 0 },
+    final: run.state,
+    error: code && knownErrors.has(code as ErrorCode) ? (code as ErrorCode) : undefined,
     errorDetail: run.error?.message,
-    trigger: "API",
-    cancelledAt: run.state === "CANCELLED" ? start + span : undefined,
+    cancelledAt: run.state === "CANCELLED" ? start + durationMs : undefined,
   };
 }
 
-export async function loadBackendRuns(): Promise<RunPlan[] | null> {
+export async function loadRuns(agents: AgentDef[]): Promise<RunPlan[]> {
+  const body = await agentApi.list();
+  return (body.runs ?? []).map((run) => planFromRun(run, agents)).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** One run with its events, or null when it does not exist. */
+export async function loadRun(id: string, agents: AgentDef[]): Promise<RunPlan | null> {
   try {
-    const body = await agentApi.list();
-    return (body.runs ?? []).map(planFromRun).filter((plan) => agentById(plan.agent));
+    const [{ run }, { events }] = await Promise.all([agentApi.run(id), agentApi.events(id)]);
+    return planFromRun(run, agents, events);
   } catch (err) {
     if (err instanceof AgentRequestError && err.status === 401) throw err;
-    return null;
-  }
-}
-
-export async function loadBackendRun(id: string): Promise<RunPlan | null> {
-  try {
-    const body = await agentApi.run(id);
-    return planFromRun(body.run);
-  } catch {
-    return null;
-  }
-}
-
-export async function startBackendRun(agent: string, task: string, limits: Limits): Promise<string | null> {
-  try {
-    const started = await agentApi.start({
-      agent_id: agent,
-      agent_version: agentById(agent)?.version ?? "1.0.0",
-      input: { task },
-      limits: {
-        max_delegations: limits.delegations,
-        max_concurrent_agents: limits.parallel,
-        max_tool_calls: limits.tools,
-        max_model_turns: limits.turns,
-        max_tokens: 12000,
-        max_cost_usd: 2,
-        timeout_seconds: limits.seconds,
-      },
-    });
-    return started.run_id;
-  } catch {
     return null;
   }
 }

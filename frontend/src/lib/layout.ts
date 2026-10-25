@@ -1,8 +1,7 @@
 // Tree layout for the execution graph: caller -> root agent -> delegates -> tool calls.
-// Each subtree gets as much height as its children need, so adding agents or
-// tools in src/config grows the canvas instead of overlapping.
+// Each subtree gets as much height as its children need, so a run with more
+// agents or tool calls grows the canvas instead of overlapping.
 
-import { agentById } from "@/config/agents";
 import type { Call, RunPlan } from "./types";
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -20,11 +19,12 @@ const TOP = 52;
 type T = { kind: "agent" | "call"; id: string; call?: Call; children: T[] };
 
 export function layoutRun(plan: RunPlan): Layout {
-  const callsOf = (agent: string) => plan.calls.filter((c) => c.agent === agent);
+  // A delegation is shown as the specialist's own node, not as a call.
+  const callsOf = (agent: string) => plan.calls.filter((c) => c.agent === agent && c.kind !== "delegate");
+  const specialists = [...new Set(plan.invocations.filter((i) => i.depth >= 1).map((i) => i.agent))];
   const tree = (id: string, depth: number): T => {
-    const def = agentById(id);
     const kids: T[] = [];
-    if (depth === 0 && def) for (const d of def.delegates) kids.push(tree(d, 1));
+    if (depth === 0) for (const d of specialists) kids.push(tree(d, 1));
     for (const c of callsOf(id)) kids.push({ kind: "call", id: c.id, call: c, children: [] });
     return { kind: "agent", id, children: kids };
   };
@@ -55,7 +55,7 @@ export function layoutRun(plan: RunPlan): Layout {
   const height = Math.max(320, TOP + heightOf(root) + 16);
   const rootBox = nodes[0].box;
   const maxCol = nodes.reduce((m, n) => Math.max(m, COL_X.indexOf(n.box.x)), 0);
-  const cols = [{ label: agentById(plan.agent)?.kind === "orchestrator" ? "orchestrator" : "agent", x: COL_X[0] }];
+  const cols = [{ label: specialists.length ? "orchestrator" : "agent", x: COL_X[0] }];
   if (maxCol >= 1) cols.push({ label: root.children.some((c) => c.kind === "agent") ? "specialists" : "tool calls", x: COL_X[1] });
   if (maxCol >= 2) cols.push({ label: "tool calls", x: COL_X[2] });
   return {

@@ -1,6 +1,7 @@
 "use client";
 
-import { runAgents } from "@/lib/simulate";
+import { runAgents } from "@/lib/replay";
+import { useStore } from "@/lib/store";
 import type { EventType, RunView } from "@/lib/types";
 import s from "./Timeline.module.css";
 
@@ -12,6 +13,7 @@ const tone: Partial<Record<EventType, string>> = {
 
 /** One lane per agent: how long it ran, with every event as a dot. Replaces a text event log. */
 export default function Timeline({ view }: { view: RunView }) {
+  const { agentById } = useStore();
   const live = view.state === "RUNNING";
   const t = view.elapsed / 1000;
   const span = live ? Math.max(20, Math.ceil((t + 3) / 5) * 5) : Math.max(5, Math.ceil(t));
@@ -22,18 +24,18 @@ export default function Timeline({ view }: { view: RunView }) {
 
   return (
     <div className={s.lanes}>
-      {runAgents(view.plan.agent).map((a) => {
-        const v = view.agents[a.id];
+      {runAgents(view.plan).map((id) => {
+        const v = view.agents[id];
         const end = v?.end ?? view.elapsed;
         return (
-          <div key={a.id} className={s.ln}>
-            <span>{a.name}</span>
+          <div key={id} className={s.ln}>
+            <span>{agentById(id)?.name ?? id}</span>
             <div className={s.track}>
               {v?.start !== undefined && (
                 <i className={`${s.bar} ${v.end === undefined && live ? s.barRun : ""} ${v.st === "FAILED" || v.st === "CANCELLED" ? s.barErr : ""}`}
                   style={{ left: x(v.start), width: x(end - v.start) }} />
               )}
-              {view.events.filter((e) => e.agent === a.id).map((e) => (
+              {view.events.filter((e) => e.agent === id).map((e) => (
                 <i key={e.seq} className={`${s.ev} ${tone[e.type] ?? ""}`} style={{ left: x(e.at) }}
                   data-tip={`#${e.seq} ${e.type}${e.detail ? " · " + e.detail : ""}`} />
               ))}
