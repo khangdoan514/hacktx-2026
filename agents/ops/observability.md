@@ -4,7 +4,7 @@
 
 No OpenTelemetry exporter, collector endpoint, or credentials are included. The field names below are the contract an exporter would map: `trace_id` and `span_id` are the trace context, and `run_id` is a span attribute. `tenant_id` is the organization id used by `metrics.Limiter`.
 
-The API process does not emit these records yet. Wiring them into `cmd/nmc3-agent` is integrator work.
+The API process does not emit these records. `metrics.Install` is the one call that binds a writer. `Startup` writes the listening line and `Request` writes one request span. `agents/cmd/nmc3-agent/main.go` does not call `Install`. Line 26 is `log.Fatal(err)` and line 81 is `log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)`. The install call and those lines are written out in [README.md](README.md).
 
 ## Log fields
 
@@ -83,7 +83,7 @@ Values whose Go type is not a scalar, string, map, slice, or JSON message are re
 
 ## Service targets
 
-`metrics.ServiceTargets` returns latency, throughput, recovery, availability, and cost. Each status is `unset`, the reason is `unset until a representative workload is measured`, and the JSON has no numeric objective.
+`metrics.ServiceTargets` returns latency, throughput, recovery, availability, and cost. Each status is `unset`, the reason is `unset until a representative workload is measured`, and the JSON has no numeric objective. Load, backup-restore, and chaos checks have not been run.
 
 The organization concurrency cap is a caller-supplied control on `metrics.Limiter`. It is not one of those targets. Counters from `Limiter.Stats` are process-local admitted and rejected acquires, not a throughput SLO.
 

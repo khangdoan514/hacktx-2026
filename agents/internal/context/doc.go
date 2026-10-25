@@ -10,4 +10,8 @@
 // Tool allowlists are copied from the caller and are never derived from
 // fragment text. Grants are checked before a store or retriever is read, and
 // again before any loaded text is published.
+//
+// The coordinator calls ResolveBeforePrompt before it builds a prompt, and
+// ForwardSpecialist when it prompts a depth-1 specialist. Open stores grants
+// and snapshots in Postgres. This package does not change contracts.RunContext.
 package context

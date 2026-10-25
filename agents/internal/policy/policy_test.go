@@ -35,7 +35,10 @@ func TestPrincipalUsesEmployeeActor(t *testing.T) {
 }
 
 func TestDenialsAndCrossTenantReads(t *testing.T) {
-	lab := newLab(t)
+	testDenialsAndCrossTenantReads(t, newLab(t))
+}
+
+func testDenialsAndCrossTenantReads(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	lab.seedTenant(t, tenantA)
 	lab.seedTenant(t, tenantB)
@@ -74,6 +77,10 @@ func TestDenialsAndCrossTenantReads(t *testing.T) {
 	def, err = lab.eng.ReadDefinition(ctx, ada, "agent.onlyb", "1.0.0")
 	if !policy.Is(err, policy.CodeCrossTenant) || def.AgentID != "" || contains(def.AllowedTools, "tenant-marker") {
 		t.Fatalf("cross-tenant definition = %+v, %v", def, err)
+	}
+	storedDef, err := lab.store.Definition(ctx, tenantA, "agent.onlyb", "1.0.0")
+	if !policy.Is(err, policy.CodeNotFound) || storedDef.AgentID != "" || len(storedDef.AllowedTools) != 0 {
+		t.Fatalf("store cross-tenant definition = %+v, %v", storedDef, err)
 	}
 	if _, err := lab.eng.ReadDefinition(ctx, nobody, "agent.research", "1.0.0"); !policy.Is(err, policy.CodeDenied) {
 		t.Fatalf("roleless read err = %v", err)
@@ -129,6 +136,10 @@ func TestDenialsAndCrossTenantReads(t *testing.T) {
 	value, err := lab.eng.ResolveSecret(ctx, ada, "billing-token")
 	if !policy.Is(err, policy.CodeCrossTenant) || value != "" || lab.secrets.calls != callsBefore {
 		t.Fatalf("cross-tenant secret value=%q calls=%d err=%v", value, lab.secrets.calls, err)
+	}
+	storedSecret, err := lab.store.Secret(ctx, tenantA, "billing-token")
+	if !policy.Is(err, policy.CodeNotFound) || storedSecret.Name != "" || storedSecret.RunID != "" {
+		t.Fatalf("store cross-tenant secret = %+v, %v", storedSecret, err)
 	}
 	if _, err := lab.eng.ResolveSecret(ctx, auditor, "billing-token"); !policy.Is(err, policy.CodeNotFound) && !policy.Is(err, policy.CodeDenied) && !policy.Is(err, policy.CodeCrossTenant) {
 		t.Fatal(err)
@@ -200,6 +211,29 @@ func TestDenialsAndCrossTenantReads(t *testing.T) {
 		t.Fatalf("projected budget err = %v", err)
 	}
 
+	bKey := mustKey(t, tenantB, runB.ID, "inv-b", "ticket.write", "digest-b")
+	if _, err := lab.eng.BeginProtectedWrite(ctx, outsider, writeReq(runB.ID, bKey, "")); err != nil {
+		t.Fatal(err)
+	}
+	inbox, err := lab.eng.Inbox(ctx, user("cam", tenantA, policy.RoleReleaseApprover))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range inbox {
+		if item.TenantID != tenantA || item.RunID == runB.ID {
+			t.Fatalf("inbox leaked %+v", item)
+		}
+	}
+	storedInbox, err := lab.store.ListInbox(ctx, tenantA, lab.clk.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range storedInbox {
+		if item.TenantID != tenantA || item.RunID == runB.ID || item.RequesterID == outsider.UserID {
+			t.Fatalf("store inbox leaked %+v", item)
+		}
+	}
+
 	audit, err := lab.eng.Audit(ctx, user("admin", tenantA, policy.RoleAdministrator), "")
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +247,10 @@ func TestDenialsAndCrossTenantReads(t *testing.T) {
 }
 
 func TestApprovedWriteExpiresBeforeDispatch(t *testing.T) {
-	lab := newLab(t)
+	testApprovedWriteExpiresBeforeDispatch(t, newLab(t))
+}
+
+func testApprovedWriteExpiresBeforeDispatch(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	lab.seedTenant(t, tenantA)
 	ada := user("ada", tenantA, policy.RoleAIEngineer)
@@ -235,7 +272,10 @@ func TestApprovedWriteExpiresBeforeDispatch(t *testing.T) {
 }
 
 func TestApprovalExpirySelfDecisionAndRestart(t *testing.T) {
-	lab := newLab(t)
+	testApprovalExpirySelfDecisionAndRestart(t, newLab(t))
+}
+
+func testApprovalExpirySelfDecisionAndRestart(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	lab.seedTenant(t, tenantA)
 	selfish := user("selfish", tenantA, policy.RoleAIEngineer, policy.RoleReleaseApprover)
@@ -262,7 +302,7 @@ func TestApprovalExpirySelfDecisionAndRestart(t *testing.T) {
 		t.Fatalf("retry begin = %+v, %v", again, err)
 	}
 
-	restarted := policy.New(lab.mem, policy.WithClock(lab.clk.Now), policy.WithSecrets(lab.secrets))
+	restarted := policy.New(lab.store, policy.WithClock(lab.clk.Now), policy.WithSecrets(lab.secrets))
 	held, err := restarted.Approval(ctx, selfish, first.Approval.ID)
 	if err != nil || held.State != policy.ApprovalWaiting {
 		t.Fatalf("restarted approval = %+v, %v", held, err)
@@ -331,7 +371,10 @@ func TestApprovalExpirySelfDecisionAndRestart(t *testing.T) {
 }
 
 func TestTimeoutDoesNotDispatchTwice(t *testing.T) {
-	lab := newLab(t)
+	testTimeoutDoesNotDispatchTwice(t, newLab(t))
+}
+
+func testTimeoutDoesNotDispatchTwice(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	lab.seedTenant(t, tenantA)
 	ada := user("ada", tenantA, policy.RoleAIEngineer)
@@ -340,11 +383,26 @@ func TestTimeoutDoesNotDispatchTwice(t *testing.T) {
 	run := lab.start(t, ada, tenantA, "run-write")
 	key := mustKey(t, tenantA, run.ID, "inv-9", "ticket.write", "digest-write")
 	begun, err := lab.eng.BeginProtectedWrite(ctx, ada, writeReq(run.ID, key, injection))
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || begun.Approval.State != policy.ApprovalWaiting || begun.Attempt.State != policy.WriteWaiting || begun.Attempt.DispatchCount != 0 {
+		t.Fatalf("begin = %+v, %v", begun, err)
+	}
+	pending, err := lab.eng.Approval(ctx, cam, begun.Approval.ID)
+	if err != nil || pending.State != policy.ApprovalWaiting {
+		t.Fatalf("before decision = %+v, %v", pending, err)
+	}
+	if _, err := lab.eng.Decide(ctx, ada, begun.Approval.ID, policy.OutcomeApproved); !policy.Is(err, policy.CodeUnauthorizedApprover) && !policy.Is(err, policy.CodeSelfApproval) {
+		t.Fatalf("requester decide err = %v", err)
+	}
+	stillWaiting, err := lab.eng.Approval(ctx, cam, begun.Approval.ID)
+	if err != nil || stillWaiting.State != policy.ApprovalWaiting {
+		t.Fatalf("after requester = %+v, %v", stillWaiting, err)
 	}
 	if _, err := lab.eng.Decide(ctx, cam, begun.Approval.ID, policy.OutcomeApproved); err != nil {
 		t.Fatal(err)
+	}
+	decided, err := lab.eng.Approval(ctx, cam, begun.Approval.ID)
+	if err != nil || decided.State != policy.ApprovalApproved {
+		t.Fatalf("after approver = %+v, %v", decided, err)
 	}
 	if _, err := lab.eng.Decide(ctx, user("cam-2", tenantA, policy.RoleSecurityReviewer), begun.Approval.ID, policy.OutcomeDenied); !policy.Is(err, policy.CodeAlreadyDecided) {
 		t.Fatalf("second approver err = %v", err)
@@ -363,6 +421,10 @@ func TestTimeoutDoesNotDispatchTwice(t *testing.T) {
 	timed, err := lab.eng.ReportTimeout(ctx, ada, key)
 	if err != nil || timed.State != policy.WriteUncertain || timed.DispatchCount != 1 {
 		t.Fatalf("timeout = %+v, %v", timed, err)
+	}
+	stored, err := lab.store.Write(ctx, tenantA, key)
+	if err != nil || stored.State != policy.WriteUncertain || stored.DispatchCount != 1 || stored.DispatchedAt == nil {
+		t.Fatalf("stored timeout = %+v, %v", stored, err)
 	}
 	second, err := lab.eng.Dispatch(ctx, ada, key)
 	if second.Granted || second.Attempt.DispatchCount != 1 || !policy.Is(err, policy.CodeUncertain) {
@@ -391,7 +453,10 @@ func TestTimeoutDoesNotDispatchTwice(t *testing.T) {
 }
 
 func TestConcurrentDecisionAndDispatch(t *testing.T) {
-	lab := newLab(t)
+	testConcurrentDecisionAndDispatch(t, newLab(t))
+}
+
+func testConcurrentDecisionAndDispatch(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	lab.seedTenant(t, tenantA)
 	ada := user("ada", tenantA, policy.RoleAIEngineer)
@@ -475,7 +540,10 @@ func TestConcurrentDecisionAndDispatch(t *testing.T) {
 }
 
 func TestPinnedPolicyIgnoresLaterRevocation(t *testing.T) {
-	lab := newLab(t)
+	testPinnedPolicyIgnoresLaterRevocation(t, newLab(t))
+}
+
+func testPinnedPolicyIgnoresLaterRevocation(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	admin := user("admin", tenantA, policy.RoleAdministrator)
 	ada := user("ada", tenantA, policy.RoleAIEngineer)
@@ -514,7 +582,10 @@ func TestPinnedPolicyIgnoresLaterRevocation(t *testing.T) {
 }
 
 func TestProtectedClassificationAndRedaction(t *testing.T) {
-	lab := newLab(t)
+	testProtectedClassificationAndRedaction(t, newLab(t))
+}
+
+func testProtectedClassificationAndRedaction(t *testing.T, lab *lab) {
 	ctx := context.Background()
 	lab.seedTenant(t, tenantA)
 	ada := user("ada", tenantA, policy.RoleAIEngineer)
@@ -559,7 +630,7 @@ func TestIdempotencyKeyIsStable(t *testing.T) {
 
 type lab struct {
 	eng     *policy.Engine
-	mem     *policy.Memory
+	store   policy.Store
 	clk     *lockedClock
 	secrets *fakeSecrets
 }
@@ -605,7 +676,7 @@ func newLab(t *testing.T) *lab {
 	secrets := &fakeSecrets{values: map[string]string{}}
 	return &lab{
 		eng:     policy.New(mem, policy.WithClock(clk.Now), policy.WithSecrets(secrets)),
-		mem:     mem,
+		store:   mem,
 		clk:     clk,
 		secrets: secrets,
 	}

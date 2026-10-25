@@ -1,6 +1,6 @@
 # Extensions (Pass 6)
 
-Developers register governed tools and run custom Go tools outside the coordinator process. This package is the service implementation. It does not mount itself into `cmd/nmc3-agent` and it does not add a website screen.
+Developers register governed tools and run custom Go tools outside the coordinator process. This package is the service implementation. `cmd/nmc3-agent` mounts `NewAPI` on `/v1/extension-tools`. The console page at `frontend/src/app/(console)/tools/` registers a draft and publishes it through `/agent-api/extension-tools`.
 
 ## Decisions
 
@@ -47,7 +47,39 @@ It prints the bound address, then serves `extensions.worker.echo` `1.0.0`. `-mod
 
 ## Management API
 
-`NewAPI` exposes draft, publish, retire, pin, list, and invoke under `/v1/extension-tools`. Invoke returns HTTP 200 with the invocation record, including denials, crashes, and timeouts. The handler does not accept credential values and does not authenticate callers. Mount it only behind the service authenticator.
+`NewAPI` returns an `*API`. `API.Mount` registers that handler on an `*http.ServeMux` at `/v1/extension-tools` and `/v1/extension-tools/`. Invoke returns HTTP 200 with the invocation record, including denials, crashes, and timeouts. The handler does not accept credential values and does not authenticate callers. Mount it only behind the service authenticator.
+
+```go
+reg := extensions.NewRegistry()
+gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
+extensions.NewAPI(reg, gw).Mount(mux)
+```
+
+`cmd/nmc3-agent/main.go` calls `Mount`. The handler does not authenticate callers. The process has no separate authenticator in front of this route.
+
+The import sits next to the other service imports:
+
+```go
+	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/extensions"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/httpapi"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
+```
+
+The server construction is:
+
+```go
+	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
+	mux := http.NewServeMux()
+	mux.Handle("/", httpapi.New(coordinator, runs, events, definitions))
+	reg := extensions.NewRegistry()
+	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
+	extensions.NewAPI(reg, gw).Mount(mux)
+	server := http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+```
+
+Line 81 stays the listen log. `net/http` is already imported at line 13. The `/v1/extension-tools` patterns are more specific than `/`, so the agent routes keep their handler.
 
 ## Tests
 
@@ -61,8 +93,8 @@ The tests use loopback fakes only. They do not call a live MCP server, a public 
 
 ## Limits
 
-- No website tool-management screen. The HTTP API above is the service test surface.
-- No cgroup, seccomp, or network-namespace sandbox. A worker that ignores `Dial` and `ReadFile` can use the process network and filesystem.
-- Write idempotency is in process memory. A coordinator restart needs the Pass 4 durable store before it can keep that guarantee.
+- The console page is `frontend/src/app/(console)/tools/`. The shared shell is unchanged, so `/tools` is not in the primary nav. The route is mounted and does not authenticate callers.
+- No cgroup, seccomp, or network-namespace sandbox. A worker that ignores `Dial` and `ReadFile` can use the process network and filesystem. This package does not claim cgroup or network-namespace isolation.
+- Write idempotency is in process memory. A coordinator restart drops the ledger. It is not restart-safe. There is no extensions SQL migration.
 - Read-only retries have no backoff.
 - v1 run events are not emitted here. The coordinator should append `Metadata` after `Invoke`.

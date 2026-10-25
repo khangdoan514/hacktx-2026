@@ -5,9 +5,10 @@
 // after a later publish or retire. File arrays shaped like
 // agents/examples/definitions.json import without lifecycle fields.
 //
-// This package does not start runs and does not serve HTTP. The current
-// process still loads the example file directly until an integrator wires
-// ResolveForNewRun and PinRun into run creation.
+// This package does not start runs. Handler and Mount serve the lifecycle
+// HTTP API. The current process still loads the example file directly until
+// an integrator calls ResolveAndPinRun at run start and dispatches
+// /v1/definitions to Mount. The package README has that main.go snippet.
 package definitions
 
 import (

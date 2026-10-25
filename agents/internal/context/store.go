@@ -94,6 +94,65 @@ func newGrantIndex() *grantIndex {
 	return &grantIndex{byID: map[string]Grant{}}
 }
 
+// GrantStore persists runtime grants. An active purpose match authorizes the
+// call. A revoked grant for that purpose outranks an active grant for a
+// different purpose. Implementations must not include stored text in errors.
+type GrantStore interface {
+	Insert(ctx context.Context, grant Grant) error
+	Put(ctx context.Context, grant Grant) error
+	Get(ctx context.Context, id string) (Grant, bool, error)
+	List(ctx context.Context, tenantID string) ([]Grant, error)
+	Decide(ctx context.Context, tenantID, principalID, agentID string, scope Scope, resource string, purpose Purpose, now time.Time) (Grant, Code, error)
+}
+
+// SnapshotStore persists context snapshots, including version 0 records that
+// have no memory references. RedactExpired clears fragment text in that
+// tenant only.
+type SnapshotStore interface {
+	Put(ctx context.Context, snap Snapshot) error
+	Get(ctx context.Context, id string) (Snapshot, bool, error)
+	ListRun(ctx context.Context, tenantID, runID string) ([]Snapshot, error)
+	RedactExpired(ctx context.Context, tenantID string, now time.Time) (int, error)
+}
+
+func (s *grantIndex) Insert(ctx context.Context, grant Grant) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.insert(grant)
+}
+
+func (s *grantIndex) Put(ctx context.Context, grant Grant) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.put(grant)
+	return nil
+}
+
+func (s *grantIndex) Get(ctx context.Context, id string) (Grant, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return Grant{}, false, err
+	}
+	grant, ok := s.get(id)
+	return grant, ok, nil
+}
+
+func (s *grantIndex) List(ctx context.Context, tenantID string) ([]Grant, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return s.list(tenantID), nil
+}
+
+func (s *grantIndex) Decide(ctx context.Context, tenantID, principalID, agentID string, scope Scope, resource string, purpose Purpose, now time.Time) (Grant, Code, error) {
+	if err := ctx.Err(); err != nil {
+		return Grant{}, "", err
+	}
+	grant, code := s.decide(tenantID, principalID, agentID, scope, resource, purpose, now)
+	return grant, code, nil
+}
+
 func (s *grantIndex) insert(grant Grant) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,9 +198,7 @@ func (s *grantIndex) list(tenantID string) []Grant {
 func (s *grantIndex) decide(tenantID, principalID, agentID string, scope Scope, resource string, purpose Purpose, now time.Time) (Grant, Code) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	revoked := false
-	expired := false
-	otherPurpose := false
+	matched := make([]Grant, 0)
 	for _, grant := range s.byID {
 		if grant.TenantID != tenantID || grant.PrincipalID != principalID || grant.AgentID != agentID {
 			continue
@@ -149,6 +206,16 @@ func (s *grantIndex) decide(tenantID, principalID, agentID string, scope Scope, 
 		if grant.Scope != scope || grant.ResourceID != resource {
 			continue
 		}
+		matched = append(matched, grant)
+	}
+	return decideGrants(matched, purpose, now)
+}
+
+func decideGrants(grants []Grant, purpose Purpose, now time.Time) (Grant, Code) {
+	revoked := false
+	expired := false
+	otherPurpose := false
+	for _, grant := range grants {
 		matchesPurpose := false
 		for _, candidate := range grant.Purposes {
 			if candidate == purpose {
@@ -381,6 +448,36 @@ type snapshotIndex struct {
 
 func newSnapshotIndex() *snapshotIndex {
 	return &snapshotIndex{byID: map[string]Snapshot{}}
+}
+
+func (s *snapshotIndex) Put(ctx context.Context, snap Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.put(snap)
+	return nil
+}
+
+func (s *snapshotIndex) Get(ctx context.Context, id string) (Snapshot, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, false, err
+	}
+	snap, ok := s.get(id)
+	return snap, ok, nil
+}
+
+func (s *snapshotIndex) ListRun(ctx context.Context, tenantID, runID string) ([]Snapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return s.listRun(tenantID, runID), nil
+}
+
+func (s *snapshotIndex) RedactExpired(ctx context.Context, tenantID string, now time.Time) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return s.redactExpired(tenantID, now), nil
 }
 
 func (s *snapshotIndex) put(snap Snapshot) {

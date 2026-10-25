@@ -485,42 +485,122 @@ func (r *Registry) PinRun(ctx context.Context, runID, id, version string) (Pin, 
 		if err != nil {
 			return err
 		}
-		if existing.State == StateRetired {
-			return &Error{Code: CodeRetired, Message: "agent version is retired"}
-		}
-		if existing.State != StatePublished {
-			return &Error{Code: CodeInvalidInput, Message: "agent version is not published"}
-		}
-		if _, _, hash, err := prepare(existing.Spec); err != nil {
-			return err
-		} else if hash != existing.ContentHash {
-			return &Error{Code: CodeConflict, Message: "stored definition hash does not match its spec"}
-		}
-		pin, err := s.GetPin(ctx, runID, id)
-		if err == nil {
-			if pin.Version == version && pin.ContentHash == existing.ContentHash {
-				out = pin
-				return nil
-			}
-			return &Error{Code: CodeConflict, Message: "run is already pinned to a different definition version"}
-		}
-		if !errors.Is(err, errNotFound) {
-			return err
-		}
-		created := Pin{
-			RunID: runID, TenantID: r.tenant, AgentID: id, Version: version,
-			ContentHash: existing.ContentHash, Spec: existing.Spec, PinnedAt: r.now(),
-		}
-		if err := s.InsertPin(ctx, created); err != nil {
-			return err
-		}
-		out, err = s.GetPin(ctx, runID, id)
-		return err
+		var pinErr error
+		out, pinErr = r.pinStored(ctx, s, runID, existing)
+		return pinErr
 	})
 	if err != nil {
 		return Pin{}, mapMissing(err, "definition version not found")
 	}
 	return verifyPin(out)
+}
+
+// ResolveAndPinRun is the run-start call. It resolves the published root
+// version, then pins that agent and each allowed delegate at the same
+// version. Direct delegates only; the runtime still enforces depth. A second
+// call keeps pins that already match. A missing, unpublished, or retired
+// root or delegate fails the call and leaves no new pins. Publishing a later
+// version or retiring the pinned version does not move these rows.
+func (r *Registry) ResolveAndPinRun(ctx context.Context, runID, agentID, version string) ([]Pin, error) {
+	if !validToken(runID, maxRunIDLen) {
+		return nil, &Error{Code: CodeInvalidInput, Message: "run id is required"}
+	}
+	if !validToken(agentID, maxIDLen) || !validToken(version, maxVersionLen) {
+		return nil, &Error{Code: CodeInvalidInput, Message: "agent id and version are required"}
+	}
+	var out []Pin
+	err := r.store.Apply(ctx, func(s txStore) error {
+		root, err := s.GetVersion(ctx, agentID, version)
+		if err != nil {
+			return err
+		}
+		targets := []Version{root}
+		seen := map[string]bool{root.Spec.ID: true}
+		for _, id := range root.Spec.AllowedDelegates {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			delegate, err := s.GetVersion(ctx, id, version)
+			if errors.Is(err, errNotFound) {
+				return &Error{
+					Code: CodeNotFound, Message: "definition version not found",
+					Fields: []FieldError{{Field: "allowed_delegates", Message: id + "@" + version}},
+				}
+			}
+			if err != nil {
+				return err
+			}
+			targets = append(targets, delegate)
+		}
+		pins := make([]Pin, 0, len(targets))
+		for _, target := range targets {
+			pin, err := r.pinStored(ctx, s, runID, target)
+			if err != nil {
+				if target.Spec.ID != agentID {
+					return annotateDelegate(target.Spec.ID, err)
+				}
+				return err
+			}
+			pins = append(pins, pin)
+		}
+		out = pins
+		return nil
+	})
+	if err != nil {
+		return nil, mapMissing(err, "definition version not found")
+	}
+	verified := make([]Pin, 0, len(out))
+	for _, pin := range out {
+		checked, err := verifyPin(pin)
+		if err != nil {
+			return nil, err
+		}
+		verified = append(verified, checked)
+	}
+	return verified, nil
+}
+
+func (r *Registry) pinStored(ctx context.Context, s txStore, runID string, existing Version) (Pin, error) {
+	if existing.State == StateRetired {
+		return Pin{}, &Error{Code: CodeRetired, Message: "agent version is retired"}
+	}
+	if existing.State != StatePublished {
+		return Pin{}, &Error{Code: CodeInvalidInput, Message: "agent version is not published"}
+	}
+	if _, _, hash, err := prepare(existing.Spec); err != nil {
+		return Pin{}, err
+	} else if hash != existing.ContentHash {
+		return Pin{}, &Error{Code: CodeConflict, Message: "stored definition hash does not match its spec"}
+	}
+	pin, err := s.GetPin(ctx, runID, existing.Spec.ID)
+	if err == nil {
+		if pin.Version == existing.Spec.Version && pin.ContentHash == existing.ContentHash {
+			return pin, nil
+		}
+		return Pin{}, &Error{Code: CodeConflict, Message: "run is already pinned to a different definition version"}
+	}
+	if !errors.Is(err, errNotFound) {
+		return Pin{}, err
+	}
+	created := Pin{
+		RunID: runID, TenantID: r.tenant, AgentID: existing.Spec.ID, Version: existing.Spec.Version,
+		ContentHash: existing.ContentHash, Spec: existing.Spec, PinnedAt: r.now(),
+	}
+	if err := s.InsertPin(ctx, created); err != nil {
+		return Pin{}, err
+	}
+	return s.GetPin(ctx, runID, existing.Spec.ID)
+}
+
+func annotateDelegate(agentID string, err error) error {
+	var reg *Error
+	if !errors.As(err, &reg) {
+		return err
+	}
+	copied := *reg
+	copied.Fields = append(append([]FieldError{}, reg.Fields...), FieldError{Field: "allowed_delegates", Message: agentID})
+	return &copied
 }
 
 // Pinned returns the spec snapshot stored for a run and agent.

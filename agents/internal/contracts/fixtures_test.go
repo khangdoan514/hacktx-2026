@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+func TestEveryRunState(t *testing.T) {
+	states := []State{StatePending, StateRunning, StateSucceeded, StateFailed, StateCancelled, StateWaiting}
+	seen := map[State]bool{}
+	for _, state := range states {
+		if state == "" || seen[state] {
+			t.Fatalf("state %q", state)
+		}
+		seen[state] = true
+		switch state {
+		case StatePending, StateRunning, StateSucceeded, StateFailed, StateCancelled, StateWaiting:
+		default:
+			t.Fatalf("unhandled state %s", state)
+		}
+	}
+	if StateWaiting != "WAITING" {
+		t.Fatalf("StateWaiting = %s", StateWaiting)
+	}
+}
+
 func TestAPIFixtures(t *testing.T) {
 	fixtures := []struct {
 		name string

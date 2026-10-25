@@ -67,12 +67,76 @@ Node events are owned by this package and sequenced per workflow run, starting a
 
 The function does not launch nodes, poll, or inspect edges. The workflow chooses the parallel set and calls `Join` when it wants the combined result.
 
+## HTTP
+
+`NewHandler` is the HTTP surface for one in-process `Service`. Workflow editing, run visualization, and the approval inbox stay in the application workstream. This handler checks one node invocation at a time.
+
+| Method | Path | Call |
+| --- | --- | --- |
+| `POST` | `/v1/workflow-node/invocations` | `Invoke` |
+| `POST` | `/v1/workflow-node/runs/{workflowRunID}/invocations/{nodeInvocationID}/cancel` | `Cancel` |
+| `GET` | `/v1/workflow-node/runs/{workflowRunID}/invocations/{nodeInvocationID}` | `Get` |
+| `GET` | `/v1/workflow-node/runs/{workflowRunID}/events?after=` | `Events` |
+| `POST` | `/v1/workflow-node/runs/{workflowRunID}/join` | `Join` |
+
+`POST /v1/workflow-node/invocations` takes one `InvokeRequest` object and blocks until that invocation is terminal. Parallel nodes are concurrent requests. The response is HTTP 200 and the invocation, including failed and cancelled outcomes. Read `state` and `error`.
+
+The same `workflow_run_id` and `node_invocation_id` returns the original invocation and does not open another session. A different body for that pair is HTTP 409:
+
+```json
+{"error":{"code":"CONFLICT","message":"invocation id already exists with a different request"}}
+```
+
+`Cancel` uses an empty body. It marks a non-terminal invocation `CANCELLED`, cancels the session context, and does not commit another action. The response is HTTP 200 and that invocation. A terminal invocation is returned unchanged, and no further event is appended.
+
+`GET .../events` takes an optional `after` sequence. The body is `{"workflow_run_id","events"}`. A workflow run with no events returns an empty list. Tool input, model instructions, and output bodies stay off the event records.
+
+`POST .../join` takes `{"node_invocation_ids":["..."]}`. HTTP 200 and a `JoinedOutput` are returned only when every named invocation is a schema-valid success. A pending or running participant is HTTP 409 `JOIN_NOT_READY`. A failed or cancelled participant is HTTP 409 `JOIN_FAILED`. The response then has no `nodes` array. Unknown JSON fields are HTTP 400 `INVALID_INPUT`. An unknown invocation is HTTP 404 `NOT_FOUND`.
+
+The request context is the `Invoke` context. Closing the connection cancels that call the same way a cancelled context does. Workflow cancellation is the cancel route, which can run while another request is still inside `Invoke`.
+
+Any other method on a listed path is HTTP 405 `INVALID_INPUT`. Authentication stays at the service edge.
+
+## Mount
+
+`agents/cmd/nmc3-agent/main.go` still serves `httpapi.New` alone. The block below is the integrator mount. It is not applied in this tree.
+
+`catalog` implements `Catalog`. `executor` implements `Executor`. `run()` already has an OpenCode `coordinator` (`contracts.Coordinator`); that value is a separate type from `Executor`. `NewMemoryLog` keeps node events in the process. A durable `EventLog` is integrator work. This package has no Postgres migration.
+
+Add this import next to the other `agents/internal` imports:
+
+```go
+"github.com/khangdoan514/hacktx-2026/agents/internal/workflownode"
+```
+
+Replace this line in `run()`:
+
+```go
+server := http.Server{Addr: addr, Handler: httpapi.New(coordinator, runs, events, definitions), ReadHeaderTimeout: 10 * time.Second}
+```
+
+with:
+
+```go
+nodeLog := workflownode.NewMemoryLog()
+nodeService, err := workflownode.New(catalog, executor, nodeLog, nil)
+if err != nil {
+	return err
+}
+mux := http.NewServeMux()
+mux.Handle("/v1/workflow-node/", workflownode.NewHandler(nodeService))
+mux.Handle("/", httpapi.New(coordinator, runs, events, definitions))
+server := http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+```
+
+Mount the workflow prefix without `http.StripPrefix`. `NewHandler` matches full paths. `/` remains the agent API.
+
 ## Integration
 
 Wire a `Catalog` of immutable published definitions and an `Executor` whose `Session` surfaces agent proposals and applies only actions passed to `Commit`. Map coordinator failures such as `DELEGATION_DEPTH_EXCEEDED` through `Commit`; do not reimplement them here.
 
-HTTP routes for workflow and UI clients are not in this package. `Get`, `Events`, and `Join` are the in-process reads those routes would call. A durable event log and the real coordinator adapter are integrator work.
+A durable event log and the executor adapter that satisfies `Executor` are integrator work.
 
 ## Tests
 
-Package tests use a fake catalog and a fake session. They cover two parallel invocations whose outputs join only after both validate, a join that stays empty when one output fails schema checks, workflow cancellation that commits no further action, graph and approval rejection, version pinning, and correlated event order. No test calls a live model or a database.
+Package tests use a fake catalog and an Executor double (`fakeExec`) whose sessions complete independently. They cover two parallel invocations whose outputs join only after both validate, a join that stays empty when one output fails schema checks, workflow cancellation that commits no further action and leaves the other invocation running, an unapproved protected tool that does not commit, graph and approval rejection, version pinning, and correlated event order. HTTP tests drive Invoke, Cancel, Get, Events, and Join through that double, including replay and `CONFLICT`. No test calls a live model or a database.

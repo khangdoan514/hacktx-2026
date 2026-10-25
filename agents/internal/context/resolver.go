@@ -12,14 +12,15 @@ import (
 
 // Resolver assembles scoped context and retains an explanation of each read.
 type Resolver struct {
-	grants    *grantIndex
+	grants    GrantStore
 	artifacts *artifactIndex
 	memories  *memoryIndex
-	snaps     *snapshotIndex
+	snaps     SnapshotStore
 	objects   ObjectStore
 	retriever Retriever
 	nowFn     func() time.Time
 	retention time.Duration
+	close     func()
 }
 
 // Option configures a Resolver.
@@ -49,20 +50,42 @@ func WithObjectStore(store ObjectStore) Option {
 	return func(r *Resolver) { r.objects = store }
 }
 
+// WithGrantStore sets the runtime grant store. Nil keeps the in-memory store.
+func WithGrantStore(store GrantStore) Option {
+	return func(r *Resolver) {
+		if store != nil {
+			r.grants = store
+		}
+	}
+}
+
+// WithSnapshotStore sets the snapshot store. Nil keeps the in-memory store.
+func WithSnapshotStore(store SnapshotStore) Option {
+	return func(r *Resolver) {
+		if store != nil {
+			r.snaps = store
+		}
+	}
+}
+
 // New returns a resolver with in-memory grants, artifacts, memory, snapshots,
 // and object storage. The default retriever is empty.
 func New(opts ...Option) *Resolver {
 	resolver := &Resolver{
-		grants:    newGrantIndex(),
 		artifacts: newArtifactIndex(),
 		memories:  newMemoryIndex(),
-		snaps:     newSnapshotIndex(),
 		objects:   NewMemoryObjectStore(),
 		retriever: NewStaticRetriever(),
 		retention: DefaultRetention,
 	}
 	for _, opt := range opts {
 		opt(resolver)
+	}
+	if resolver.grants == nil {
+		resolver.grants = newGrantIndex()
+	}
+	if resolver.snaps == nil {
+		resolver.snaps = newSnapshotIndex()
 	}
 	if resolver.objects == nil {
 		resolver.objects = NewMemoryObjectStore()
@@ -74,6 +97,17 @@ func New(opts ...Option) *Resolver {
 		resolver.retention = DefaultRetention
 	}
 	return resolver
+}
+
+// Close releases a Postgres pool opened by Open. It is safe to call more than
+// once, including on a memory resolver.
+func (r *Resolver) Close() {
+	if r == nil || r.close == nil {
+		return
+	}
+	fn := r.close
+	r.close = nil
+	fn()
 }
 
 func (r *Resolver) now() time.Time {
@@ -193,17 +227,25 @@ func (r *Resolver) Resolve(ctx context.Context, req ResolveRequest) (Bundle, err
 	allowlist := cloneStrings(bundle.AllowedTools)
 
 	if req.StepInput != "" {
-		r.attachStep(&bundle, req, now)
+		if err := r.attachStep(ctx, &bundle, req, now); err != nil {
+			return Bundle{}, err
+		}
 	}
-	r.attachRun(ctx, &bundle, req, now)
-	r.attachMemory(ctx, &bundle, req, now)
+	if err := r.attachRun(ctx, &bundle, req, now); err != nil {
+		return Bundle{}, err
+	}
+	if err := r.attachMemory(ctx, &bundle, req, now); err != nil {
+		return Bundle{}, err
+	}
 	if err := r.attachOrganization(ctx, &bundle, req, now); err != nil {
 		return Bundle{}, err
 	}
 	if !sameStrings(allowlist, bundle.AllowedTools) {
 		return Bundle{}, &Error{Code: CodeInternal, Message: codeMessage(CodeInternal)}
 	}
-	r.record(&bundle, now)
+	if err := r.record(ctx, &bundle, now); err != nil {
+		return Bundle{}, err
+	}
 	return cloneBundle(bundle), nil
 }
 
@@ -306,7 +348,7 @@ func (r *Resolver) PutGrant(ctx context.Context, principal Principal, grant Gran
 	grant.ExpiresAt = cloneTime(grant.ExpiresAt)
 	grant.RevokedAt = nil
 	grant.RevokedBy = ""
-	if err := r.grants.insert(grant); err != nil {
+	if err := r.grants.Insert(ctx, grant); err != nil {
 		return Grant{}, err
 	}
 	return cloneGrant(grant), nil
@@ -325,7 +367,10 @@ func (r *Resolver) RevokeGrant(ctx context.Context, principal Principal, grantID
 	if grantID == "" {
 		return Grant{}, invalid("grant id is required")
 	}
-	grant, ok := r.grants.get(grantID)
+	grant, ok, err := r.grants.Get(ctx, grantID)
+	if err != nil {
+		return Grant{}, err
+	}
 	if !ok || grant.TenantID != principal.TenantID {
 		return Grant{}, notFound("grant not found")
 	}
@@ -333,7 +378,9 @@ func (r *Resolver) RevokeGrant(ctx context.Context, principal Principal, grantID
 		stamp := r.now()
 		grant.RevokedAt = &stamp
 		grant.RevokedBy = principal.ID
-		r.grants.put(grant)
+		if err := r.grants.Put(ctx, grant); err != nil {
+			return Grant{}, err
+		}
 	}
 	return cloneGrant(grant), nil
 }
@@ -346,7 +393,10 @@ func (r *Resolver) GetGrant(ctx context.Context, principal Principal, grantID st
 	if !principal.HasRole(RoleAdmin) && !principal.HasRole(RoleInspector) {
 		return Grant{}, codeError(CodeDenied, "", "", "")
 	}
-	grant, ok := r.grants.get(grantID)
+	grant, ok, err := r.grants.Get(ctx, grantID)
+	if err != nil {
+		return Grant{}, err
+	}
 	if !ok || grant.TenantID != principal.TenantID {
 		return Grant{}, notFound("grant not found")
 	}
@@ -364,7 +414,7 @@ func (r *Resolver) ListGrants(ctx context.Context, principal Principal) ([]Grant
 	if principal.TenantID == "" {
 		return nil, invalid("principal is required")
 	}
-	return r.grants.list(principal.TenantID), nil
+	return r.grants.List(ctx, principal.TenantID)
 }
 
 // PutArtifact stores a run artifact after a write grant check.
@@ -379,7 +429,9 @@ func (r *Resolver) PutArtifact(ctx context.Context, req ArtifactWrite) (Artifact
 		return Artifact{}, invalid("artifact name and body are required")
 	}
 	now := r.now()
-	if _, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeWriteArtifact, now); code != "" {
+	if _, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeWriteArtifact, now); err != nil {
+		return Artifact{}, err
+	} else if code != "" {
 		return Artifact{}, codeError(code, ScopeRun, req.RunID, PurposeWriteArtifact)
 	}
 	id := req.ID
@@ -411,7 +463,12 @@ func (r *Resolver) PutArtifact(ctx context.Context, req ArtifactWrite) (Artifact
 	} else {
 		rec.inline = bytes.Clone(req.Body)
 	}
-	if _, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeWriteArtifact, r.now()); code != "" {
+	if _, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeWriteArtifact, r.now()); err != nil {
+		if rec.ObjectKey != "" {
+			_ = r.objects.Delete(ctx, rec.TenantID, rec.ObjectKey)
+		}
+		return Artifact{}, err
+	} else if code != "" {
 		if rec.ObjectKey != "" {
 			_ = r.objects.Delete(ctx, rec.TenantID, rec.ObjectKey)
 		}
@@ -439,7 +496,9 @@ func (r *Resolver) DeleteArtifact(ctx context.Context, req ArtifactDelete) error
 		return invalid("artifact id is required")
 	}
 	now := r.now()
-	if _, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeDeleteArtifact, now); code != "" {
+	if _, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeDeleteArtifact, now); err != nil {
+		return err
+	} else if code != "" {
 		return codeError(code, ScopeRun, req.RunID, PurposeDeleteArtifact)
 	}
 	rec, ok := r.artifacts.markDeleted(req.Principal.TenantID, req.RunID, req.ID, now)
@@ -464,7 +523,9 @@ func (r *Resolver) WriteMemory(ctx context.Context, req MemoryWrite) (Memory, er
 		return Memory{}, invalid("memory text is required")
 	}
 	now := r.now()
-	if _, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeWriteMemory, now); code != "" {
+	if _, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeWriteMemory, now); err != nil {
+		return Memory{}, err
+	} else if code != "" {
 		return Memory{}, codeError(code, ScopeAgentMemory, req.AgentID, PurposeWriteMemory)
 	}
 	body := []byte(req.Text)
@@ -493,7 +554,12 @@ func (r *Resolver) WriteMemory(ctx context.Context, req MemoryWrite) (Memory, er
 	} else {
 		rec.inline = bytes.Clone(body)
 	}
-	if _, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeWriteMemory, r.now()); code != "" {
+	if _, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeWriteMemory, r.now()); err != nil {
+		if rec.ObjectKey != "" {
+			_ = r.objects.Delete(ctx, rec.TenantID, rec.ObjectKey)
+		}
+		return Memory{}, err
+	} else if code != "" {
 		if rec.ObjectKey != "" {
 			_ = r.objects.Delete(ctx, rec.TenantID, rec.ObjectKey)
 		}
@@ -520,7 +586,9 @@ func (r *Resolver) DeleteMemory(ctx context.Context, req MemoryDelete) error {
 		return invalid("memory id is required")
 	}
 	now := r.now()
-	if _, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeDeleteMemory, now); code != "" {
+	if _, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeDeleteMemory, now); err != nil {
+		return err
+	} else if code != "" {
 		return codeError(code, ScopeAgentMemory, req.AgentID, PurposeDeleteMemory)
 	}
 	rec, ok := r.memories.markDeleted(req.Principal.TenantID, req.AgentID, req.ID, now)
@@ -543,11 +611,14 @@ func (r *Resolver) Inspect(ctx context.Context, principal Principal, snapshotID 
 	if principal.TenantID == "" || principal.ID == "" || snapshotID == "" {
 		return Snapshot{}, invalid("principal and snapshot id are required")
 	}
-	snap, ok := r.snaps.get(snapshotID)
+	snap, ok, err := r.snaps.Get(ctx, snapshotID)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	if !ok || snap.TenantID != principal.TenantID {
 		return Snapshot{}, notFound("snapshot not found")
 	}
-	if err := r.authorizeInspect(principal, snap); err != nil {
+	if err := r.authorizeInspect(ctx, principal, snap); err != nil {
 		return Snapshot{}, err
 	}
 	return snap, nil
@@ -562,9 +633,9 @@ func (r *Resolver) ListSnapshots(ctx context.Context, principal Principal, runID
 		return nil, invalid("principal and run id are required")
 	}
 	if canInspectRole(principal) {
-		return r.snaps.listRun(principal.TenantID, runID), nil
+		return r.snaps.ListRun(ctx, principal.TenantID, runID)
 	}
-	return r.listSnapshotsByGrant(principal, runID)
+	return r.listSnapshotsByGrant(ctx, principal, runID)
 }
 
 // PutSnapshot stores a snapshot recorded elsewhere, including a version 0
@@ -607,8 +678,7 @@ func (r *Resolver) PutSnapshot(ctx context.Context, principal Principal, snap Sn
 	if snap.Bundle.TenantID != snap.TenantID {
 		return codeError(CodeDenied, "", "", PurposeInspect)
 	}
-	r.snaps.put(snap)
-	return nil
+	return r.snaps.Put(ctx, snap)
 }
 
 // DeleteExpired redacts snapshot text whose retention has elapsed and deletes
@@ -625,7 +695,11 @@ func (r *Resolver) DeleteExpired(ctx context.Context, principal Principal) (Rete
 	}
 	now := r.now()
 	var result RetentionResult
-	result.SnapshotsRedacted = r.snaps.redactExpired(principal.TenantID, now)
+	redacted, err := r.snaps.RedactExpired(ctx, principal.TenantID, now)
+	if err != nil {
+		return RetentionResult{}, err
+	}
+	result.SnapshotsRedacted = redacted
 	for _, rec := range r.memories.listExpired(principal.TenantID, now) {
 		deleted, ok := r.memories.markDeleted(rec.TenantID, rec.AgentID, rec.ID, now)
 		if !ok {
@@ -649,29 +723,38 @@ func (r *Resolver) DeleteExpired(ctx context.Context, principal Principal) (Rete
 	return result, nil
 }
 
-func (r *Resolver) attachStep(bundle *Bundle, req ResolveRequest, now time.Time) {
-	grant, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeStep, req.InvocationID, PurposeResolve, now)
+func (r *Resolver) attachStep(ctx context.Context, bundle *Bundle, req ResolveRequest, now time.Time) error {
+	grant, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeStep, req.InvocationID, PurposeResolve, now)
+	if err != nil {
+		return err
+	}
 	if code != "" {
 		deny(bundle, code, ScopeStep, req.InvocationID, PurposeResolve)
-		return
+		return nil
 	}
-	if _, code = r.authorize(req.Principal, req.Grants, req.AgentID, ScopeStep, req.InvocationID, PurposeResolve, r.now()); code != "" {
+	if _, code, err = r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeStep, req.InvocationID, PurposeResolve, r.now()); err != nil {
+		return err
+	} else if code != "" {
 		deny(bundle, code, ScopeStep, req.InvocationID, PurposeResolve)
-		return
+		return nil
 	}
 	bundle.Fragments = append(bundle.Fragments, r.fragment(req, ScopeStep, req.InvocationID, req.StepInput, SourceStep, req.InvocationID, grant.ID, "step", now, Provenance{}))
 	noteGrant(bundle, grant, PurposeResolve)
+	return nil
 }
 
-func (r *Resolver) attachRun(ctx context.Context, bundle *Bundle, req ResolveRequest, now time.Time) {
+func (r *Resolver) attachRun(ctx context.Context, bundle *Bundle, req ResolveRequest, now time.Time) error {
 	requested := req.Depth == 0 || len(req.ArtifactIDs) > 0
 	if !requested {
-		return
+		return nil
 	}
-	grant, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeResolve, now)
+	grant, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeResolve, now)
+	if err != nil {
+		return err
+	}
 	if code != "" {
 		deny(bundle, code, ScopeRun, req.RunID, PurposeResolve)
-		return
+		return nil
 	}
 	type loaded struct {
 		rec  artifactRec
@@ -694,10 +777,13 @@ func (r *Resolver) attachRun(ctx context.Context, bundle *Bundle, req ResolveReq
 		}
 		got = append(got, loaded{rec: rec, text: text})
 	}
-	grant, code = r.authorize(req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeResolve, r.now())
+	grant, code, err = r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeRun, req.RunID, PurposeResolve, r.now())
+	if err != nil {
+		return err
+	}
 	if code != "" {
 		deny(bundle, code, ScopeRun, req.RunID, PurposeResolve)
-		return
+		return nil
 	}
 	published := false
 	for _, item := range got {
@@ -722,16 +808,20 @@ func (r *Resolver) attachRun(ctx context.Context, bundle *Bundle, req ResolveReq
 	if published || req.Depth == 0 {
 		noteGrant(bundle, grant, PurposeResolve)
 	}
+	return nil
 }
 
-func (r *Resolver) attachMemory(ctx context.Context, bundle *Bundle, req ResolveRequest, now time.Time) {
+func (r *Resolver) attachMemory(ctx context.Context, bundle *Bundle, req ResolveRequest, now time.Time) error {
 	if !definitionAllows(req.Grants.Grants, ScopeAgentMemory, req.AgentID, PurposeReadMemory) {
-		return
+		return nil
 	}
-	grant, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeReadMemory, now)
+	grant, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeReadMemory, now)
+	if err != nil {
+		return err
+	}
 	if code != "" {
 		deny(bundle, code, ScopeAgentMemory, req.AgentID, PurposeReadMemory)
-		return
+		return nil
 	}
 	type loaded struct {
 		rec  memoryRec
@@ -746,10 +836,13 @@ func (r *Resolver) attachMemory(ctx context.Context, bundle *Bundle, req Resolve
 		}
 		got = append(got, loaded{rec: rec, text: text})
 	}
-	grant, code = r.authorize(req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeReadMemory, r.now())
+	grant, code, err = r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeAgentMemory, req.AgentID, PurposeReadMemory, r.now())
+	if err != nil {
+		return err
+	}
 	if code != "" {
 		deny(bundle, code, ScopeAgentMemory, req.AgentID, PurposeReadMemory)
-		return
+		return nil
 	}
 	for _, item := range got {
 		fresh, ok := r.memories.get(req.Principal.TenantID, req.AgentID, item.rec.ID)
@@ -760,6 +853,7 @@ func (r *Resolver) attachMemory(ctx context.Context, bundle *Bundle, req Resolve
 		bundle.Fragments = append(bundle.Fragments, r.fragment(req, ScopeAgentMemory, req.AgentID, item.text, SourceMemory, fresh.ID, grant.ID, "memory_store", now, extra))
 	}
 	noteGrant(bundle, grant, PurposeReadMemory)
+	return nil
 }
 
 func (r *Resolver) attachOrganization(ctx context.Context, bundle *Bundle, req ResolveRequest, now time.Time) error {
@@ -768,7 +862,10 @@ func (r *Resolver) attachOrganization(ctx context.Context, bundle *Bundle, req R
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		grant, code := r.authorize(req.Principal, req.Grants, req.AgentID, ScopeOrganization, collection, PurposeRetrieve, now)
+		grant, code, err := r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeOrganization, collection, PurposeRetrieve, now)
+		if err != nil {
+			return err
+		}
 		if code != "" {
 			deny(bundle, code, ScopeOrganization, collection, PurposeRetrieve)
 			continue
@@ -788,7 +885,10 @@ func (r *Resolver) attachOrganization(ctx context.Context, bundle *Bundle, req R
 			deny(bundle, CodeInternal, ScopeOrganization, collection, PurposeRetrieve)
 			continue
 		}
-		grant, code = r.authorize(req.Principal, req.Grants, req.AgentID, ScopeOrganization, collection, PurposeRetrieve, r.now())
+		grant, code, err = r.authorize(ctx, req.Principal, req.Grants, req.AgentID, ScopeOrganization, collection, PurposeRetrieve, r.now())
+		if err != nil {
+			return err
+		}
 		if code != "" {
 			deny(bundle, code, ScopeOrganization, collection, PurposeRetrieve)
 			continue
@@ -886,7 +986,7 @@ func (r *Resolver) fragment(req ResolveRequest, scope Scope, resource, text, sou
 	}
 }
 
-func (r *Resolver) record(bundle *Bundle, now time.Time) {
+func (r *Resolver) record(ctx context.Context, bundle *Bundle, now time.Time) error {
 	bundle.SnapshotID = newID("snap")
 	refs := memoryRefs(*bundle)
 	snap := Snapshot{
@@ -901,21 +1001,27 @@ func (r *Resolver) record(bundle *Bundle, now time.Time) {
 		RetainUntil:  now.Add(r.retention),
 		CreatedAt:    now,
 	}
-	r.snaps.put(snap)
+	return r.snaps.Put(ctx, snap)
 }
 
-func (r *Resolver) authorize(principal Principal, grants VersionedGrants, agentID string, scope Scope, resource string, purpose Purpose, now time.Time) (Grant, Code) {
-	if !definitionAllows(grants.Grants, scope, resource, purpose) {
-		return Grant{}, CodeDenied
+func (r *Resolver) authorize(ctx context.Context, principal Principal, grants VersionedGrants, agentID string, scope Scope, resource string, purpose Purpose, now time.Time) (Grant, Code, error) {
+	if err := ctx.Err(); err != nil {
+		return Grant{}, "", err
 	}
-	return r.grants.decide(principal.TenantID, principal.ID, agentID, scope, resource, purpose, now)
+	if !definitionAllows(grants.Grants, scope, resource, purpose) {
+		return Grant{}, CodeDenied, nil
+	}
+	return r.grants.Decide(ctx, principal.TenantID, principal.ID, agentID, scope, resource, purpose, now)
 }
 
-func (r *Resolver) authorizeInspect(principal Principal, snap Snapshot) error {
+func (r *Resolver) authorizeInspect(ctx context.Context, principal Principal, snap Snapshot) error {
 	if canInspectRole(principal) {
 		return nil
 	}
-	_, code := r.grants.decide(principal.TenantID, principal.ID, snap.AgentID, ScopeRun, snap.RunID, PurposeInspect, r.now())
+	_, code, err := r.grants.Decide(ctx, principal.TenantID, principal.ID, snap.AgentID, ScopeRun, snap.RunID, PurposeInspect, r.now())
+	if err != nil {
+		return err
+	}
 	if code != "" {
 		// A grant for another purpose is not inspection authority.
 		if code == CodePurposeMismatch {
@@ -926,12 +1032,18 @@ func (r *Resolver) authorizeInspect(principal Principal, snap Snapshot) error {
 	return nil
 }
 
-func (r *Resolver) listSnapshotsByGrant(principal Principal, runID string) ([]Snapshot, error) {
-	all := r.snaps.listRun(principal.TenantID, runID)
+func (r *Resolver) listSnapshotsByGrant(ctx context.Context, principal Principal, runID string) ([]Snapshot, error) {
+	all, err := r.snaps.ListRun(ctx, principal.TenantID, runID)
+	if err != nil {
+		return nil, err
+	}
 	var out []Snapshot
 	now := r.now()
 	for _, snap := range all {
-		grant, code := r.grants.decide(principal.TenantID, principal.ID, snap.AgentID, ScopeRun, runID, PurposeInspect, now)
+		grant, code, err := r.grants.Decide(ctx, principal.TenantID, principal.ID, snap.AgentID, ScopeRun, runID, PurposeInspect, now)
+		if err != nil {
+			return nil, err
+		}
 		if code != "" || grant.ID == "" {
 			continue
 		}

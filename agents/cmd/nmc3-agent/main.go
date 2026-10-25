@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	defreg "github.com/khangdoan514/hacktx-2026/agents/internal/definitions"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/extensions"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/httpapi"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
@@ -77,7 +79,22 @@ func run() error {
 		return err
 	}
 	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
-	server := http.Server{Addr: addr, Handler: httpapi.New(coordinator, runs, events, definitions), ReadHeaderTimeout: 10 * time.Second}
+	mux := http.NewServeMux()
+	mux.Handle("/", httpapi.New(coordinator, runs, events, definitions))
+	reg := extensions.NewRegistry()
+	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
+	extensions.NewAPI(reg, gw).Mount(mux)
+	if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
+		openCtx, openCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defRegistry, err := defreg.Open(openCtx, databaseURL)
+		openCancel()
+		if err != nil {
+			return fmt.Errorf("open definition registry: %w", err)
+		}
+		defer defRegistry.Close()
+		defreg.Mount(mux, defRegistry)
+	}
+	server := http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
 }

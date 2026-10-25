@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,25 +18,12 @@ func TestPostgresLifecycleAndTriggers(t *testing.T) {
 		t.Skip("set NMC3_TEST_DATABASE_URL to run definition registry integration")
 	}
 	ctx := context.Background()
-	conn, err := pgconn.Connect(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	results, err := conn.Exec(ctx, migrationSQL(t)).ReadAll()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, result := range results {
-		if result.Err != nil {
-			t.Fatal(result.Err)
-		}
-	}
-	conn.Close(ctx)
+	applyDefinitionMigration(t, url)
 
 	tenant := fmt.Sprintf("t%d", time.Now().UnixNano())
 	reg, err := Open(ctx, url, WithTenant(tenant))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal(dbErr(err))
 	}
 	t.Cleanup(reg.Close)
 
@@ -116,4 +104,55 @@ func TestPostgresLifecycleAndTriggers(t *testing.T) {
 		t.Fatal("pin mutation was accepted")
 	}
 	_ = tx.Rollback(ctx)
+}
+
+func TestPostgresWebsiteFlowAndPin(t *testing.T) {
+	reg := openPostgresRegistry(t)
+	exerciseWebsiteAndPin(t, reg)
+}
+
+func applyDefinitionMigration(t *testing.T, url string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgconn.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(dbErr(err))
+	}
+	defer conn.Close(ctx)
+	results, err := conn.Exec(ctx, migrationSQL(t)).ReadAll()
+	if err != nil {
+		t.Fatal(dbErr(err))
+	}
+	for _, result := range results {
+		if result.Err != nil {
+			t.Fatal(dbErr(result.Err))
+		}
+	}
+}
+
+func openPostgresRegistry(t *testing.T) *Registry {
+	t.Helper()
+	url := os.Getenv("NMC3_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("set NMC3_TEST_DATABASE_URL to run definition registry integration")
+	}
+	applyDefinitionMigration(t, url)
+	tenant := fmt.Sprintf("t%d", time.Now().UnixNano())
+	reg, err := Open(context.Background(), url, WithTenant(tenant))
+	if err != nil {
+		t.Fatal(dbErr(err))
+	}
+	t.Cleanup(reg.Close)
+	return reg
+}
+
+func dbErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	if strings.Contains(message, "://") {
+		return "postgres operation failed"
+	}
+	return message
 }

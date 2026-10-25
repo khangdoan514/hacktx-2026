@@ -15,6 +15,8 @@ const (
 	StateSucceeded State = "SUCCEEDED"
 	StateFailed    State = "FAILED"
 	StateCancelled State = "CANCELLED"
+	// StateWaiting holds a run while a protected write has no decision.
+	StateWaiting State = "WAITING"
 )
 
 type ErrorCode string
