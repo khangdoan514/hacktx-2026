@@ -12,7 +12,6 @@ import s from "./Rail.module.css";
 
 const groups: { href: string; label: string; icon: IconName }[][] = [
   [
-    { href: "/overview", label: "Overview", icon: "gauge" },
     { href: "/dashboard", label: "Live run", icon: "activity" },
     { href: "/runs", label: "Runs", icon: "play" },
     { href: "/agents", label: "Agents", icon: "bot" },
