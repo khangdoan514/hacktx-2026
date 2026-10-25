@@ -23,10 +23,10 @@ func TestHTTPWebsiteFlow(t *testing.T) {
 
 func TestWebsiteClientUsesHandlerRoutes(t *testing.T) {
 	api := string(readRepoFile(t, "../frontend/src/components/definitions/api.ts"))
-	page := string(readRepoFile(t, "../frontend/src/app/(console)/definitions/page.tsx"))
-	editor := string(readRepoFile(t, "../frontend/src/components/definitions/Editor.tsx"))
-	if !strings.Contains(page, "Editor") {
-		t.Fatal("definitions page does not render the editor")
+	page := string(readRepoFile(t, "../frontend/src/app/(console)/agents/new/page.tsx"))
+	editor := string(readRepoFile(t, "../frontend/src/components/builder/Builder.tsx"))
+	if !strings.Contains(page, "Builder") {
+		t.Fatal("new agent page does not render the builder")
 	}
 	for _, want := range []string{
 		"/agent-api/definitions/draft",
@@ -42,9 +42,9 @@ func TestWebsiteClientUsesHandlerRoutes(t *testing.T) {
 			t.Fatalf("definition client missing %s", want)
 		}
 	}
-	for _, want := range []string{"definitionsApi.draft", "definitionsApi.test", "definitionsApi.publish", "definitionsApi.revise", "definitionsApi.retire"} {
+	for _, want := range []string{"definitionsApi.publish"} {
 		if !strings.Contains(editor, want) {
-			t.Fatalf("editor does not call %s", want)
+			t.Fatalf("builder does not call %s", want)
 		}
 	}
 }

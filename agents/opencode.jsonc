@@ -31,6 +31,7 @@
     { "action": "read", "resource": "*.env.*", "effect": "deny" },
     { "action": "read", "resource": "*.env.example", "effect": "deny" },
     { "action": "catalog_*", "resource": "*", "effect": "deny" },
+    { "action": "tools_*", "resource": "*", "effect": "deny" },
     { "action": "execute", "resource": "*", "effect": "deny" },
     { "action": "opencode_list_mcp_resources", "resource": "*", "effect": "deny" },
     { "action": "opencode_read_mcp_resource", "resource": "*", "effect": "deny" }
@@ -42,6 +43,14 @@
         "command": ["go", "run", "./cmd/catalog-mcp"],
         "codemode": false,
         "timeout": { "startup": 60000, "catalog": 15000, "execution": 10000 }
+      },
+      // Built-in GitHub and Google Drive packs (agents/internal/toolpacks).
+      // Credentials come from the console's Tools page, not from this file.
+      "tools": {
+        "type": "local",
+        "command": ["go", "run", "./cmd/tools-mcp"],
+        "codemode": false,
+        "timeout": { "startup": 60000, "tools": 30000, "execution": 30000 }
       }
     }
   },
@@ -171,6 +180,31 @@
         { "action": "read", "resource": "*.env", "effect": "deny" },
         { "action": "read", "resource": "*.env.*", "effect": "deny" },
         { "action": "read", "resource": "*.env.example", "effect": "deny" }
+      ]
+    },
+    "workspace-assistant": {
+      "description": "Workspace assistant",
+      "mode": "primary",
+      "steps": 12,
+      "system": "You are Workspace assistant (orchestrator). Use only authorized actions and cite the url of every source.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" },
+        { "action": "tools_github_search_repositories", "resource": "*", "effect": "allow" },
+        { "action": "tools_github_search_code", "resource": "*", "effect": "allow" },
+        { "action": "tools_github_get_file", "resource": "*", "effect": "allow" },
+        { "action": "tools_github_list_issues", "resource": "*", "effect": "allow" },
+        { "action": "tools_github_get_issue", "resource": "*", "effect": "allow" },
+        { "action": "tools_github_list_pull_requests", "resource": "*", "effect": "allow" },
+        { "action": "tools_gdrive_search_files", "resource": "*", "effect": "allow" },
+        { "action": "tools_gdrive_list_folder", "resource": "*", "effect": "allow" },
+        { "action": "tools_gdrive_read_file", "resource": "*", "effect": "allow" }
       ]
     },
     "build": {

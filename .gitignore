@@ -237,3 +237,6 @@ ml/data/*
 !ml/data/.gitkeep
 ml/models/*
 !ml/models/.gitkeep
+
+# Tool pack credentials saved by the console (agents/.nmc3)
+.nmc3/

@@ -1,10 +1,7 @@
 "use client";
 
-import { agents, agentById } from "@/config/agents";
-import { toolById } from "@/config/tools";
-import { models } from "@/config/workspace";
-import PageHeader from "@/components/shell/PageHeader";
 import Link from "next/link";
+import PageHeader from "@/components/shell/PageHeader";
 import Icon from "@/components/ui/Icon";
 import { secs } from "@/lib/format";
 import { useAllRuns, useStore } from "@/lib/store";
@@ -22,16 +19,14 @@ function stats(id: string, runs: RunView[]) {
 
 export default function AgentsPage() {
   const runs = useAllRuns();
-  // Agents that run other agents come first; the rest follow in config order.
+  const { agents } = useStore();
+  // Agents that run other agents come first; the rest follow in service order.
   const sorted = [...agents].sort((x, y) => Number(y.kind === "orchestrator") - Number(x.kind === "orchestrator"));
 
   return (
     <>
-      <PageHeader
-        title="Agents"
-        sub="Click an agent for its details and history."
-        actions={<Link href="/agents/new" className="btn solid"><Icon name="plus" size={15} />New agent</Link>}
-      />
+      <PageHeader title="Agents" sub="Click an agent for its details and history." actions={<Link href="/agents/new" className="btn solid"><Icon name="plus" size={15} />New agent</Link>} />
+      {agents.length === 0 && <p className="muted">The agent service has no agents.</p>}
       <div className={`${s.grid} rise`}>
         {sorted.map((a) => <AgentCard key={a.id} a={a} st={stats(a.id, runs)} />)}
         <Link href="/agents/new" className={`${s.card} ${s.add}`}>
@@ -56,17 +51,16 @@ function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
         </div>
         <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
       </div>
-      <p className={s.role}>{a.role}</p>
+      <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
       <div className={s.chips}>
-        {a.delegates.map((d) => <span key={d} className="tag">{agentById(d)?.name}</span>)}
-        {a.tools.map((t) => <span key={t} className="tag accent">{toolById(t)?.name ?? t}</span>)}
+        {a.delegates.map((d) => <span key={d} className="tag">{d}</span>)}
+        {a.tools.map((t) => <span key={t} className="tag accent">{t}</span>)}
         {a.tools.length + a.delegates.length === 0 && <span className="tag">model only</span>}
       </div>
       <div className={s.foot}>
         <span><b>{st.n}</b> runs</span>
         <span><b>{st.rate}%</b> ok</span>
         <span><b>{st.avg ? secs(st.avg) : "—"}</b> avg</span>
-        <span className="muted">{models[a.model]?.label}</span>
       </div>
     </button>
   );

@@ -1,9 +1,7 @@
 // Tree layout for the execution graph: caller -> root agent -> delegates -> tool calls.
-// Each subtree gets as much height as its children need, so adding agents or
-// tools in src/config grows the canvas instead of overlapping.
+// Each subtree gets as much height as its children need, so a run with more
+// agents or tool calls grows the canvas instead of overlapping.
 
-import { agentById } from "@/config/agents";
-import { MAX_DELEGATION_DEPTH } from "@/config/workspace";
 import type { Call, RunPlan } from "./types";
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -16,22 +14,28 @@ export type Layout = { width: number; height: number; you: Box; nodes: LayoutNod
 const AGENT = { w: 236, h: 76, slot: 104 };
 const CALL = { w: 250, h: 42, slot: 50 };
 const COL_X = [128, 478, 806];
-// Used instead when delegation goes a level deeper, so every column still fits.
+// Used when delegation goes a level deeper, so every column still fits.
 const COL_X_DEEP = [128, 430, 732, 1034];
 const TOP = 52;
 
 type T = { kind: "agent" | "call"; id: string; call?: Call; children: T[] };
 
 export function layoutRun(plan: RunPlan): Layout {
-  const callsOf = (agent: string) => plan.calls.filter((c) => c.agent === agent);
-  const tree = (id: string, depth: number): T => {
-    const def = agentById(id);
+  // A delegation is shown as the specialist's own node, not as a call.
+  const callsOf = (agent: string) => plan.calls.filter((c) => c.agent === agent && c.kind !== "delegate");
+  const invs = plan.invocations;
+  const rootInv = invs.find((i) => i.depth === 0);
+  // Specialists are drawn under the invocation that started them, up to the depth limit.
+  const tree = (id: string, depth: number, inv: string | null): T => {
     const kids: T[] = [];
-    if (def && depth < MAX_DELEGATION_DEPTH) for (const d of def.delegates) kids.push(tree(d, depth + 1));
+    for (const i of invs.filter((x) => x.parent === inv && x.depth === depth + 1)) {
+      if (!kids.some((k) => k.kind === "agent" && k.id === i.agent)) kids.push(tree(i.agent, depth + 1, i.id));
+    }
     for (const c of callsOf(id)) kids.push({ kind: "call", id: c.id, call: c, children: [] });
     return { kind: "agent", id, children: kids };
   };
-  const root = tree(plan.agent, 0);
+  const root = tree(plan.agent, 0, rootInv?.id ?? null);
+  const specialists = invs.filter((i) => i.depth >= 1);
 
   const heightOf = (n: T): number => {
     const own = n.kind === "agent" ? AGENT.slot : CALL.slot;
@@ -39,9 +43,8 @@ export function layoutRun(plan: RunPlan): Layout {
     return Math.max(own, kids);
   };
 
-  const deep = (function depthOf(n: T): number { return n.kind === "agent" ? Math.max(0, ...n.children.map(depthOf)) + (n.children.some((c) => c.kind === "agent") ? 1 : 0) : 0; })(root) >= 2;
-  const X = deep ? COL_X_DEEP : COL_X;
-
+  const maxDepth = Math.max(0, ...invs.map((i) => i.depth));
+  const X = maxDepth >= 2 ? COL_X_DEEP : COL_X;
   const nodes: LayoutNode[] = [];
   const place = (n: T, top: number, col: number, parent: string | null) => {
     const H = heightOf(n);
@@ -62,8 +65,7 @@ export function layoutRun(plan: RunPlan): Layout {
   const rootBox = nodes[0].box;
   const colOf = (n: LayoutNode) => X.indexOf(n.box.x);
   const maxCol = nodes.reduce((m, n) => Math.max(m, colOf(n)), 0);
-  const rootKind = agentById(plan.agent)?.kind === "orchestrator" ? "orchestrator" : "agent";
-  const cols = [{ label: rootKind, x: X[0] }];
+  const cols = [{ label: specialists.length ? "orchestrator" : "agent", x: X[0] }];
   for (let c = 1; c <= maxCol; c++) {
     const inCol = nodes.filter((n) => colOf(n) === c);
     const agentsHere = inCol.some((n) => n.kind === "agent"), callsHere = inCol.some((n) => n.kind === "call");
@@ -71,7 +73,7 @@ export function layoutRun(plan: RunPlan): Layout {
     cols.push({ label, x: X[c] });
   }
   return {
-    width: deep ? 1330 : 1080, height, nodes, cols,
+    width: maxDepth >= 2 ? 1330 : 1080, height, nodes, cols,
     you: { x: 26, y: rootBox.y + rootBox.h / 2 - 26, w: 52, h: 52 },
   };
 }

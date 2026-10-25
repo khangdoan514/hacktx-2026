@@ -4,7 +4,6 @@
 // graph into one specialist definition per step plus an orchestrator that runs the
 // stages in order (see toSpecs).
 
-import { agentById } from "@/config/agents";
 import type { IconName } from "@/components/ui/Icon";
 import type { Spec } from "@/components/definitions/api";
 import type { AgentDef } from "@/lib/types";
@@ -108,19 +107,19 @@ export function flowFromStages(stages: PresetId[][], name = ""): Flow {
 }
 
 /** Turn an existing agent definition into a flow so it can be edited visually. */
-export function flowFromAgent(def: AgentDef): Flow {
+export function flowFromAgent(def: AgentDef, agentById: (id: string) => AgentDef | undefined): Flow {
   const flow = blankFlow();
   flow.name = def.name;
   flow.goal = def.kind === "orchestrator" ? def.instructions : "";
   flow.version = def.version;
   const make = (a: AgentDef) => {
     const n = newStep("custom", 0, 0);
-    Object.assign(n, { name: a.name, instructions: a.instructions, model: a.model, tools: [...a.tools], turns: a.limits.turns, seconds: a.limits.seconds });
+    Object.assign(n, { name: a.name, instructions: a.instructions, model: "", tools: [...a.tools], turns: a.limits.turns, seconds: a.limits.seconds });
     flow.nodes.push(n);
     return n.id;
   };
   const stages: AgentDef[][] = def.kind === "orchestrator"
-    ? (def.plan ?? def.delegates.map((d) => [d])).map((g) => g.map((id) => agentById(id)).filter((a): a is AgentDef => !!a))
+    ? def.delegates.map((d) => [agentById(d)].filter((a): a is AgentDef => !!a))
     : [[def]];
   let prev = ["start"];
   for (const stage of stages) {

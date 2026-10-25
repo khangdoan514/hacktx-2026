@@ -2,10 +2,14 @@ package opencode
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 func TestGlobMatch(t *testing.T) {
@@ -51,7 +55,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 	if cfg.DefaultAgent != "vendor-orchestrator" {
 		t.Fatalf("default_agent=%s", cfg.DefaultAgent)
 	}
-	if cfg.MCP == nil || len(cfg.MCP.Servers) != 1 {
+	if cfg.MCP == nil || len(cfg.MCP.Servers) != 2 {
 		t.Fatalf("catalog mcp missing: %+v", cfg.MCP)
 	}
 	raw, ok := cfg.MCP.Servers["catalog"]
@@ -88,7 +92,7 @@ func TestDepthEscalationDenied(t *testing.T) {
 		t.Fatal("depth gate mismatch")
 	}
 
-	for _, id := range []string{"vendor-orchestrator", "denial-orchestrator", "catalog-specialist", "accessibility-specialist", "denial-specialist", "build", "plan", "general", "explore"} {
+	for _, id := range []string{"vendor-orchestrator", "denial-orchestrator", "workspace-assistant", "catalog-specialist", "accessibility-specialist", "denial-specialist", "build", "plan", "general", "explore"} {
 		for _, rule := range cfg.Agents[id].Permissions {
 			if rule.Effect == "ask" {
 				t.Fatalf("%s uses ask: %+v", id, rule)
@@ -174,5 +178,59 @@ func TestDepthEscalationDenied(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("%s %s %s: got %s want %s", tc.agent, tc.action, tc.resource, got, tc.want)
 		}
+	}
+}
+
+// Every pack tool a definition lists must be allowed for that agent in
+// opencode.jsonc, and no agent may hold a pack tool its definition omits.
+func TestPackToolsMatchDefinitions(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Join(filepath.Dir(file), "..", "..")
+	cfg, err := loadProjectPolicy(filepath.Join(root, "opencode.jsonc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.MCP.Servers["tools"]; !ok {
+		t.Fatal("tools mcp server missing")
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "examples", "definitions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var defs []contracts.AgentDefinition
+	if err := json.Unmarshal(raw, &defs); err != nil {
+		t.Fatal(err)
+	}
+	for _, def := range defs {
+		rules := effectiveRules(cfg, def.ID)
+		for _, pack := range toolpacks.Packs() {
+			for _, tool := range pack.Tools {
+				want := "deny"
+				if listed(def.AllowedTools, pack.ToolID(tool)) {
+					want = "allow"
+				}
+				if got := permissionEffect(rules, pack.OpenCodeName(tool), "*"); got != want {
+					t.Fatalf("%s %s = %s, want %s", def.ID, pack.OpenCodeName(tool), got, want)
+				}
+			}
+		}
+		// The checked-in block must equal what PermissionsFor generates for pack tools.
+		for _, rule := range PermissionsFor(def) {
+			if strings.HasPrefix(rule.Action, "tools_") && permissionEffect(rules, rule.Action, "*") != "allow" {
+				t.Fatalf("%s: generated rule %+v is not in opencode.jsonc", def.ID, rule)
+			}
+		}
+	}
+}
+
+func TestContractIDMapping(t *testing.T) {
+	if got := canonicalToolID("tools_github_search_code"); got != "github.search_code" {
+		t.Fatal(got)
+	}
+	if got := canonicalToolID("tools_gdrive_read_file"); got != "gdrive.read_file" {
+		t.Fatal(got)
+	}
+	if got := canonicalToolID("catalog_search"); got != "catalog.search" {
+		t.Fatal(got)
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/khangdoan514/hacktx-2026/agents/internal/policy"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/threads"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 	"github.com/khangdoan514/hacktx-2026/internal/platform"
 )
 
@@ -91,6 +92,13 @@ func run() error {
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
 	extensions.NewAPI(reg, gw).Mount(mux)
 	threads.New(backend, workdir, "thread", model).Mount(mux)
+	// Built-in GitHub and Google Drive packs. The tools-mcp server named in
+	// opencode.jsonc reads the same credential directory.
+	toolpacks.NewAPI(
+		toolpacks.NewRunner(toolpacks.NewStore(envDefault("NMC3_TOOLS_DIR", ".nmc3"))),
+		envDefault("NMC3_PUBLIC_URL", "http://127.0.0.1"+portSuffix(addr)),
+		envDefault("NMC3_APP_URL", "http://localhost:3000"),
+	).Mount(mux)
 	closePlatform, err := mountPlatform(mux, platformDatabaseURL(), envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"))
 	if err != nil {
 		return err
@@ -99,6 +107,14 @@ func run() error {
 	server := http.Server{Addr: addr, Handler: guardInternal(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
+}
+
+// portSuffix turns a listen address like 127.0.0.1:8080 into ":8080".
+func portSuffix(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i >= 0 {
+		return addr[i:]
+	}
+	return ""
 }
 
 func envDefault(key, fallback string) string {
@@ -162,6 +178,12 @@ func guardInternal(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The OAuth redirect comes straight from the browser. Its single-use
+		// state value is the check.
+		if toolpacks.IsCallback(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		got := r.Header.Get(platform.InternalHeader)
 		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

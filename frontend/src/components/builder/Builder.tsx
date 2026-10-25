@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { agentById } from "@/config/agents";
-import { tools as toolCatalog } from "@/config/tools";
-import { models } from "@/config/workspace";
+import { models, toolTiles as pickable } from "@/lib/catalog";
+import { useStore } from "@/lib/store";
 import { DefinitionAPIError, definitionsApi } from "@/components/definitions/api";
 import PageHeader from "@/components/shell/PageHeader";
 import { useEmployee } from "@/components/shell/ConsoleGate";
@@ -17,8 +16,6 @@ import {
 import s from "./Builder.module.css";
 
 const STORE = "nmc3-builder-draft";
-// One entry per provider + name, so the two catalog ids do not show up as duplicates.
-const pickable = toolCatalog.filter((t, i, all) => all.findIndex((o) => o.name === t.name && o.provider === t.provider) === i);
 
 type Sel = { kind: "node" | "edge"; id: string } | null;
 type Notice = { tone: "ok" | "err"; text: string } | null;
@@ -34,6 +31,7 @@ const curve = (x1: number, y1: number, x2: number, y2: number) => {
 
 export default function Builder() {
   const employee = useEmployee();
+  const { agentById } = useStore();
   const [flow, setFlow] = useState<Flow>(blankFlow);
   const [sel, setSel] = useState<Sel>(null);
   const [link, setLink] = useState<{ from: string; x: number; y: number } | null>(null);
@@ -50,20 +48,27 @@ export default function Builder() {
   const viewRef = useRef(view);
   viewRef.current = view;
 
-  // Load: ?from=<agent id> opens an existing agent, otherwise resume the last draft.
+  // Load: ?from=<agent id> opens an existing agent once the roster has it, otherwise resume the last draft.
+  const fromId = useRef<string | null>(null);
   useEffect(() => {
-    const from = new URLSearchParams(window.location.search).get("from");
-    const def = from ? agentById(from) : undefined;
-    if (def) setFlow(flowFromAgent(def));
-    else {
+    fromId.current = new URLSearchParams(window.location.search).get("from");
+    if (!fromId.current) {
       try {
         const saved = window.localStorage.getItem(STORE);
         if (saved) setFlow(JSON.parse(saved) as Flow);
       } catch { /* a missing or corrupt draft just means a blank canvas */ }
+      setReady(true);
+      setFitTick((n) => n + 1);
     }
+  }, []);
+  useEffect(() => {
+    if (ready || !fromId.current) return;
+    const def = agentById(fromId.current);
+    if (!def) return;
+    setFlow(flowFromAgent(def, agentById));
     setReady(true);
     setFitTick((n) => n + 1);
-  }, []);
+  }, [agentById, ready]);
 
   useEffect(() => {
     if (!ready) return;

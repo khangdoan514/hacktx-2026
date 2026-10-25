@@ -295,5 +295,64 @@
       "max_cost_usd": 2,
       "timeout_seconds": 60
     }
+  },
+  {
+    "id": "workspace-assistant",
+    "version": "1.0.0",
+    "name": "Workspace assistant",
+    "role": "orchestrator",
+    "instructions": "Answer questions about the user's GitHub repositories and Google Drive documents using only the read-only tools you are given. Cite the url of every source. If a tool says it is not connected, report that and stop.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "answer",
+        "sources"
+      ],
+      "additionalProperties": false
+    },
+    "allowed_tools": [
+      "github.search_repositories",
+      "github.search_code",
+      "github.get_file",
+      "github.list_issues",
+      "github.get_issue",
+      "github.list_pull_requests",
+      "gdrive.search_files",
+      "gdrive.list_folder",
+      "gdrive.read_file"
+    ],
+    "allowed_delegates": [],
+    "limits": {
+      "max_delegations": 1,
+      "max_concurrent_agents": 1,
+      "max_tool_calls": 10,
+      "max_model_turns": 12,
+      "max_tokens": 20000,
+      "max_cost_usd": 2,
+      "timeout_seconds": 120
+    }
   }
 ]
