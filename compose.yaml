@@ -54,8 +54,17 @@ services:
       NMC3_DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
       NMC3_ADDR: 0.0.0.0:8080
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-docker-opencode}
+      # The host OpenCode process must listen on 0.0.0.0:49374. 127.0.0.1 is
+      # not reachable from this container. The session directory has to be the
+      # same absolute path on the host, because OpenCode reads that filesystem.
       OPENCODE_URL: ${OPENCODE_URL:-http://host.docker.internal:49374}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-opencode/beam-free}
+      OPENCODE_SERVICE_FILE: /run/opencode/service.json
+      OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-}
+      NMC3_WORKDIR: ${NMC3_WORKDIR:-${PWD}/agents}
+    volumes:
+      - ${NMC3_WORKDIR:-${PWD}/agents}:${NMC3_WORKDIR:-${PWD}/agents}:ro
+      - ${OPENCODE_SERVICE_FILE_HOST:-${HOME}/.config/opencode/service.json}:/run/opencode/service.json:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
