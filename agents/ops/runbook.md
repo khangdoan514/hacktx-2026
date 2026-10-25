@@ -2,7 +2,7 @@
 
 Use this when a local agent run fails, the API process stops, or a deployment rollback is in progress. Pair it with [install.md](install.md) for backup, restore, and process rollback, and with [observability.md](observability.md) for the log and trace fields.
 
-Service targets are unset. Do not page, scale, or raise a budget because a latency, throughput, availability, or cost number looks wrong. No such number has been measured.
+Service targets are unset. Load, backup-restore, and chaos checks have not been run. Do not page, scale, or raise a budget because a latency, throughput, availability, or cost number looks wrong. No such number has been measured.
 
 The current API has no production authentication. Use fictional data on a disposable database.
 
@@ -66,7 +66,7 @@ A read-only tool retry policy belongs to the runtime, not to this runbook. This 
 1. Stop copying the file. Identify the run id without repeating the secret.
 2. Remove or replace the exposed file. Rotate the credential with the procedure in [install.md](install.md).
 3. New records encoded as `metrics.LogLine` or `metrics.Span` replace sensitive fields and scrub bearer tokens, URL userinfo, assignments such as `password=`, and PEM blocks. Restricted fields (`prompt`, `instructions`, retrieved document text, raw model input) are dropped.
-4. Records that never passed through that encoder are unchanged. The `cmd/nmc3-agent` startup logger is one of those paths.
+4. Records that never passed through that encoder are unchanged. `cmd/nmc3-agent` still logs with the standard library at `main.go` line 26 (`log.Fatal`) and line 81 (`log.Printf`). Those lines stay outside this redactor until `metrics.Install` is called.
 
 ### Organization at its concurrency cap
 
@@ -91,4 +91,4 @@ No retention period is set. This package does not delete runs, events, or dumps.
 
 ## Checks this runbook does not replace
 
-The in-process limiter tests show that one process enforces an organization cap under parallel acquires. They are not a cluster load test. Backup, restore, process rollback, and crash drills in a shared environment are operator exercises and are not run by `go test ./ops/metrics`.
+Load, backup-restore, and chaos checks have not been run. The in-process limiter tests show that one process enforces an organization cap under parallel acquires. They are not a cluster load test. Backup, restore, process rollback, and crash drills in a shared environment are operator exercises and are not run by `go test ./ops/metrics`. Service targets remain unset. Rollback is still: start the last known-good binary against the same database.

@@ -7,8 +7,11 @@ package opencode
 // invocation tree, validates the structured result, and persists the run.
 // OpenCode configuration owns live tool and subagent policy. This layer
 // validates requests and structured results, records denials and session
-// usage, and enforces the wait deadline. Token and cost figures are stored
-// from that usage; they are not stop conditions here.
+// usage, and enforces submitted limits. The wait deadline records TIMEOUT.
+// max_tokens, max_cost_usd, max_model_turns, max_tool_calls, and
+// max_delegations record BUDGET_EXCEEDED, interrupt an in-flight session,
+// and do not accept further tool calls or child invocations.
+// max_concurrent_agents is not a stop condition in this layer.
 
 import (
 	"context"
@@ -127,6 +130,10 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	go c.execute(run, definition, req.Limits)
 	return run, nil
 }
+
+// budgetPollInterval is how often an in-flight session is checked against
+// submitted limits. Tests shorten it. The wait deadline stays on ctx.
+var budgetPollInterval = 200 * time.Millisecond
 
 // buildPrompt translates the NMC3 definition into session instructions. The
 // output schema travels with the prompt so the model returns a valid final
@@ -247,7 +254,7 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	c.emit(run.ID, &root.ID, "AGENT_STARTED", map[string]any{"depth": 0})
 	c.emit(run.ID, &root.ID, "MODEL_STARTED", nil)
 
-	output, usage, invocations, tools, runErr := c.collect(ctx, run, definition, &root)
+	output, usage, invocations, tools, runErr := c.collect(ctx, run, definition, &root, limits)
 	finish := now()
 	if runErr != nil {
 		log.Printf("NMC3 run %s failed: %v", run.ID, runErr)
@@ -281,28 +288,159 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	}
 }
 
-// collect waits for the session, then maps messages to NMC3 events, one
-// depth-1 invocation per completed subagent call, tool outcomes, cumulative
-// usage, and the validated final output.
-func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition contracts.AgentDefinition, root *contracts.AgentInvocation) (json.RawMessage, contracts.Usage, []contracts.AgentInvocation, []contracts.ToolInvocation, error) {
-	if err := c.client.Wait(ctx, run.OpenCodeSessionID); err != nil {
-		if ctx.Err() != nil {
-			return nil, contracts.Usage{}, nil, nil, &contracts.RunError{Code: contracts.ErrTimeout, Message: "run deadline exceeded"}
+func budgetError(message string) *contracts.RunError {
+	return &contracts.RunError{Code: contracts.ErrBudgetExceeded, Message: message}
+}
+
+func usageFrom(session Session) contracts.Usage {
+	return contracts.Usage{InputTokens: session.Tokens.Input, OutputTokens: session.Tokens.Output, CostUSD: session.Cost}
+}
+
+// usageStop applies the submitted token and cost caps to cumulative session
+// usage. MaxTokens is input plus output. Equal to the cap is still inside it.
+func usageStop(limits contracts.Limits, usage contracts.Usage) *contracts.RunError {
+	if int64(usage.InputTokens)+int64(usage.OutputTokens) > int64(limits.MaxTokens) {
+		return budgetError("token limit exceeded")
+	}
+	if usage.CostUSD > limits.MaxCostUSD {
+		return budgetError("cost limit exceeded")
+	}
+	return nil
+}
+
+// countStop reports the first turn, tool call, or delegation past its cap.
+// A subagent part consumes a delegation, not a tool call. The walk matches
+// the mapper: newest-first messages are counted oldest-first.
+func countStop(limits contracts.Limits, messages []Message) *contracts.RunError {
+	turns, toolCalls, delegations := 0, 0, 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if message.Type != "assistant" {
+			continue
+		}
+		turns++
+		if turns > limits.MaxModelTurns {
+			return budgetError("model turn limit exceeded")
+		}
+		for _, part := range message.Content {
+			if part.Type != "tool" {
+				continue
+			}
+			if part.Name == "subagent" {
+				delegations++
+				if delegations > limits.MaxDelegations {
+					return budgetError("delegation limit exceeded")
+				}
+				continue
+			}
+			toolCalls++
+			if toolCalls > limits.MaxToolCalls {
+				return budgetError("tool-call limit exceeded")
+			}
+		}
+	}
+	return nil
+}
+
+func limitStop(limits contracts.Limits, usage contracts.Usage, messages []Message) *contracts.RunError {
+	if stop := usageStop(limits, usage); stop != nil {
+		return stop
+	}
+	return countStop(limits, messages)
+}
+
+// peekBudget reads the live session without recording events. A read failure
+// leaves the wait in place; the next successful read or the final mapping
+// still enforces the same limits.
+func (c *Coordinator) peekBudget(ctx context.Context, sessionID string, limits contracts.Limits) *contracts.RunError {
+	session, err := c.client.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+	messages, err := c.client.Messages(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+	return limitStop(limits, usageFrom(session), messages)
+}
+
+// collect waits for the session, polling submitted limits while it runs.
+// Crossing one interrupts the session. The transcript is then mapped only
+// through the last in-budget action: a later tool call is not recorded and
+// a later delegation does not create a child.
+func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition contracts.AgentDefinition, root *contracts.AgentInvocation, limits contracts.Limits) (json.RawMessage, contracts.Usage, []contracts.AgentInvocation, []contracts.ToolInvocation, error) {
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- c.client.Wait(ctx, run.OpenCodeSessionID)
+	}()
+	var premature *contracts.RunError
+	ticker := time.NewTicker(budgetPollInterval)
+	defer ticker.Stop()
+	var waitErr error
+waitLoop:
+	for {
+		select {
+		case waitErr = <-waitDone:
+			break waitLoop
+		case <-ticker.C:
+			if premature != nil {
+				continue
+			}
+			stop := c.peekBudget(ctx, run.OpenCodeSessionID, limits)
+			if stop == nil {
+				continue
+			}
+			premature = stop
+			interruptCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = c.client.Interrupt(interruptCtx, run.OpenCodeSessionID)
+			cancel()
+		}
+	}
+	if premature == nil && ctx.Err() != nil {
+		return nil, contracts.Usage{}, nil, nil, &contracts.RunError{Code: contracts.ErrTimeout, Message: "run deadline exceeded"}
+	}
+	if waitErr != nil && premature == nil {
+		return nil, contracts.Usage{}, nil, nil, waitErr
+	}
+	readCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		readCtx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+	}
+	session, err := c.client.GetSession(readCtx, run.OpenCodeSessionID)
+	if err != nil {
+		if premature != nil {
+			return nil, contracts.Usage{}, nil, nil, premature
 		}
 		return nil, contracts.Usage{}, nil, nil, err
 	}
-	session, err := c.client.GetSession(ctx, run.OpenCodeSessionID)
+	messages, err := c.client.Messages(readCtx, run.OpenCodeSessionID)
 	if err != nil {
+		if premature != nil {
+			return nil, usageFrom(session), nil, nil, premature
+		}
 		return nil, contracts.Usage{}, nil, nil, err
 	}
-	messages, err := c.client.Messages(ctx, run.OpenCodeSessionID)
-	if err != nil {
-		return nil, contracts.Usage{}, nil, nil, err
+	output, usage, invocations, tools, mapErr := c.mapSession(run, definition, root, limits, session, messages)
+	// A limit observed while the session was still running wins over a later
+	// non-success outcome from the interrupt. A budget error in the final
+	// transcript names the cap that the recorded actions actually crossed.
+	if re, ok := mapErr.(*contracts.RunError); ok && re.Code == contracts.ErrBudgetExceeded {
+		return output, usage, invocations, tools, mapErr
 	}
-	usage := contracts.Usage{InputTokens: session.Tokens.Input, OutputTokens: session.Tokens.Output, CostUSD: session.Cost}
+	if premature != nil {
+		return output, usage, invocations, tools, premature
+	}
+	return output, usage, invocations, tools, mapErr
+}
+
+func (c *Coordinator) mapSession(run contracts.Run, definition contracts.AgentDefinition, root *contracts.AgentInvocation, limits contracts.Limits, session Session, messages []Message) (json.RawMessage, contracts.Usage, []contracts.AgentInvocation, []contracts.ToolInvocation, error) {
+	usage := usageFrom(session)
 	var invocations []contracts.AgentInvocation
 	var tools []contracts.ToolInvocation
 	var lastText string
+	turns, toolCalls, delegations := 0, 0, 0
 	// The message list is newest-first; walk chronologically so progress
 	// events stay ordered and the final text is the newest one.
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -310,9 +448,24 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 		if message.Type != "assistant" {
 			continue
 		}
+		turns++
+		if turns > limits.MaxModelTurns {
+			return nil, usage, invocations, tools, budgetError("model turn limit exceeded")
+		}
 		for _, part := range message.Content {
 			switch part.Type {
 			case "tool":
+				if part.Name == "subagent" {
+					delegations++
+					if delegations > limits.MaxDelegations {
+						return nil, usage, invocations, tools, budgetError("delegation limit exceeded")
+					}
+				} else {
+					toolCalls++
+					if toolCalls > limits.MaxToolCalls {
+						return nil, usage, invocations, tools, budgetError("tool-call limit exceeded")
+					}
+				}
 				toolID := canonicalToolID(part.Name)
 				toolInvocation := contracts.ToolInvocation{ID: id("tool-"), RunID: run.ID, AgentInvocationID: root.ID, ToolID: toolID, ToolVersion: "opencode", StartedAt: now()}
 				finished := now()
@@ -348,6 +501,9 @@ func (c *Coordinator) collect(ctx context.Context, run contracts.Run, definition
 				}
 			}
 		}
+	}
+	if stop := usageStop(limits, usage); stop != nil {
+		return nil, usage, invocations, tools, stop
 	}
 	if session.Outcome != "" && session.Outcome != "succeeded" {
 		message := "agent session ended as " + session.Outcome

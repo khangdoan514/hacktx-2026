@@ -8,12 +8,14 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 )
 
 // StateWaiting is the run hold while a protected write has no decision.
-// The shared contracts.State enum does not include it yet; the coordinator
-// applies this value while ApprovalWaiting is current.
-const StateWaiting = "WAITING"
+// It is the same value as contracts.StateWaiting. The coordinator applies it
+// while ApprovalWaiting is current.
+const StateWaiting = string(contracts.StateWaiting)
 
 const DefaultApprovalTTL = 24 * time.Hour
 

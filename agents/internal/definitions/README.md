@@ -1,6 +1,6 @@
 # Definition registry
 
-This package is the Pass 2 definition lifecycle. It stores agent definitions as versioned records, validates them, and pins a run to the exact version it started with. It does not serve HTTP and it does not edit the website. `agents/cmd/nmc3-agent` still loads `agents/examples/definitions.json` directly; wiring `ResolveForNewRun` and `PinRun` into run creation is later integrator work. The example file format is unchanged.
+This package is the Pass 2 definition lifecycle. It stores agent definitions as versioned records, validates them, serves the draft/test/publish/revise/retire/get/export HTTP API, and pins a run to the exact version it started with. Canonical form is JSON. `agents/cmd/nmc3-agent` still loads `agents/examples/definitions.json` directly and does not call `ResolveAndPinRun`. It mounts `Handler` when `DATABASE_URL` is set. The example file format is unchanged.
 
 ## Lifecycle
 
@@ -30,6 +30,7 @@ Rules:
 - Empty tool and delegate lists are `[]`.
 - `model_policy` is omitted when it has no default and no allow list. That is why `examples/definitions.json` still unmarshals into the v1 `AgentDefinition`.
 - Schema documents use the v1 subset: `type`, `properties`, `required`, `items`, `enum`, and boolean `additionalProperties`. Other keywords fail with a field path.
+- JSON numbers keep their spelling. `1` and `1.0` are different bytes and hash differently. The website sends the shortest JSON number (`1`, not `1.0`).
 
 `MarshalDefinitions` writes `{"schema_version":"1","definitions":[...]}`. `Export` writes a backup with `tools` and `versions`, including lifecycle metadata. `Parse` accepts the example array and the definitions envelope. `Import` also accepts a backup. A backup restores the recorded publisher and state; the actor argument is not written over them. Restoring into a registry that already has a different body or state for that version fails the whole import.
 
@@ -43,7 +44,73 @@ Schema version `1` is the only version this package reads or writes. The databas
 
 `PinRun` copies a published spec onto `(run id, agent id)`. The pin row is immutable. Publishing version B, or retiring version A, does not change a pin of A. `Pinned` returns that snapshot. `ResolveForNewRun` returns only a published version; a retired version returns `RETIRED` and a missing version returns `NOT_FOUND`.
 
-Call `PinRun` for the root agent and again for each delegate at run start. Do not retarget an existing pin when a newer version is published.
+Call `ResolveAndPinRun` once at run start, when the run id exists and before any model turn. It resolves the published root and pins that agent plus each direct `allowed_delegates` entry at the same version. A missing, unpublished, or retired root or delegate returns an error and writes no new pins. Do not retarget an existing pin when a newer version is published. `PinRun` still pins one agent; use it only when the caller already resolved that version.
+
+## HTTP
+
+`Handler` and `Mount` serve one tenant, the registry's tenant. Mutations require the `X-NMC3-Actor` header. Bodies are JSON. Draft and publish take one definition object, the same object `SaveDraftJSON` and `PublishJSON` accept. There is no YAML body.
+
+| Method | Path | Body |
+| --- | --- | --- |
+| `GET` | `/v1/definitions` | List. `?id=&version=` returns one version, including retired. |
+| `POST` | `/v1/definitions/draft` | Definition object. |
+| `POST` | `/v1/definitions/test` | `{"id","version"}` |
+| `POST` | `/v1/definitions/publish` | Definition object. |
+| `POST` | `/v1/definitions/revise` | `{"id","from_version","spec"}`. `spec.version` is the new version. |
+| `POST` | `/v1/definitions/retire` | `{"id","version"}` |
+| `GET` | `/v1/definitions/export` | Canonical backup from `Export`. |
+
+A success body is `{"definition":...}` or `{"definitions":[...]}`. Export writes the backup bytes as stored.
+
+Invalid publish returns 400 `INVALID_INPUT` and writes nothing:
+
+```json
+{"error":{"code":"INVALID_INPUT","message":"definition is invalid","fields":[{"field":"name","message":"is required"}]}}
+```
+
+`fields[].field` is the JSON path (`limits.max_tokens`, `allowed_delegates[0]`). Not found is 404. Retired, immutable, and conflict are 409. A published body cannot be replaced; `revise` creates the next version and leaves the source version in place.
+
+The website at `frontend/src/app/(console)/definitions/page.tsx` posts these routes through `/agent-api/definitions/*`. Next rewrites that prefix to `${AGENT_API_URL}/v1/*`.
+
+## Wiring main.go
+
+`agents/cmd/nmc3-agent` mounts this handler when `DATABASE_URL` is set. Without that variable the process still returns 404 for `/v1/definitions`. `TestHTTPWebsiteFlow` serves `Handler` and performs the page's draft, test, and publish requests, including the pin check.
+
+`Mount` registers absolute paths. Put it on the process mux before the catch-all run API so `/v1/definitions` is not swallowed:
+
+```go
+reg, err := definitions.Open(ctx, os.Getenv("DATABASE_URL"))
+if err != nil {
+    return err
+}
+defer reg.Close()
+
+mux := http.NewServeMux()
+definitions.Mount(mux, reg)
+mux.Handle("/", httpapi.New(coordinator, runs, events, fileDefinitions))
+server := http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+```
+
+Import the example file once before serving, using the existing `Import` call in this README. The file-loaded slice can stay in the OpenCode constructor until run creation reads the registry.
+
+At run start, after the run id is chosen and before the coordinator starts work:
+
+```go
+pins, err := reg.ResolveAndPinRun(ctx, runID, req.AgentID, req.AgentVersion)
+if err != nil {
+    return err
+}
+```
+
+`req` is a `contracts.StartRunRequest`. `pins` contains the root and its direct delegates. Do not call this again to follow a newer publish.
+
+To try the page without editing `main.go`, from `agents/`:
+
+```sh
+NMC3_DEFINITIONS_ADDR=127.0.0.1:8091 go test ./internal/definitions/ -run TestDefinitionsListen -count=1
+```
+
+That process is an in-memory registry. From `frontend/`, with `AGENT_API_URL=http://127.0.0.1:8091`, open `/definitions`. The console rail does not link here.
 
 ## Storage
 
@@ -82,7 +149,7 @@ Re-importing the same file is a no-op (`Unchanged`). A changed body for a publis
 | `IMMUTABLE` | A published body, tool version, or pin would change. |
 | `CONFLICT` | The name is taken, or a backup does not match the stored row. |
 
-`INVALID_INPUT` and `NOT_FOUND` use the same strings as the v1 run codes. `RETIRED`, `IMMUTABLE`, and `CONFLICT` are not run error codes. Do not copy them into `RunError` without a contract change. A later HTTP layer can map invalid input to 400, not found to 404, and the other three to 409.
+`INVALID_INPUT` and `NOT_FOUND` use the same strings as the v1 run codes. `RETIRED`, `IMMUTABLE`, and `CONFLICT` are not run error codes. Do not copy them into `RunError` without a contract change. The HTTP handler maps invalid input to 400, not found to 404, and the other three to 409. The error object includes `fields` when a definition was rejected.
 
 ## What later passes must not break
 
@@ -95,7 +162,7 @@ Re-importing the same file is a no-op (`Unchanged`). A changed body for a publis
 - New SQL columns need defaults. Update the immutability triggers in the same migration if a published row would otherwise be rewritten.
 - Do not grant `anon` or `authenticated` access to these tables.
 - Do not shrink the current limits: ids 256, versions 128, names 200, instructions 100000.
-- YAML and the website editor are not part of this package. Add them without a second canonical form; they must hash to the same bytes as `Canonical`.
+- Canonical form stays JSON. Do not add YAML or a second hash input. The website posts the same definition object as `PublishJSON`, and the stored hash is `Canonical`.
 
 ## Tests
 

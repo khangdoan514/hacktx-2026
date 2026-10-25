@@ -220,3 +220,10 @@ func (c *Client) Messages(ctx context.Context, sessionID string) ([]Message, err
 	}
 	return out.Data, nil
 }
+
+// Interrupt stops active execution in the OpenCode session. An idle session
+// is a no-op on the server. Callers use it when a submitted limit is already
+// exceeded so the session does not keep running tools or subagents.
+func (c *Client) Interrupt(ctx context.Context, sessionID string) error {
+	return c.call(ctx, http.MethodPost, "/api/session/"+sessionID+"/interrupt", nil, nil)
+}

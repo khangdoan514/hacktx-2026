@@ -36,7 +36,11 @@ The product application's scripted adapter (`internal/agents/dummy`, script
 service.
 
 The first pass is not fully complete. This machine's CLI is `opencode
-v2.1.4`. A live policy check against that binary has not been run.
+v2.1.4`. A live permission check against that binary passed: with the
+session directory set to this module, a denied subagent creates no child,
+shell and reads of `fixtures/catalog/vendors.json` are denied, and
+`catalog_search` is allowed. Details are in
+[first-pass.md](docs/first-pass.md).
 `db/migrations/202610240003_nmc3_event_source.sql` is applied on the hosted
 database.
 
@@ -52,7 +56,7 @@ From the repository root, `./script/dev.sh` runs `agents/script/setup.sh` and th
 
 Run `go test ./...` in `agents/`, and `npm run lint && npm run build` in `frontend/`. Postgres tests skip without `NMC3_TEST_DATABASE_URL`. The scripted OpenCode tests need no provider credentials and no database. Live runs need the local OpenCode service and Supabase, or `NMC3_STORE=postgres` with `DATABASE_URL`.
 
-Pass 1 persists completed run history and ordered events. An in-flight run interrupted by an API restart is **not** automatically resumed; automatic recovery belongs to Pass 3. Submitted limits must be positive. The wait deadline is enforced (`TIMEOUT` when `timeout_seconds` elapses). Token and cost on the run are copied from OpenCode session usage; crossing `max_tokens` or `max_cost_usd` does not stop the run. Turn, tool-call, delegation, and concurrency limits are not stop conditions in this service. This local API has no production authentication or tenant isolation and should use fictional data only.
+Pass 1 persists completed run history and ordered events. An in-flight run interrupted by an API restart is **not** automatically resumed; automatic recovery belongs to Pass 3. Submitted limits must be positive. The wait deadline is enforced (`TIMEOUT` when `timeout_seconds` elapses). Token and cost on the run are copied from OpenCode session usage. Crossing `max_tokens` (input plus output), `max_cost_usd`, `max_model_turns`, `max_tool_calls`, or `max_delegations` stops the run with `BUDGET_EXCEEDED` and does not accept further tool calls or child invocations; an in-flight OpenCode session is interrupted. `max_concurrent_agents` is not a stop condition. This local API has no production authentication or tenant isolation and should use fictional data only. The first pass is not complete: concurrency, the browser flow, storage restart, and a live model vendor comparison are still open.
 
 ## Guiding rules
 

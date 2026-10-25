@@ -223,8 +223,9 @@ func (f HandlerFunc) Execute(ctx context.Context, step Step, progress Progress) 
 }
 
 // Store is the journal plus the Pass 1 run and event interfaces.
-// *Memory is the reference implementation. It does not wrap store.Postgres;
-// an integrator can project snapshots through the same interfaces.
+// *Memory is the reference implementation. *Postgres is the same journal on
+// the nmc3 tables from migrations 001, 003, and 005. Neither replaces the
+// Supabase run store.
 type Store interface {
 	contracts.RunStore
 	contracts.EventSink

@@ -10,9 +10,9 @@ product direction in [product-spec.md](product-spec.md) or the Pass 1
 acceptance list in [first-pass.md](first-pass.md); it changes which code
 executes runs. The first pass is not fully complete. Phase 0 was checked
 against OpenCode V2 (`opencode v2.0.26`). This machine's CLI is `opencode
-v2.1.4`. A live permission check against that binary has not been run.
-`db/migrations/202610240003_nmc3_event_source.sql` is applied on the hosted
-database.
+v2.1.4`. A live permission check against that binary passed for the cases
+in the Phase 3 result. `db/migrations/202610240003_nmc3_event_source.sql`
+is applied on the hosted database.
 
 ## Why
 
@@ -122,8 +122,8 @@ list or read MCP resources. The Go service maps `catalog_search` back to the
 contract id `catalog.search` and records any other tool as `TOOL_NOT_ALLOWED`.
 Denied delegations are `AGENT_NOT_ALLOWED` or `DELEGATION_DEPTH_EXCEEDED` and
 do not create a child. `go test` evaluates the same last-match rules OpenCode
-documents. This machine's CLI is `opencode v2.1.4`. A live check against
-that binary has not been run.
+documents. This machine's CLI is `opencode v2.1.4`. The live check of that
+binary is recorded in the Phase 3 result.
 
 ## Phase 3 result (completed 2026-10-24)
 
@@ -145,13 +145,42 @@ stay. They are the product application's scripted adapter
 Submitted run limits must be positive. The wait deadline
 (`limits.timeout_seconds`) cancels the OpenCode wait and records `TIMEOUT`.
 Token and cost figures on a run are copied from OpenCode session usage.
-This service does not stop a run for `max_tokens`, `max_cost_usd`, turn
-count, tool-call count, or delegation count.
+`max_tokens` (input plus output), `max_cost_usd`, `max_model_turns`,
+`max_tool_calls`, and `max_delegations` are stop conditions. Crossing one
+interrupts the in-flight session, finishes the run with `BUDGET_EXCEEDED`,
+and does not record a further tool call or create a further child.
+`max_concurrent_agents` is accepted and is not a stop condition.
 
 `README.md`, `first-pass.md`, and this plan describe that shape. This
-machine's CLI is `opencode v2.1.4`. A live permission check against that
-binary has not been run. The event-source migration is applied on the
-hosted database. The first pass is not claimed complete.
+machine's CLI is `opencode v2.1.4`. The live permission check below passed.
+The event-source migration is applied on the hosted database. The first
+pass is not claimed complete: concurrency is not enforced, and the browser
+flow, storage restart, and a live model vendor comparison were not re-run.
+
+Live permission check, 2026-10-24. Nothing was listening on
+`http://127.0.0.1:49374`, and no service password was configured.
+`opencode serve --hostname 127.0.0.1 --port 49374 --service` was started
+with the agents module as its working directory and logged
+`server listening on http://127.0.0.1:49374`. `--service` wrote
+`~/.config/opencode/service.json`; the password is not recorded here.
+Sessions set `location.directory` to that module so `agents/opencode.jsonc`
+loaded. `POST /api/session/{id}/permission` showed:
+
+- `denial-specialist` subagent `catalog-specialist`: `deny`, and
+  `GET /api/session?parentID=` returned no children.
+- `catalog-specialist` shell `cat fixtures/catalog/vendors.json`: `deny`.
+- `catalog-specialist` read of `fixtures/catalog/vendors.json` and of the
+  absolute path: `deny`.
+- `catalog-specialist` `catalog_search`: `allow` on the recheck and on
+  every later session. The first evaluation on
+  `ses_e8f33927fffe9TsdUKB0b4j0fU` returned `deny` once; that same session
+  later returned `allow`.
+- Denied subagent and shell checks created no children.
+  `vendor-orchestrator` may request `catalog-specialist` (`allow`) and may
+  not request `general` (`deny`).
+
+The serve process was stopped after the check. Scripted coordinator tests
+cover the budget stops and the wait deadline; they do not call this server.
 
 ## Migration phases
 

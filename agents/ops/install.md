@@ -2,6 +2,8 @@
 
 This is a workstation procedure for a disposable database. It is not a production deployment. Apply it only to a Postgres instance or Supabase project you can throw away. `agents/ops/env.example` lists the environment names with every secret left blank. Put real values in a gitignored file or a shell you control, never in this tree.
 
+Load, backup-restore, and chaos checks have not been run. The backup, restore, and rollback sections are the procedure. They are not a record of an exercise against this checkout, and they contain no measured latency, throughput, recovery, availability, or cost figure.
+
 The operations package does not change the `/v1` API or the checked-in schema. Supported request and response shapes remain the fixtures in `agents/fixtures/api/v1`.
 
 ## Prerequisites
@@ -25,15 +27,20 @@ Run commands from `agents/` unless a step says otherwise.
 
 2. Create a gitignored environment from [env.example](env.example). For the dump and restore steps, set `NMC3_STORE=postgres` and set `DATABASE_URL` to the disposable database. Leave `SUPABASE_SECRET_KEY` and `OPENCODE_SERVICE_PASSWORD` empty in any file that could be committed.
 
-3. Apply the schema in filename order. Stop on the first error.
+3. Apply the schema in filename order, `001` through `006`. Stop on the first error.
 
    ```sh
    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/202610240001_nmc3_pass1.sql
    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/202610240002_nmc3_data_api.sql
    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/202610240003_nmc3_event_source.sql
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/202610240004_nmc3_approvals.sql
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/202610240005_nmc3_durable.sql
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/202610240006_nmc3_definitions.sql
    ```
 
-   On a disposable Supabase project, run those same three files in that order in the SQL editor. Prefer direct Postgres when you need the `pg_dump` path below. The SQL editor path does not by itself give you this rollback procedure. Re-run the three files in this order if you need to reapply them. Do not re-run `202610240002` by itself after `202610240003`: both files replace `nmc3_append_event`, and the later file is the one that writes `source`.
+   Use that list only on a disposable database. Migrations `003` through `006` are already applied on the hosted Supabase project `vocvwmiypifqnncxhfpj` (`https://vocvwmiypifqnncxhfpj.supabase.co`). This procedure does not apply SQL to that project and does not connect to it.
+
+   On another disposable Supabase project, run those same six files in that order in the SQL editor. Prefer direct Postgres when you need the `pg_dump` path below. The SQL editor path does not by itself give you this rollback procedure. Re-run the six files in this order on a disposable database if you need to reapply them. Do not re-run `202610240002` by itself after `202610240003`: both files replace `nmc3_append_event`, and the later file is the one that writes `source`.
 
 4. Start the API only when you intend to exercise it. From `agents/`:
 
@@ -49,13 +56,18 @@ Run commands from `agents/` unless a step says otherwise.
 
 ## What the schema change is
 
+Migrations `003` through `006` are already applied on hosted project `vocvwmiypifqnncxhfpj` (`https://vocvwmiypifqnncxhfpj.supabase.co`). The table is the disposable-database order. Do not apply these files to that hosted project.
+
 | Order | File | Effect on an existing local database |
 | --- | --- | --- |
 | 1 | `db/migrations/202610240001_nmc3_pass1.sql` | Creates the private `nmc3` schema and run, invocation, turn, tool, and event tables when they are absent |
 | 2 | `db/migrations/202610240002_nmc3_data_api.sql` | Grants `service_role` and creates or replaces the service RPCs |
 | 3 | `db/migrations/202610240003_nmc3_event_source.sql` | Adds `nmc3.run_events.source` when it is absent and replaces the event RPC |
+| 4 | `db/migrations/202610240004_nmc3_approvals.sql` | Creates policy, approval, decision, protected-write, and audit tables when they are absent |
+| 5 | `db/migrations/202610240005_nmc3_durable.sql` | Creates idempotency, attempt, checkpoint, lease, and cancellation tables when they are absent |
+| 6 | `db/migrations/202610240006_nmc3_definitions.sql` | Creates agent and tool definition tables and immutable run pins when they are absent |
 
-There is no down migration. A failed `psql` invocation with `ON_ERROR_STOP` leaves the statements that already committed applied. Tables and the `source` column are created with `if not exists`, and the functions use `create or replace`. Reapplying the three files in order is the local repair. Dropping `nmc3` is not a repair.
+There is no down migration. A failed `psql` invocation with `ON_ERROR_STOP` leaves the statements that already committed applied. Tables and the `source` column are created with `if not exists`, and the functions use `create or replace`. Reapplying the six files in order is the local repair on a disposable database. Dropping `nmc3` is not a repair.
 
 ## Backup
 
@@ -110,11 +122,11 @@ Rotate a local credential without writing the value into a log, a ticket, or git
 2. Update the gitignored environment. The process reads `SUPABASE_SECRET_KEY`, `OPENCODE_SERVICE_PASSWORD`, and `DATABASE_URL` from the environment at startup. `DATABASE_URL` can embed a password; prefer a local socket or a password file the database client already supports when you have a choice.
 3. Stop the old process so it cannot keep using the previous value, then start it again.
 4. `GET` a known committed run. Then revoke the previous credential.
-5. If a shell transcript or a log file might contain the previous value, treat that file as exposed and remove it. `metrics.LogLine` and `metrics.Span` redact structured records passed through them. The current `cmd/nmc3-agent` logger does not call that package.
+5. If a shell transcript or a log file might contain the previous value, treat that file as exposed and remove it. `metrics.LogLine` and `metrics.Span` redact structured records passed through `metrics.Install`. `cmd/nmc3-agent` does not call `Install`. The standard-library lines are `main.go` line 26 (`log.Fatal`) and line 81 (`log.Printf`).
 
 ## Compatibility
 
 - Supported API: the `/v1` shapes in `agents/internal/contracts` and `agents/fixtures/api/v1`. This package does not add a version and does not change those shapes.
-- Supported schema: the three migrations above, applied in name order. A later migration has to keep committed run rows readable by the previous binary, or it has to ship a documented forward repair that does not drop those rows.
+- Supported schema: the six migrations above, applied in name order from `001` through `006`. Migrations `003` through `006` are already applied on hosted project `vocvwmiypifqnncxhfpj` (`https://vocvwmiypifqnncxhfpj.supabase.co`). Do not apply SQL to that project. A later migration has to keep committed run rows readable by the previous binary, or it has to ship a documented forward repair that does not drop those rows.
 - Organization concurrency is an in-process control in `metrics.Limiter`. The API process does not read a concurrency environment variable. Two OS processes do not share one cap. Do not start extra copies and expect the cap to cover the sum.
-- Upgrade, backup, and restore against a live shared environment are operator exercises. They are not executed by the package tests.
+- Load, backup-restore, and chaos checks have not been run. Upgrade, backup, and restore against a live shared environment are operator exercises. They are not executed by the package tests. Rollback is still: start the last known-good binary against the same database.

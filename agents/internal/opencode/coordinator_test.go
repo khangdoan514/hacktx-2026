@@ -14,15 +14,18 @@ import (
 )
 
 type fakeBackend struct {
-	mu       sync.Mutex
-	auth     []string
-	requests []string
-	model    map[string]string
-	agent    string
-	messages []Message
-	outcome  string
-	tokens   struct{ in, out int }
-	cost     float64
+	mu          sync.Mutex
+	auth        []string
+	requests    []string
+	model       map[string]string
+	agent       string
+	messages    []Message
+	outcome     string
+	tokens      struct{ in, out int }
+	cost        float64
+	holdWait    bool
+	release     chan struct{}
+	interrupted bool
 }
 
 func (f *fakeBackend) handler() http.Handler {
@@ -53,7 +56,27 @@ func (f *fakeBackend) handler() http.Handler {
 		case strings.HasSuffix(r.URL.Path, "/prompt"):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"data":{"id":"msg-1"}}`))
+		case strings.HasSuffix(r.URL.Path, "/interrupt"):
+			f.mu.Lock()
+			if !f.interrupted {
+				f.interrupted = true
+				if f.release != nil {
+					close(f.release)
+				}
+			}
+			f.mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"interrupted":true}`))
 		case strings.HasSuffix(r.URL.Path, "/wait"):
+			f.mu.Lock()
+			hold, rel := f.holdWait, f.release
+			f.mu.Unlock()
+			if hold && rel != nil {
+				select {
+				case <-rel:
+				case <-r.Context().Done():
+				}
+			}
 			w.WriteHeader(http.StatusNoContent)
 		case strings.HasSuffix(r.URL.Path, "/message"):
 			f.mu.Lock()
@@ -172,17 +195,26 @@ func waitRun(t *testing.T, m *memory, id string) contracts.Run {
 	return contracts.Run{}
 }
 
+func openLimits() contracts.Limits {
+	return contracts.Limits{MaxDelegations: 2, MaxConcurrentAgents: 2, MaxToolCalls: 2, MaxModelTurns: 4, MaxTokens: 10000, MaxCostUSD: 10, TimeoutSeconds: 5}
+}
+
 func start(t *testing.T, c *Coordinator, model string) (contracts.Run, *memory) {
+	t.Helper()
+	return startLimits(t, c, model, openLimits()), nil
+}
+
+func startLimits(t *testing.T, c *Coordinator, model string, limits contracts.Limits) contracts.Run {
 	t.Helper()
 	r, err := c.Start(context.Background(), contracts.StartRunRequest{
 		AgentID: "root", AgentVersion: "1.0.0", ModelID: model,
 		Input:  json.RawMessage(`{}`),
-		Limits: contracts.Limits{MaxDelegations: 2, MaxConcurrentAgents: 2, MaxToolCalls: 2, MaxModelTurns: 4, MaxTokens: 100, MaxCostUSD: 1, TimeoutSeconds: 5},
+		Limits: limits,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return r, nil
+	return r
 }
 
 func TestSuccessfulRunMapsSession(t *testing.T) {
@@ -473,4 +505,185 @@ func TestNewestFirstMessageOrder(t *testing.T) {
 	if run.State != contracts.StateSucceeded || string(run.Output) != `{"ok":true}` {
 		t.Fatalf("run=%+v", run)
 	}
+}
+
+func TestSubmittedLimitsStopTheRun(t *testing.T) {
+	subagent := map[string]any{"type": "tool", "name": "subagent", "state": map[string]any{"status": "completed", "input": map[string]any{"agent": "one"}}}
+	catalog := map[string]any{"type": "tool", "name": "catalog_search", "state": map[string]any{"status": "completed"}}
+	cases := []struct {
+		name     string
+		limits   contracts.Limits
+		messages []Message
+		tokens   struct{ in, out int }
+		cost     float64
+		children int
+		tools    int
+		message  string
+	}{
+		{
+			name:     "tokens",
+			limits:   withLimit(openLimits(), func(l *contracts.Limits) { l.MaxTokens = 100 }),
+			messages: []Message{assistantMessage(map[string]any{"type": "text", "text": `{"ok":true}`})},
+			tokens:   struct{ in, out int }{80, 30},
+			children: 0,
+			message:  "token limit exceeded",
+		},
+		{
+			name:     "cost",
+			limits:   withLimit(openLimits(), func(l *contracts.Limits) { l.MaxCostUSD = 1 }),
+			messages: []Message{assistantMessage(map[string]any{"type": "text", "text": `{"ok":true}`})},
+			cost:     1.5,
+			children: 0,
+			message:  "cost limit exceeded",
+		},
+		{
+			name:   "turns",
+			limits: withLimit(openLimits(), func(l *contracts.Limits) { l.MaxModelTurns = 1 }),
+			messages: []Message{
+				assistantMessage(subagent, map[string]any{"type": "text", "text": `{"ok":true}`}),
+				assistantMessage(map[string]any{"type": "text", "text": "working"}),
+			},
+			children: 0,
+			message:  "model turn limit exceeded",
+		},
+		{
+			name:     "tool calls",
+			limits:   withLimit(openLimits(), func(l *contracts.Limits) { l.MaxToolCalls = 1 }),
+			messages: []Message{assistantMessage(catalog, catalog, map[string]any{"type": "text", "text": `{"ok":true}`})},
+			children: 0,
+			tools:    1,
+			message:  "tool-call limit exceeded",
+		},
+		{
+			name:     "delegations",
+			limits:   withLimit(openLimits(), func(l *contracts.Limits) { l.MaxDelegations = 1 }),
+			messages: []Message{assistantMessage(subagent, subagent, map[string]any{"type": "text", "text": `{"ok":true}`})},
+			children: 1,
+			tools:    1,
+			message:  "delegation limit exceeded",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeBackend{outcome: "succeeded", cost: tc.cost, messages: tc.messages}
+			backend.tokens.in, backend.tokens.out = tc.tokens.in, tc.tokens.out
+			server := httptest.NewServer(backend.handler())
+			defer server.Close()
+			client, err := NewClient(server.URL, "secret", server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			mem := newMemory()
+			defs := testDefs()
+			defs[0].AllowedTools = []string{"catalog.search"}
+			c, err := New(defs, client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := startLimits(t, c, "", tc.limits)
+			run := waitRun(t, mem, started.ID)
+			if run.State != contracts.StateFailed || run.Error == nil || run.Error.Code != contracts.ErrBudgetExceeded || run.Error.Message != tc.message {
+				t.Fatalf("run=%+v", run)
+			}
+			if run.Output != nil {
+				t.Fatalf("output accepted after stop: %s", run.Output)
+			}
+			if len(run.Invocations) != 1+tc.children {
+				t.Fatalf("invocations=%+v", run.Invocations)
+			}
+			if len(run.ToolInvocations) != tc.tools {
+				t.Fatalf("tools=%+v", run.ToolInvocations)
+			}
+			events, _ := mem.List(context.Background(), run.ID, 0)
+			if !eventCode(t, events, "RUN_FAILED", string(contracts.ErrBudgetExceeded)) {
+				t.Fatalf("events=%+v", events)
+			}
+			if tc.name == "tokens" && (run.Usage.InputTokens != 80 || run.Usage.OutputTokens != 30) {
+				t.Fatalf("usage=%+v", run.Usage)
+			}
+			if tc.name == "cost" && run.Usage.CostUSD != 1.5 {
+				t.Fatalf("usage=%+v", run.Usage)
+			}
+		})
+	}
+}
+
+func TestTokenLimitAllowsExactTotal(t *testing.T) {
+	backend := &fakeBackend{outcome: "succeeded"}
+	backend.tokens.in, backend.tokens.out = 60, 40
+	backend.messages = []Message{assistantMessage(map[string]any{"type": "text", "text": `{"ok":true}`})}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, _ := NewClient(server.URL, "secret", server.Client())
+	mem := newMemory()
+	c, _ := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+	limits := openLimits()
+	limits.MaxTokens = 100
+	started := startLimits(t, c, "", limits)
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateSucceeded || run.Usage.InputTokens+run.Usage.OutputTokens != 100 {
+		t.Fatalf("run=%+v", run)
+	}
+}
+
+func TestDelegationLimitInterruptsSession(t *testing.T) {
+	subagent := map[string]any{"type": "tool", "name": "subagent", "state": map[string]any{"status": "completed", "input": map[string]any{"agent": "one"}}}
+	backend := &fakeBackend{
+		outcome:  "succeeded",
+		holdWait: true,
+		release:  make(chan struct{}),
+		messages: []Message{assistantMessage(subagent, subagent, map[string]any{"type": "text", "text": `{"ok":true}`})},
+	}
+	previous := budgetPollInterval
+	budgetPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { budgetPollInterval = previous })
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, _ := NewClient(server.URL, "secret", server.Client())
+	mem := newMemory()
+	c, _ := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+	limits := openLimits()
+	limits.MaxDelegations = 1
+	limits.TimeoutSeconds = 3
+	started := startLimits(t, c, "", limits)
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateFailed || run.Error == nil || run.Error.Code != contracts.ErrBudgetExceeded {
+		t.Fatalf("run=%+v", run)
+	}
+	if len(run.Invocations) != 2 {
+		t.Fatalf("invocations=%+v", run.Invocations)
+	}
+	backend.mu.Lock()
+	interrupted := backend.interrupted
+	backend.mu.Unlock()
+	if !interrupted {
+		t.Fatal("in-flight session was not interrupted")
+	}
+}
+
+func TestDeadlineRecordsTimeout(t *testing.T) {
+	backend := &fakeBackend{holdWait: true, release: make(chan struct{})}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, _ := NewClient(server.URL, "secret", server.Client())
+	mem := newMemory()
+	c, _ := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor")
+	limits := openLimits()
+	limits.TimeoutSeconds = 1
+	started := startLimits(t, c, "", limits)
+	run := waitRun(t, mem, started.ID)
+	if run.State != contracts.StateFailed || run.Error == nil || run.Error.Code != contracts.ErrTimeout {
+		t.Fatalf("run=%+v", run)
+	}
+	backend.mu.Lock()
+	interrupted := backend.interrupted
+	backend.mu.Unlock()
+	if interrupted {
+		t.Fatal("deadline interrupted the session for budget")
+	}
+}
+
+func withLimit(limits contracts.Limits, edit func(*contracts.Limits)) contracts.Limits {
+	edit(&limits)
+	return limits
 }

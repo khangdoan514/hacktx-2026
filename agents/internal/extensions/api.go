@@ -8,11 +8,17 @@ import (
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 )
 
-// NewAPI is the tool management and test surface. It does not accept
+// API is the tool management and test surface. It does not accept
 // credential values; those stay in MemoryCredentials. Mount it only behind
 // the service authenticator. A valid invoke body returns 200 with the
 // invocation record, including denied, crashed, and timed-out calls.
-func NewAPI(reg *Registry, gw *Gateway) http.Handler {
+type API struct {
+	handler http.Handler
+}
+
+// NewAPI builds the extension-tool handler. It does not register routes on
+// the process server. Call Mount on the returned value.
+func NewAPI(reg *Registry, gw *Gateway) *API {
 	mux := http.NewServeMux()
 	api := &api{reg: reg, gw: gw}
 	mux.HandleFunc("POST /v1/extension-tools", api.draft)
@@ -24,10 +30,26 @@ func NewAPI(reg *Registry, gw *Gateway) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusNotFound, CodeNotFound, "endpoint not found")
 	})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &API{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		mux.ServeHTTP(w, r)
-	})
+	})}
+}
+
+func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a.handler.ServeHTTP(w, r)
+}
+
+// Mount registers NewAPI on mux. Both patterns are required: the exact path
+// serves the collection, and the trailing slash serves publish, retire, pin,
+// and invoke. The request path is not stripped, so the handler's own routes
+// still match. cmd/nmc3-agent calls Mount.
+func (a *API) Mount(mux *http.ServeMux) {
+	if a == nil || mux == nil {
+		panic("extensions: Mount requires an API and a mux")
+	}
+	mux.Handle("/v1/extension-tools", a)
+	mux.Handle("/v1/extension-tools/", a)
 }
 
 type api struct {

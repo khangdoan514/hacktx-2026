@@ -505,28 +505,16 @@ func (m *Memory) Audit(_ context.Context, tenantID, resourceID string) ([]AuditE
 func (m *Memory) expireLocked(approvalID string, now time.Time) (ApprovalRequest, WriteAttempt) {
 	approval := m.approvals[approvalID]
 	write := m.writeLocked(approvalID)
-	if approval.State == ApprovalExpired {
+	nextApproval, nextWrite, changed := expirePair(approval, write, now)
+	if !changed {
 		return approval, write
 	}
-	if now.Before(approval.ExpiresAt) {
-		return approval, write
+	m.approvals[nextApproval.ID] = nextApproval
+	if nextWrite.ID != "" && nextWrite.State != write.State {
+		m.writes[nextWrite.ID] = nextWrite
 	}
-	switch write.State {
-	case WriteDispatched, WriteSucceeded, WriteFailed, WriteUncertain, WriteReconciled:
-		return approval, write
-	}
-	if approval.State != ApprovalWaiting && approval.State != ApprovalApproved {
-		return approval, write
-	}
-	approval.State = ApprovalExpired
-	m.approvals[approval.ID] = approval
-	if write.ID != "" && (write.State == WriteWaiting || write.State == WriteReady) {
-		write.State = WriteExpired
-		write.UpdatedAt = now
-		m.writes[write.ID] = write
-	}
-	m.releaseRun(approval.RunID, string(ApprovalExpired))
-	return approval, write
+	m.releaseRun(nextApproval.RunID, string(ApprovalExpired))
+	return nextApproval, nextWrite
 }
 
 func (m *Memory) writeLocked(approvalID string) WriteAttempt {

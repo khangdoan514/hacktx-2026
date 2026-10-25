@@ -6,7 +6,7 @@ Pass 3 records enough state to resume a run after a worker stops, without comple
 
 The durable store is **Postgres in the existing `nmc3` schema**, not a separate workflow engine. Run snapshots and the ordered event log stay on the Pass 1 `RunStore` / `EventSink` interfaces. Attempts, checkpoints, leases, invocation outcomes, cancellation, and run-creation idempotency are new tables in [`agents/db/migrations/202610240005_nmc3_durable.sql`](../../db/migrations/202610240005_nmc3_durable.sql).
 
-`Memory` is the reference journal those tables describe. Tests restart work by constructing a second `Executor` on the same `Memory` after the lease expires. That is the restart proof for this pass: the worker process is gone, the journal is not, and the new worker continues from recorded checkpoints. A live Supabase database was not attached, so the SQL migration has not been executed. Shipping a Postgres client before that proof would only duplicate the journal without testing it.
+`Memory` is the reference journal those tables describe. `Postgres`, opened with `OpenPostgres`, is the same journal on those tables. Tests restart work by constructing a second `Executor` on the same journal after the lease expires. The worker process is gone, the journal is not, and the new worker continues from recorded checkpoints. `TestPostgresDurableRestartProof` runs that proof against disposable Postgres 16. It applies migrations `202610240001`, `202610240003`, and `202610240005` in that order. Parent invocation links are read back from the run snapshot, so no migration after 005 is required. Hosted Supabase already has 005; this package does not connect to it.
 
 Temporal was not selected. Pass 3 needs attempt and checkpoint rows that operators can inspect next to the run, in the same database that already holds run history. A second engine would split the transaction that commits an outcome, a checkpoint, and the events for that step.
 
@@ -43,13 +43,14 @@ The checkpoint payload is cumulative: completed step IDs and their outputs. The 
 
 ## Events
 
-Events are append-only. `Memory` assigns the next per-run sequence under the same lock as the durable write, and readers order by that sequence. Recovery appends `ATTEMPT_ABANDONED` and `RECOVERY_STARTED`. It does not rewrite earlier events.
+Events are append-only. The journal assigns the next per-run sequence under the same lock as the durable write. Postgres uses `nmc3.runs.next_event_sequence`. Readers order by that sequence. Recovery appends `ATTEMPT_ABANDONED` and `RECOVERY_STARTED`. It does not rewrite earlier events.
 
 ## Exported API
 
 | Symbol | Role |
 | --- | --- |
 | `Memory`, `NewMemory` | Reference journal. Implements `contracts.RunStore`, `contracts.EventSink`, and `Store` |
+| `Postgres`, `OpenPostgres`, `Close` | Postgres journal on the existing `nmc3` tables. `OpenPostgres` is the constructor the HTTP process calls. It does not replace the Supabase run store |
 | `Store` | Run/event interfaces plus admit, lease, attempt, checkpoint, cancel, retention, and replay |
 | `Executor` | `Run`, `Recover`, `Cancel`, `Replay` |
 | `AdmitRequest` | Idempotent run creation |
@@ -59,8 +60,38 @@ Events are append-only. `Memory` assigns the next per-run sequence under the sam
 | `ApplyRetention`, `RetentionPolicy` | Checkpoint compaction |
 | `ErrLeaseHeld`, `ErrNeedsRecovery`, `ErrStaleLease`, `ErrAttemptClaimed`, `ErrAlreadyCompleted`, `ErrUncertain`, `ErrProtectedWrite`, `ErrRetriesExhausted`, `ErrCancelled` | Control-flow errors |
 
-`agents/internal/store` is unchanged. `Memory` is the stand-in that satisfies the same run and event interfaces. Wiring this executor into the HTTP process, and applying the migration, belongs to the integrator.
+`agents/internal/store` is unchanged. `Memory` remains the in-process stand-in. `OpenPostgres` is the journal constructor; wiring it into the HTTP process belongs to the integrator. The snippet below is not in `cmd/nmc3-agent/main.go`. Until that integrator wires it, the API process still will not resume in-flight OpenCode sessions.
+
+## HTTP process wiring
+
+Keep the existing `runs` / `events` selection. The default remains `store.NewSupabase`. `NMC3_STORE=postgres` still uses `store.Open`. Do not assign the durable journal to `runs` or `events`.
+
+Add this beside that selection. `DATABASE_URL` is the direct Postgres connection that already has migrations 001, 003, and 005. It is not the Supabase secret key.
+
+```go
+if databaseURL := os.Getenv("DATABASE_URL"); databaseURL != "" {
+    journalCtx, stopJournal := context.WithTimeout(context.Background(), 15*time.Second)
+    defer stopJournal()
+    journal, err := durable.OpenPostgres(journalCtx, databaseURL)
+    if err != nil {
+        return fmt.Errorf("connect durable journal: %w", err)
+    }
+    defer journal.Close()
+    executor := &durable.Executor{
+        Store:           journal,
+        WorkerID:        envDefault("NMC3_WORKER_ID", "nmc3-api"),
+        LeaseTTL:        30 * time.Second,
+        MaxReadAttempts: 2,
+    }
+    // executor.Recover(ctx, runID, plan, handler) resumes a durable plan
+    // from this journal after a lease expires. It does not resume an
+    // in-flight OpenCode session, and it does not replace runs or events.
+    _ = executor
+}
+```
+
+The import is `github.com/khangdoan514/hacktx-2026/agents/internal/durable`. `envDefault` is the helper already in `main.go`.
 
 ## Not in this pass
 
-Protected writes, approvals, tenant enforcement, and the OpenCode session loop are out of scope. A `WRITE` step is refused and stored as uncertain. There is no Postgres driver here yet; the migration is the schema contract for that adapter.
+Protected writes, approvals, tenant enforcement, and the OpenCode session loop are out of scope. A `WRITE` step is refused and stored as uncertain. The HTTP process is not wired to this executor, so an API restart still does not resume an in-flight OpenCode session.

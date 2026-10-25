@@ -763,6 +763,104 @@ func TestManagementAPI(t *testing.T) {
 	}
 }
 
+func TestMountDraftAndPublish(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"source":"mounted"}`))
+	}))
+	defer upstream.Close()
+	reg := NewRegistry()
+	gw := NewGateway(reg, nil, Options{})
+	mux := http.NewServeMux()
+	var agentsHit atomic.Int32
+	mux.HandleFunc("GET /v1/agents", func(w http.ResponseWriter, r *http.Request) {
+		agentsHit.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	NewAPI(reg, gw).Mount(mux)
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	tool := baseTool(ClassHTTP, "extensions.http.console", "1.0.0", upstream.URL, hostOf(upstream.URL))
+	res := postJSON(t, api.URL+"/v1/extension-tools", tool)
+	if res.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("mounted draft status %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+	res = postJSON(t, api.URL+"/v1/extension-tools/publish", map[string]string{
+		"tenant_id": tool.TenantID, "id": tool.ID, "version": tool.Version,
+	})
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("mounted publish status %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+	got, err := reg.Get(tool.TenantID, tool.ID, tool.Version)
+	if err != nil || got.Lifecycle != LifecyclePublished {
+		t.Fatalf("mounted publish stored %s %v", got.Lifecycle, err)
+	}
+	named := baseTool(ClassHTTP, "extensions.http.named", "1.0.0", "http://example.invalid/tool", []string{"127.0.0.1:80"})
+	res = postJSON(t, api.URL+"/v1/extension-tools", named)
+	if res.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("hostname endpoint status %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+	other, err := loopbackClient.Get(api.URL + "/v1/agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Body.Close()
+	if other.StatusCode != http.StatusNoContent || agentsHit.Load() != 1 {
+		t.Fatalf("Mount swallowed /v1/agents: %d hits %d", other.StatusCode, agentsHit.Load())
+	}
+}
+
+func TestConsoleRegistrationPayload(t *testing.T) {
+	reg := NewRegistry()
+	gw := NewGateway(reg, nil, Options{})
+	mux := http.NewServeMux()
+	NewAPI(reg, gw).Mount(mux)
+	api := httptest.NewServer(mux)
+	defer api.Close()
+	draft := []byte(`{
+		"tenant_id":"tenant-a",
+		"id":"extensions.http.console",
+		"version":"1.0.0",
+		"description":"Registered from the console",
+		"input_schema":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false},
+		"output_schema":{"type":"object","properties":{"source":{"type":"string"}},"required":["source"],"additionalProperties":false},
+		"side_effect":"READ_ONLY",
+		"timeout_ms":2000,
+		"class":"http",
+		"endpoint":{"url":"http://127.0.0.1:9/tool","method":"POST"},
+		"retry":{"max_attempts":1},
+		"resources":{"max_output_bytes":65536},
+		"network":{"allow":["127.0.0.1:9"]}
+	}`)
+	res := postRaw(t, api.URL+"/v1/extension-tools", draft)
+	if res.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("console draft status %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+	res = postRaw(t, api.URL+"/v1/extension-tools/publish", []byte(`{"tenant_id":"tenant-a","id":"extensions.http.console","version":"1.0.0"}`))
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("console publish status %d %s", res.StatusCode, body)
+	}
+	res.Body.Close()
+	got, err := reg.Get("tenant-a", "extensions.http.console", "1.0.0")
+	if err != nil || got.Lifecycle != LifecyclePublished || got.Class != ClassHTTP {
+		t.Fatalf("console tool %+v %v", got, err)
+	}
+}
+
 func TestSchemaSubset(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer"},"tag":{"type":"string","enum":["a","b"]}},"required":["n"],"additionalProperties":false}`)
 	if err := ValidateSchemaDocument(schema); err != nil {

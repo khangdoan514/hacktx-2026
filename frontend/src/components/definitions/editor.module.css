@@ -1,0 +1,29 @@
+.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 18px; align-items: start; }
+.list { display: flex; flex-direction: column; }
+.item { width: 100%; display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.item:hover { background: var(--hover); }
+.item[aria-pressed="true"] { background: var(--accent-soft); }
+.item b { font-weight: 550; }
+.item small { color: var(--ink-3); }
+.form { display: flex; flex-direction: column; gap: 16px; padding: 16px 20px 20px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.limits { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; color: var(--ink-3); }
+.field label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field input, .field select, .field textarea { width: 100%; }
+.span { grid-column: 1 / -1; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row input, .row select { flex: 1; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.errors { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--err-soft); color: var(--err); }
+.errors li { display: flex; gap: 8px; }
+.hint { color: var(--err); }
+.ok { color: var(--ok); }
+.banner { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink-2); }
+.schemas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.schema { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.schema legend { padding: 0 4px; color: var(--ink-2); font-size: 12px; }
+.check { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12.5px; }
+@media (max-width: 900px) {
+  .layout, .grid, .schemas { grid-template-columns: 1fr; }
+}

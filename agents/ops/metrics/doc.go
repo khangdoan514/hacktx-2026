@@ -6,4 +6,7 @@
 // recovery, availability, and cost targets stay unset until a representative
 // workload is measured. The package does not price tokens, does not store
 // credentials, and does not talk to a collector or a database.
+//
+// Install binds LogLine and Span records to an io.Writer. The API process
+// does not call it. Load, backup-restore, and chaos checks have not been run.
 package metrics
