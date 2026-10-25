@@ -27,13 +27,14 @@ func randomGitHubState() (string, error) {
 }
 
 func (s *Server) githubSetupConfig(_ http.ResponseWriter, _ *http.Request, _ context.Context, _ pgx.Tx, _ platform.Actor) (int, any, error) {
-	_, err := configuredGitHubOAuth()
+	_, oauthErr := configuredGitHubOAuth()
+	_, appErr := configuredGitHubApp()
 	slug := os.Getenv("GITHUB_APP_SLUG")
 	installURL := ""
 	if validGitHubName(slug) {
 		installURL = "https://github.com/apps/" + slug + "/installations/new"
 	}
-	return http.StatusOK, map[string]any{"configured": err == nil, "install_url": installURL}, nil
+	return http.StatusOK, map[string]any{"configured": oauthErr == nil && appErr == nil && os.Getenv("GITHUB_WEBHOOK_SECRET") != "" && len(os.Getenv("GITHUB_SCOPE_SIGNING_KEY")) >= 32, "install_url": installURL}, nil
 }
 
 func (s *Server) startGitHubSetup(_ http.ResponseWriter, r *http.Request, ctx context.Context, tx pgx.Tx, actor platform.Actor) (int, any, error) {
