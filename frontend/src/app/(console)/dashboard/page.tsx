@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import NewRunDialog from "@/components/run/NewRunDialog";
 import PageHeader from "@/components/shell/PageHeader";
 import Icon from "@/components/ui/Icon";
 import StatePill from "@/components/ui/StatePill";
+import { automationApi } from "@/lib/api";
 import { ago, compact, secs, usd } from "@/lib/format";
 import { useAllRuns, useNow, useStore } from "@/lib/store";
 import type { State } from "@/lib/types";
@@ -20,6 +21,18 @@ export default function DashboardPage() {
   const [st, setSt] = useState<"ALL" | State>("ALL");
   const [agent, setAgent] = useState("all");
   const [dialog, setDialog] = useState(false);
+  // Run ID -> automation name, so runs a schedule started are labeled.
+  const [scheduled, setScheduled] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let stop = false;
+    const load = () => automationApi.firings().then(({ firings }) => {
+      if (stop) return;
+      setScheduled(Object.fromEntries(firings.filter((f) => f.run_id).map((f) => [f.run_id!, f.automation_name ?? f.automation_id])));
+    }).catch(() => {});
+    void load();
+    const poll = setInterval(() => { void load(); }, 10000);
+    return () => { stop = true; clearInterval(poll); };
+  }, [runs.length]);
   const rows = runs.filter((r) => (st === "ALL" || r.state === st) && (agent === "all" || r.plan.agent === agent));
   const picks = [...agents].sort((x, y) => Number(y.kind === "orchestrator") - Number(x.kind === "orchestrator"));
   const listed = picks.length ? picks.map((a) => a.id) : [...new Set(runs.map((r) => r.plan.agent))];
@@ -62,7 +75,10 @@ export default function DashboardPage() {
                   <tr key={r.plan.id}>
                     <td><Link href={`/live-run/${r.plan.id}`} className="mono">{r.plan.id}</Link></td>
                     <td>{agentById(r.plan.agent)?.name ?? r.plan.agent}</td>
-                    <td className={s.task}><Link href={`/live-run/${r.plan.id}`}>{r.plan.task}</Link></td>
+                    <td className={s.task}>
+                      {scheduled[r.plan.id] && <Link href="/automations" className="tag accent" style={{ marginRight: 6 }} title={`Started by ${scheduled[r.plan.id]}`}><Icon name="clock" size={11} />{scheduled[r.plan.id]}</Link>}
+                      <Link href={`/live-run/${r.plan.id}`}>{r.plan.task}</Link>
+                    </td>
                     <td><StatePill state={r.state} />{r.plan.error && r.state === "FAILED" && <span className="tag err" style={{ marginLeft: 6 }}>{r.plan.error}</span>}</td>
                     <td className={`${s.r} mono`}>{compact(r.plan.usage.tokensIn + r.plan.usage.tokensOut)}</td>
                     <td className={`${s.r} mono`}>{usd(r.plan.usage.cost)}</td>

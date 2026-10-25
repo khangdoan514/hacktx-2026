@@ -63,3 +63,33 @@ export const agentApi = {
   list: () => agentRequest<{ runs: AgentRun[] }>("/agent-runs"),
   cancel: (id: string) => agentRequest<{ status: string }>(`/agent-runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
 };
+
+export interface Automation {
+  id: string; name: string; schedule: string; timezone: string; enabled: boolean;
+  created_by: string; created_by_email?: string;
+  request: StartRequest;
+  next_run_at?: string; last_fired_at?: string; created_at: string; updated_at: string;
+  last_firing?: AutomationFiring;
+}
+/** One attempt by an automation to start a run. State, usage and run_error come from the run. */
+export interface AutomationFiring {
+  id: string; automation_id: string; automation_name?: string; trigger: "schedule" | "manual";
+  scheduled_for: string; fired_at: string; run_id?: string; error?: string;
+  state?: RunState | "WAITING"; agent_id?: string; run_error?: string;
+  usage?: { input_tokens: number; output_tokens: number; cost_usd: number };
+}
+export interface AutomationInput {
+  name?: string; schedule?: string; timezone?: string; enabled?: boolean; request?: StartRequest;
+}
+const json = (method: string, body?: unknown): RequestInit => ({
+  method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
+});
+export const automationApi = {
+  list: () => agentRequest<{ automations: Automation[] }>("/automations"),
+  create: (input: AutomationInput) => agentRequest<{ automation: Automation }>("/automations", json("POST", input)),
+  update: (id: string, input: AutomationInput) => agentRequest<{ automation: Automation }>(`/automations/${encodeURIComponent(id)}`, json("PATCH", input)),
+  remove: (id: string) => agentRequest<{ status: string }>(`/automations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  run: (id: string) => agentRequest<{ firing: AutomationFiring }>(`/automations/${encodeURIComponent(id)}/run`, { method: "POST" }),
+  firings: (id?: string) => agentRequest<{ firings: AutomationFiring[] }>(id ? `/automations/${encodeURIComponent(id)}/firings` : "/automation-firings"),
+  preview: (schedule: string, timezone: string) => agentRequest<{ next: string[] }>("/automations/preview", json("POST", { schedule, timezone })),
+};

@@ -47,7 +47,9 @@ for migration in \
   "$AGENTS/db/migrations/202610240005_nmc3_durable.sql" \
   "$AGENTS/db/migrations/202610240006_nmc3_definitions.sql" \
   "$AGENTS/db/migrations/202610240009_nmc3_policy_pg.sql" \
-  "$AGENTS/db/migrations/202610240010_nmc3_context.sql"
+  "$AGENTS/db/migrations/202610240010_nmc3_context.sql" \
+  "$AGENTS/db/migrations/202610250001_nmc3_threads.sql" \
+  "$AGENTS/db/migrations/202610250002_nmc3_automations.sql"
 do
   psql "postgresql:///${DB_NAME}" -v ON_ERROR_STOP=1 -f "$migration"
 done

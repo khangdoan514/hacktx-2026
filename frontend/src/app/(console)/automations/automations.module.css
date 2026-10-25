@@ -1,0 +1,7 @@
+.name { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.sub { font-size: 11.5px; color: var(--ink-3); }
+.off td { opacity: .6; }
+.actions { display: inline-flex; gap: 2px; justify-content: flex-end; }
+.actions :global(.ibtn) { width: 30px; height: 30px; }
+.h2 { font: 500 15px var(--sans); letter-spacing: -.01em; margin: 10px 0 -6px; }
+.err { color: var(--err); font-size: 12.5px; }

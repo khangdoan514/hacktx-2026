@@ -96,4 +96,26 @@ func TestAllowAgentUsesEmployeeRoles(t *testing.T) {
 	if err := allowAgent(analyst, http.MethodPost, "/agent-api/approvals/one/decision", ""); err == nil {
 		t.Fatal("analyst decided an approval")
 	}
+	// Automations start runs as their creator, so changing one needs the
+	// same roles as starting any agent run. Everyone may read them.
+	if err := allowAgent(requester, http.MethodGet, "/agent-api/automations", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := allowAgent(requester, http.MethodGet, "/agent-api/automation-firings", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/agent-api/automations", "/agent-api/automations/auto-1/run"} {
+		if err := allowAgent(analyst, http.MethodPost, path, ""); err == nil {
+			t.Fatalf("analyst changed %s", path)
+		}
+		if err := allowAgent(engineer, http.MethodPost, path, ""); err != nil {
+			t.Fatalf("engineer cannot use %s: %v", path, err)
+		}
+	}
+	if err := allowAgent(requester, http.MethodDelete, "/agent-api/automations/auto-1", ""); err == nil {
+		t.Fatal("requester deleted an automation")
+	}
+	if got := agentUpstreamPath("/agent-api/automations/auto-1/firings"); got != "/v1/automations/auto-1/firings" {
+		t.Fatalf("upstream %s", got)
+	}
 }

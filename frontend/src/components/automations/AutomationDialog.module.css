@@ -1,0 +1,5 @@
+/* Taller than the new run dialog: the form scrolls and the footer stays visible. */
+.modal { margin-top: 6vh; max-height: 88vh; overflow: hidden; }
+.modal[open] { display: flex; flex-direction: column; }
+.body { overflow-y: auto; min-height: 0; }
+.ft { flex-shrink: 0; }

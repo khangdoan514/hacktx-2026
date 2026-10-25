@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/khangdoan514/hacktx-2026/agents/internal/automations"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
 	defreg "github.com/khangdoan514/hacktx-2026/agents/internal/definitions"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/extensions"
@@ -115,6 +116,11 @@ func run() error {
 	reg := extensions.NewRegistry()
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
 	extensions.NewAPI(reg, gw).Mount(mux)
+	closeAutomations, err := mountAutomations(mux, platformDatabaseURL(), coordinator, runs, definitions, definitionSource)
+	if err != nil {
+		return err
+	}
+	defer closeAutomations()
 	threadAPI := threads.New(backend, workdir, "thread", model, threadStore)
 	blobs, err := objectstore.FromEnv(context.Background())
 	if err != nil {
@@ -132,6 +138,60 @@ func run() error {
 	server := http.Server{Addr: addr, Handler: guardInternal(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
+}
+
+// mountAutomations serves /v1/automations and starts the schedule loop. The
+// loop starts runs through the same coordinator as POST /v1/agent-runs.
+// Without the agent database, schedules live in memory until restart.
+func mountAutomations(mux *http.ServeMux, databaseURL string, coordinator contracts.Coordinator, runs contracts.RunStore, definitions []contracts.AgentDefinition, source contracts.DefinitionSource) (func(), error) {
+	var automationStore automations.Store = automations.NewMemoryStore()
+	closeStore := func() {}
+	if databaseURL != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		db, err := store.Open(ctx, databaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("connect to automation Postgres: %w", err)
+		}
+		automationStore = automations.PostgresStore{Pool: db.Pool}
+		closeStore = db.Close
+	} else {
+		log.Printf("NMC3 automations: NMC3_DATABASE_URL is not set; schedules are kept in memory")
+	}
+	service := &automations.Service{Store: automationStore, Coordinator: coordinator, Runs: runs}
+	check := func(ctx context.Context, req contracts.StartRunRequest) error {
+		published := definitions
+		if source != nil {
+			var err error
+			if published, err = source(ctx); err != nil {
+				return &contracts.RunError{Code: contracts.ErrInternal, Message: "published agents could not be loaded"}
+			}
+		}
+		for _, definition := range published {
+			if definition.ID != req.AgentID || definition.Version != req.AgentVersion {
+				continue
+			}
+			l := req.Limits
+			if l.MaxDelegations <= 0 || l.MaxConcurrentAgents <= 0 || l.MaxToolCalls <= 0 || l.MaxModelTurns <= 0 || l.MaxTokens <= 0 || l.MaxCostUSD <= 0 || l.TimeoutSeconds <= 0 {
+				return &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "all limits must be positive"}
+			}
+			if req.ModelID != "" && !contracts.ValidModelID(req.ModelID) {
+				return &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "invalid model ID"}
+			}
+			if err := opencode.Validate(definition.InputSchema, req.Input); err != nil {
+				return &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "input does not match agent schema: " + err.Error()}
+			}
+			return nil
+		}
+		return &contracts.RunError{Code: contracts.ErrNotFound, Message: "agent version not found"}
+	}
+	(&automations.API{Service: service, Check: check}).Mount(mux)
+	ctx, stop := context.WithCancel(context.Background())
+	go service.Run(ctx)
+	return func() {
+		stop()
+		closeStore()
+	}, nil
 }
 
 // portSuffix turns a listen address like 127.0.0.1:8080 into ":8080".

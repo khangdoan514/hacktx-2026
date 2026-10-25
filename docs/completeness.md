@@ -118,7 +118,7 @@ About 184 Go tests exist. The agent packages pass without a database. The produc
 
 `chatgpt-docs/` is still the right description of the product that was asked for. It says it is requirements, not a status report. Use this page for status.
 
-There is no CLI and no SDK. `CodeHint` can show a CLI and a TypeScript snippet, and no page passes it one. `curl` with the employee bearer token, as the root README describes, is the developer client. Webhooks and schedules are not implemented, and the console does not present them as connected.
+There is no CLI and no SDK. `CodeHint` can show a CLI and a TypeScript snippet, and no page passes it one. `curl` with the employee bearer token, as the root README describes, is the developer client. Schedules are implemented: `agents/internal/automations` stores a run request with a five-field cron schedule, a loop in the agent process starts it through the coordinator as the employee who saved it, and `/automations` in the console lists automations, their firings, and the runs they started. Without `NMC3_DATABASE_URL` schedules live in memory until restart. Webhooks are not implemented.
 
 ## Order to finish
 
@@ -128,7 +128,7 @@ There is no CLI and no SDK. `CodeHint` can show a CLI and a TypeScript snippet, 
 4. Make catalog publish, resource approval, and run start read each other. Seed a hardware owner and a budget owner when those reviews are visible, so administrator is not standing in for both.
 5. Put Requests on the rail. Replace the button page with a draft, a specification form, an approval that lists real reviewers, and a handover the requester can read. Show each person only the actions their role can perform.
 6. Add templates, reuse, my-work, teams, documents, and an audit view on that same lifecycle. Retire `/w/…`. A CLI on the same bearer token can follow. An SDK waits until that CLI is the one worth wrapping.
-7. Mount durable recovery, the context resolver, and workflow-node HTTP only after a published definition is what OpenCode executes. Leave webhooks and schedules off until signature checks and an owner exist.
+7. Mount durable recovery, the context resolver, and workflow-node HTTP only after a published definition is what OpenCode executes. Leave webhooks off until signature checks and an owner exist.
 8. Add a Postgres job for the journey test before calling any of this done. Require `NMC3_INTERNAL_TOKEN` whenever the agent listens beyond localhost.
 
 The idea river, the command palette, the KPI strip, and the SerpAPI scout step in `FRONTEND.md` are a separate demo narrative. Building them now would be a third frontend. If that demo is still wanted, it should be a view over the same runs, after step 1, and SerpAPI should appear only on a step that called it.

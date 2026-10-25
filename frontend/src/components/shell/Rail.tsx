@@ -18,6 +18,7 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/dashboard", label: "Dashboard", icon: "activity" },
     { href: "/threads", label: "Threads", icon: "message" },
     { href: "/agents", label: "Agents", icon: "bot" },
+    { href: "/automations", label: "Automations", icon: "clock" },
     { href: "/tools", label: "Tools", icon: "wrench" },
   ],
 ];
