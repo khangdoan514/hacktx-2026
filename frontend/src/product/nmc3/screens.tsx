@@ -64,7 +64,7 @@ export function SignInScreen() {
       return;
     }
     const next = new URLSearchParams(window.location.search).get("next");
-    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/overview");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
   }
 
   return (

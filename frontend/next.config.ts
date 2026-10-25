@@ -1,9 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  async redirects() {
-    return [{ source: "/dashboard", destination: "/overview", permanent: false }];
-  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
     return [

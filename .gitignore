@@ -237,4 +237,3 @@ ml/data/*
 !ml/data/.gitkeep
 ml/models/*
 !ml/models/.gitkeep
-agents/.opencode/
