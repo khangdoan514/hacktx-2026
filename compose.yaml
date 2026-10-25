@@ -75,6 +75,11 @@ services:
     build:
       context: .
       dockerfile: script/docker/agent.Dockerfile
+    # OAuth clients are kept in this ignored file, just as in script/dev.sh.
+    # Keep it optional so deployments without personal integrations still run.
+    env_file:
+      - path: ./agents/.env
+        required: false
     environment:
       NMC3_STORE: postgres
       DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
