@@ -5,7 +5,9 @@
 // Real runs are loaded from /v1/agent-runs when this API knows the agent.
 // Otherwise the in-browser simulator keeps the console usable.
 
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { clearToken } from "@/product/api";
 import { agentById } from "@/config/agents";
 import { budgets, guardrails, scenarios, triggers } from "@/config/workspace";
 import { AgentRequestError, agentApi } from "./api";
@@ -59,6 +61,8 @@ function seedHistory(now: number): RunPlan[] {
 const liveScenarios = scenarios.filter((s) => !s.fail);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
   const [history, setHistory] = useState<RunPlan[]>([]);
@@ -124,9 +128,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }).catch((err: unknown) => {
       if (stop) return;
       if (err instanceof AgentRequestError && err.status === 401) {
-        setHistory([]);
-        setLive(null);
-        toast("Sign in to use the agent API.");
+        clearToken();
+        router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+        return;
       } else {
         setHistory(seedHistory(t));
         setLive(buildPlan({ id: nextId(), seed: runCounter, scenario: liveScenarios[0], createdAt: t, trigger: "API" }));

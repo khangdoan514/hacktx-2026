@@ -56,7 +56,8 @@ export function SignInScreen() {
         body: JSON.stringify({ email, password }),
       });
       writeToken(session.access_token);
-      router.push("/org");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/org");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
     }

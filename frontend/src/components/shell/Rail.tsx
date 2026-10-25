@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Icon, { type IconName } from "@/components/ui/Icon";
+import { clearToken } from "@/product/api";
 import { useNow, useStore } from "@/lib/store";
 import { materialize } from "@/lib/simulate";
+import { useEmployee } from "./ConsoleGate";
 import s from "./Rail.module.css";
 
 const groups: { href: string; label: string; icon: IconName }[][] = [
@@ -40,12 +42,21 @@ function toggleTheme(e: React.MouseEvent<HTMLButtonElement>) {
       { duration: 650, easing: "cubic-bezier(0.16, 1, 0.3, 1)", pseudoElement: "::view-transition-new(root)" }));
 }
 
+function initials(name: string, email: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : (parts[0] || email).slice(0, 2);
+  return letters.toUpperCase();
+}
+
 export default function Rail() {
   const path = usePathname();
+  const router = useRouter();
+  const employee = useEmployee();
   const { live } = useStore();
   const now = useNow();
   const running = live ? materialize(live, now).state === "RUNNING" : false;
   const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
+  const label = employee?.display_name || employee?.email || "Signed in";
 
   return (
     <nav className={s.rail} aria-label="Primary">
@@ -66,7 +77,10 @@ export default function Rail() {
           <span className={s.moon}><Icon name="moon" size={17} /></span>
           <span className={s.sun}><Icon name="sun" size={17} /></span>
         </button>
-        <div className={s.avatar} title="Khang Doan">KD</div>
+        <button type="button" className="ibtn" onClick={() => { clearToken(); router.replace("/sign-in"); }} aria-label="Sign out" data-tip="Sign out" data-tip-side>
+          <Icon name="log-out" size={17} />
+        </button>
+        <div className={s.avatar} title={label}>{initials(employee?.display_name ?? "", employee?.email ?? "")}</div>
       </div>
     </nav>
   );
