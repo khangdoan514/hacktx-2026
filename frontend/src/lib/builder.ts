@@ -112,7 +112,8 @@ export function flowFromAgent(def: AgentDef, agentById: (id: string) => AgentDef
   const flow = blankFlow();
   flow.name = def.name;
   flow.goal = def.kind === "orchestrator" ? def.instructions : "";
-  flow.version = def.version;
+  // Published versions are immutable, so editing starts from the next patch version.
+  flow.version = def.version.replace(/(\d+)$/, (n) => String(Number(n) + 1));
   const make = (a: AgentDef) => {
     const n = newStep("custom", 0, 0);
     Object.assign(n, { name: a.name, instructions: a.instructions, model: "", tools: [...a.tools], turns: a.limits.turns, seconds: a.limits.seconds });
