@@ -183,6 +183,9 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 	var sb strings.Builder
 	sb.WriteString("You are " + definition.Name + " (" + definition.Role + "). " + definition.Instructions + "\n")
 	sb.WriteString("Input (JSON): " + string(input) + "\n")
+	if len(definition.AllowedTools) == 0 {
+		sb.WriteString("You have no tools. Do not call read, shell, or any other tool. If a call is denied, stop retrying and answer.\n")
+	}
 	if len(definition.AllowedDelegates) > 0 && definition.Role != "specialist" {
 		sb.WriteString("Call the subagent tool once for each of these agents, in parallel:\n")
 		for _, target := range definition.AllowedDelegates {

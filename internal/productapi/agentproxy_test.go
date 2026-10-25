@@ -51,31 +51,44 @@ func TestAllowAgentUsesEmployeeRoles(t *testing.T) {
 	requester := platform.Actor{Roles: []string{"requester"}}
 	engineer := platform.Actor{Roles: []string{"ai_engineer"}}
 	approver := platform.Actor{Roles: []string{"release_approver"}}
-	if err := allowAgent(requester, http.MethodGet, "/agent-api/agents"); err != nil {
+	if err := allowAgent(requester, http.MethodGet, "/agent-api/agents", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := allowAgent(requester, http.MethodPost, "/agent-api/agent-runs"); err == nil {
+	if err := allowAgent(requester, http.MethodPost, "/agent-api/agent-runs", "partner-analytics"); err == nil {
 		t.Fatal("requester started a run")
 	}
-	if err := allowAgent(requester, http.MethodGet, "/agent-api/threads"); err != nil {
+	if err := allowAgent(requester, http.MethodGet, "/agent-api/threads", ""); err != nil {
 		t.Fatal("requester cannot read threads")
 	}
-	if err := allowAgent(requester, http.MethodPost, "/agent-api/threads/thread-id/messages"); err != nil {
+	if err := allowAgent(requester, http.MethodPost, "/agent-api/threads/thread-id/messages", ""); err != nil {
 		t.Fatal("requester cannot send a thread message")
 	}
-	if err := allowAgent(engineer, http.MethodGet, "/agent-api/threads"); err != nil {
+	if err := allowAgent(engineer, http.MethodGet, "/agent-api/threads", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := allowAgent(engineer, http.MethodPost, "/agent-api/threads/thread-id/messages"); err != nil {
+	if err := allowAgent(engineer, http.MethodPost, "/agent-api/threads/thread-id/messages", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := allowAgent(engineer, http.MethodPost, "/agent-api/agent-runs"); err != nil {
+	if err := allowAgent(engineer, http.MethodPost, "/agent-api/agent-runs", "vendor-orchestrator"); err != nil {
 		t.Fatal(err)
 	}
-	if err := allowAgent(engineer, http.MethodPost, "/agent-api/approvals/one/decision"); err == nil {
+	if err := allowAgent(engineer, http.MethodPost, "/agent-api/approvals/one/decision", ""); err == nil {
 		t.Fatal("engineer decided an approval")
 	}
-	if err := allowAgent(approver, http.MethodPost, "/agent-api/approvals/one/decision"); err != nil {
+	if err := allowAgent(approver, http.MethodPost, "/agent-api/approvals/one/decision", ""); err != nil {
 		t.Fatal(err)
+	}
+	analyst := platform.Actor{Roles: []string{"analyst"}}
+	if err := allowAgent(analyst, http.MethodPost, "/agent-api/agent-runs", "partner-analytics"); err != nil {
+		t.Fatal(err)
+	}
+	if err := allowAgent(analyst, http.MethodPost, "/agent-api/agent-runs", "internal-analytics"); err != nil {
+		t.Fatal(err)
+	}
+	if err := allowAgent(analyst, http.MethodPost, "/agent-api/agent-runs", "vendor-orchestrator"); err == nil {
+		t.Fatal("analyst started a vendor run")
+	}
+	if err := allowAgent(analyst, http.MethodPost, "/agent-api/approvals/one/decision", ""); err == nil {
+		t.Fatal("analyst decided an approval")
 	}
 }

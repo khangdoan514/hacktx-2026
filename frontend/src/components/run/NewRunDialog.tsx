@@ -9,6 +9,8 @@ import type { Limits } from "@/lib/types";
 import s from "./NewRunDialog.module.css";
 
 const FIELDS: [keyof Limits, string][] = [["turns", "turns"], ["tools", "tools"], ["delegations", "delegations"], ["parallel", "parallel"], ["seconds", "seconds"]];
+const PERIODS = ["week", "month", "quarter", "project"] as const;
+const takesPeriod = (input: string | undefined) => Boolean(input?.includes('"period"'));
 
 /** Same request as POST /v1/agent-runs: agent, task and per-run limits, starting from the definition's limits. */
 export default function NewRunDialog({ open, onClose, agent: initial }: { open: boolean; onClose: () => void; agent?: string }) {
@@ -18,6 +20,7 @@ export default function NewRunDialog({ open, onClose, agent: initial }: { open: 
   const entry = agents.filter(takesTask);
   const [agent, setAgent] = useState(initial ?? entry[0]?.id ?? "");
   const [task, setTask] = useState("");
+  const [period, setPeriod] = useState<(typeof PERIODS)[number]>("month");
   const [limits, setLimits] = useState<Limits>(agentById(agent)?.limits ?? { turns: 8, tools: 4, delegations: 2, parallel: 2, seconds: 60 });
   const [busy, setBusy] = useState(false);
 
@@ -42,7 +45,10 @@ export default function NewRunDialog({ open, onClose, agent: initial }: { open: 
     if (!task.trim() || !agent || busy) return;
     setBusy(true);
     try {
-      const id = await startRun({ agent, task: task.trim(), limits });
+      const id = await startRun({
+        agent, task: task.trim(), limits,
+        period: takesPeriod(agentById(agent)?.input) ? period : undefined,
+      });
       setTask("");
       onClose();
       toast("Run started");
@@ -66,6 +72,13 @@ export default function NewRunDialog({ open, onClose, agent: initial }: { open: 
               </select>
             </label>
             <label>task<textarea className="input" value={task} onChange={(e) => setTask(e.target.value)} /></label>
+            {takesPeriod(agentById(agent)?.input) && (
+              <label>period
+                <select className="input" value={period} onChange={(e) => setPeriod(e.target.value as (typeof PERIODS)[number])}>
+                  {PERIODS.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+            )}
             <div>
               <label style={{ marginBottom: 6 }}>limits</label>
               <div className={s.lims}>
