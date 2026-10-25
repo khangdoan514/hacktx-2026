@@ -24,7 +24,7 @@ export default function TriggersPage() {
     const task = scenarios.find((x) => x.agent === t.agent && !x.fail)?.task ?? "Run";
     startRun({ agent: t.agent, task, trigger: triggerKinds[t.kind].name });
     toast(`${t.label} fired`);
-    router.push("/dashboard");
+    router.push("/runs");
   };
 
   const add = () => {

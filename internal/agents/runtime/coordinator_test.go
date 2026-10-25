@@ -219,7 +219,7 @@ func TestDepthAndBadCitation(t *testing.T) {
 	}
 	var saw bool
 	for _, invocation := range finished.Invocations {
-		if invocation.AgentID == "denial-specialist" && invocation.Error != nil && invocation.Error.Code == contracts.ErrDelegationDepthExceeded {
+		if invocation.Depth == MaxDelegationDepth && invocation.Error != nil && invocation.Error.Code == contracts.ErrDelegationDepthExceeded {
 			saw = true
 		}
 	}

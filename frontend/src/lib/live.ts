@@ -52,7 +52,7 @@ export function planFromRun(run: AgentRun): RunPlan {
     const at = Math.round((span * (index + 1)) / (invocations.length + 2));
     ops.push({ at, k: "agent", agent: invocation.agent_id, st: "RUNNING", now: invocation.depth === 0 ? "Planning" : "Working" });
     ops.push({ at, k: "event", type: "AGENT_STARTED", agent: invocation.agent_id, detail: `depth ${invocation.depth}` });
-    if (invocation.depth === 1) ops.push({ at, k: "use", key: "delegations", delta: 1 });
+    if (invocation.depth >= 1) ops.push({ at, k: "use", key: "delegations", delta: 1 });
     const done = invocation.state === "PENDING" || invocation.state === "RUNNING" ? null : invocation.state;
     if (done) {
       const end = Math.min(span, at + 400);

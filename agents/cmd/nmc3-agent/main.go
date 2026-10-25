@@ -24,6 +24,7 @@ import (
 	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/policy"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/threads"
 	"github.com/khangdoan514/hacktx-2026/internal/platform"
 )
 
@@ -89,6 +90,7 @@ func run() error {
 	reg := extensions.NewRegistry()
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
 	extensions.NewAPI(reg, gw).Mount(mux)
+	threads.New(backend, workdir, "thread", model).Mount(mux)
 	closePlatform, err := mountPlatform(mux, platformDatabaseURL(), envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"))
 	if err != nil {
 		return err

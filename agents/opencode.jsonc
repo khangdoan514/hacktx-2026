@@ -150,6 +150,29 @@
         { "action": "read", "resource": "*.env.*", "effect": "deny" }
       ]
     },
+    // Free-form chat (the console's Threads page). No pre-compiled prompt.
+    // It can read the project and query the catalog, and nothing else: no
+    // shell, edit, web, or subagents. Widen this list to give threads more.
+    "thread": {
+      "description": "Open-ended thread",
+      "mode": "primary",
+      "steps": 20,
+      "system": "You are a helpful assistant. Answer directly and say when you used a tool.",
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*", "effect": "allow" },
+        { "action": "catalog_*", "resource": "*", "effect": "deny" },
+        { "action": "catalog_search", "resource": "*", "effect": "allow" },
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "edit", "resource": "*", "effect": "deny" },
+        { "action": "subagent", "resource": "*", "effect": "deny" },
+        { "action": "webfetch", "resource": "*", "effect": "deny" },
+        { "action": "websearch", "resource": "*", "effect": "deny" },
+        { "action": "read", "resource": "*.env", "effect": "deny" },
+        { "action": "read", "resource": "*.env.*", "effect": "deny" },
+        { "action": "read", "resource": "*.env.example", "effect": "deny" }
+      ]
+    },
     "build": {
       "permissions": [{ "action": "*", "resource": "*", "effect": "deny" }]
     },

@@ -1,5 +1,2 @@
 .clock { font: 400 26px var(--mono); letter-spacing: -.02em; color: var(--ink); font-variant-numeric: tabular-nums; margin-right: 8px; }
 .crumbId { color: var(--ink-2); font-weight: 500; }
-.lower { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
-@media (max-width: 1180px) { .lower { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 720px) { .clock { font-size: 20px; } }

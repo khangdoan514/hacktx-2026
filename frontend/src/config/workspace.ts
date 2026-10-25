@@ -34,8 +34,11 @@ export type Guardrail = {
   code?: ErrorCode;
 };
 
+/** Deepest level that may still hand work on: the root (0) and its specialists (1). */
+export const MAX_DELEGATION_DEPTH = 2;
+
 export const guardrails: Guardrail[] = [
-  { id: "depth", name: "Specialists cannot delegate", detail: "Only the depth-0 orchestrator may hand work to other agents.", icon: "network", enforcement: "runtime", enabled: true, code: "DELEGATION_DEPTH_EXCEEDED" },
+  { id: "depth", name: "Delegation depth", detail: "Agents can hand work down two levels. A third level is rejected.", icon: "network", enforcement: "runtime", enabled: true, code: "DELEGATION_DEPTH_EXCEEDED" },
   { id: "allowlist", name: "Tool allowlist", detail: "An agent can only call tools listed in its definition.", icon: "wrench", enforcement: "runtime", enabled: true, code: "TOOL_NOT_ALLOWED" },
   { id: "limits", name: "Run limits", detail: "Turns, tool calls, delegations, parallelism and time are capped per run.", icon: "gauge", enforcement: "runtime", enabled: true, code: "BUDGET_EXCEEDED" },
   { id: "schema", name: "Output schema check", detail: "Final output must match the agent's output schema.", icon: "badge-check", enforcement: "runtime", enabled: true, code: "OUTPUT_SCHEMA_INVALID" },

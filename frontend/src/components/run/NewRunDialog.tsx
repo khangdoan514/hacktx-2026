@@ -42,7 +42,7 @@ export default function NewRunDialog({ open, onClose, agent: initial }: { open: 
     startRun({ agent, task: task.trim(), limits, trigger: "Manual" });
     onClose();
     toast("Run started");
-    router.push("/dashboard");
+    router.push("/runs");
   };
 
   return (

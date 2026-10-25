@@ -166,6 +166,10 @@ func childrenOf(invocations []contracts.AgentInvocation) []contracts.AgentInvoca
 	return invocations
 }
 
+// MaxDelegationDepth is the deepest an invocation can sit and still delegate:
+// depth 0 (root) and depth 1 may hand work on; an agent at depth 2 cannot.
+const MaxDelegationDepth = 2
+
 func (e *Engine) invoke(ctx context.Context, run *contracts.Run, definition contracts.AgentDefinition, parent *string, depth int, input json.RawMessage, counters *budget) (contracts.AgentInvocation, error) {
 	now := e.clock()
 	invocation := contracts.AgentInvocation{
@@ -239,8 +243,8 @@ func (e *Engine) invoke(ctx context.Context, run *contracts.Run, definition cont
 		}
 		switch result.Action.Type {
 		case contracts.ActionDelegate:
-			if depth >= 1 {
-				history = append(history, contracts.ActionResult{Action: result.Action, Error: &contracts.RunError{Code: contracts.ErrDelegationDepthExceeded, Message: "Specialists cannot delegate"}})
+			if depth >= MaxDelegationDepth {
+				history = append(history, contracts.ActionResult{Action: result.Action, Error: &contracts.RunError{Code: contracts.ErrDelegationDepthExceeded, Message: "Agents at the maximum depth cannot delegate"}})
 				_ = e.append(ctx, run.ID, &invocation.ID, "DELEGATION_REJECTED", map[string]string{"code": string(contracts.ErrDelegationDepthExceeded)})
 				invocation.Error = history[len(history)-1].Error
 				return finish(contracts.StateFailed, nil, invocation.Error)

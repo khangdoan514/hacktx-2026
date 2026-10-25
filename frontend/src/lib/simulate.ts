@@ -1,12 +1,12 @@
 // In-browser stand-in for the Go agent runtime. `buildPlan` turns an agent
 // definition and a task into a timeline of operations that follow the v1
-// contract rules (depth-1 delegation, tool allowlists, shared limits, typed
+// contract rules (two-level delegation, tool allowlists, shared limits, typed
 // errors). `materialize` replays that timeline up to any moment, so the same
 // code renders live runs and finished history.
 
 import { agentById } from "@/config/agents";
 import { toolById } from "@/config/tools";
-import { models } from "@/config/workspace";
+import { MAX_DELEGATION_DEPTH, models } from "@/config/workspace";
 import type {
   AgentDef, AgentView, Call, CallView, EventView, Limits, Op, RunPlan, RunView, Scenario, State, Turn,
 } from "./types";
@@ -26,7 +26,15 @@ function rng(seed: number) {
 export function runAgents(rootId: string): AgentDef[] {
   const root = agentById(rootId);
   if (!root) return [];
-  return [root, ...root.delegates.map((d) => agentById(d)).filter((a): a is AgentDef => !!a)];
+  const out: AgentDef[] = [];
+  const walk = (a: AgentDef, depth: number) => {
+    if (out.includes(a)) return;
+    out.push(a);
+    if (depth >= MAX_DELEGATION_DEPTH) return;
+    for (const d of a.delegates) { const c = agentById(d); if (c) walk(c, depth + 1); }
+  };
+  walk(root, 0);
+  return out;
 }
 
 export function buildPlan(opts: {
@@ -61,7 +69,7 @@ export function buildPlan(opts: {
   const runAgent = (a: AgentDef, start: number, depth: number, input: string): number => {
     ops.push({ at: start, k: "agent", agent: a.id, st: "RUNNING", now: "Planning" });
     ops.push({ at: start, k: "event", type: "AGENT_STARTED", agent: a.id, detail: `depth ${depth}` });
-    if (depth === 1) ops.push({ at: start, k: "use", key: "delegations", delta: 1 });
+    if (depth >= 1) ops.push({ at: start, k: "use", key: "delegations", delta: 1 });
     let t = start + 400;
     const steps = a.sim?.steps ?? a.tools.map((tool) => ({ tool, result: "ok", ms: 1200 }));
     for (const step of steps) {
@@ -93,6 +101,14 @@ export function buildPlan(opts: {
           detail: delegate ? "DELEGATION_DEPTH_EXCEEDED" : `${step.target} · TOOL_NOT_ALLOWED`,
         });
         t += 300;
+      } else if ("delegate" in step) {
+        const child = agentById(step.delegate);
+        if (child && depth + 1 <= MAX_DELEGATION_DEPTH) {
+          ops.push({ at: t, k: "agent", agent: a.id, st: "RUNNING", now: `Delegating to ${child.name}` });
+          turn(a, t, input, JSON.stringify({ action: "DELEGATE", target: child.id }));
+          t += 300;
+          t = runAgent(child, t, depth + 1, input) + 300;
+        }
       } else {
         ops.push({ at: t, k: "agent", agent: a.id, st: "RUNNING", now: step.think });
         t += Math.round((step.ms ?? 1200) * (0.85 + r() * 0.3));

@@ -10,7 +10,7 @@ import PageHeader from "@/components/shell/PageHeader";
 import { useEmployee } from "@/components/shell/ConsoleGate";
 import Icon from "@/components/ui/Icon";
 import {
-  autoLayout, blankFlow, canConnect, canvasSize, connectedSteps, flowFromAgent, flowFromStages, newStep, presetById, presets,
+  autoLayout, blankFlow, canConnect, connectedSteps, flowFromAgent, flowFromStages, newStep, presetById, presets,
   problems, sizeOf, stagesOf, templates, toSpecs, uid,
   type Flow, type FlowNode, type PresetId,
 } from "@/lib/builder";
@@ -22,6 +22,10 @@ const pickable = toolCatalog.filter((t, i, all) => all.findIndex((o) => o.name =
 
 type Sel = { kind: "node" | "edge"; id: string } | null;
 type Notice = { tone: "ok" | "err"; text: string } | null;
+type View = { x: number; y: number; k: number };
+
+const GRID = 22;
+const clampK = (k: number) => Math.min(2, Math.max(0.3, k));
 
 const curve = (x1: number, y1: number, x2: number, y2: number) => {
   const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
@@ -36,10 +40,15 @@ export default function Builder() {
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
   const [json, setJson] = useState(false);
+  const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
+  const [fitTick, setFitTick] = useState(0);
+  const [panning, setPanning] = useState(false);
   const [ready, setReady] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const flowRef = useRef(flow);
   flowRef.current = flow;
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   // Load: ?from=<agent id> opens an existing agent, otherwise resume the last draft.
   useEffect(() => {
@@ -53,12 +62,53 @@ export default function Builder() {
       } catch { /* a missing or corrupt draft just means a blank canvas */ }
     }
     setReady(true);
+    setFitTick((n) => n + 1);
   }, []);
 
   useEffect(() => {
     if (!ready) return;
     try { window.localStorage.setItem(STORE, JSON.stringify(flow)); } catch { /* storage can be unavailable */ }
   }, [flow, ready]);
+
+  // Frame everything on the canvas, as Excalidraw's "zoom to fit" does.
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || fitTick === 0) return;
+    const ns = flowRef.current.nodes;
+    const x0 = Math.min(...ns.map((n) => n.x)), y0 = Math.min(...ns.map((n) => n.y));
+    const x1 = Math.max(...ns.map((n) => n.x + sizeOf(n).w)), y1 = Math.max(...ns.map((n) => n.y + sizeOf(n).h));
+    const pad = 70, w = el.clientWidth, h = el.clientHeight;
+    const k = clampK(Math.min((w - pad * 2) / (x1 - x0), (h - pad * 2) / (y1 - y0), 1));
+    setView({ k, x: (w - (x1 - x0) * k) / 2 - x0 * k, y: (h - (y1 - y0) * k) / 2 - y0 * k });
+  }, [fitTick]);
+
+  // Trackpad scroll pans, pinch or ctrl+scroll zooms around the cursor.
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const v = viewRef.current;
+      if (e.ctrlKey || e.metaKey) {
+        const r = el.getBoundingClientRect();
+        const cx = e.clientX - r.left, cy = e.clientY - r.top;
+        const k = clampK(v.k * Math.exp(-e.deltaY * 0.01));
+        setView({ k, x: cx - ((cx - v.x) / v.k) * k, y: cy - ((cy - v.y) / v.k) * k });
+      } else {
+        setView({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY });
+      }
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []);
+
+  const zoomBy = (factor: number) => {
+    const el = stage.current!;
+    const v = viewRef.current;
+    const cx = el.clientWidth / 2, cy = el.clientHeight / 2;
+    const k = clampK(v.k * factor);
+    setView({ k, x: cx - ((cx - v.x) / v.k) * k, y: cy - ((cy - v.y) / v.k) * k });
+  };
 
   const patch = useCallback((id: string, change: Partial<FlowNode>) => {
     setFlow((f) => ({ ...f, nodes: f.nodes.map((n) => (n.id === id ? { ...n, ...change } : n)) }));
@@ -94,13 +144,17 @@ export default function Builder() {
   const point = (clientX: number, clientY: number) => {
     const el = stage.current!;
     const r = el.getBoundingClientRect();
-    return { x: clientX - r.left + el.scrollLeft, y: clientY - r.top + el.scrollTop };
+    const v = viewRef.current;
+    return { x: (clientX - r.left - v.x) / v.k, y: (clientY - r.top - v.y) / v.k };
   };
 
   const addStep = (preset: PresetId, at?: { x: number; y: number }) => {
     const n = flowRef.current.nodes.filter((x) => x.kind === "step").length;
     const size = sizeOf({ kind: "step" } as FlowNode);
-    const node = newStep(preset, at ? Math.max(0, at.x - size.w / 2) : 200 + (n % 4) * 40, at ? Math.max(0, at.y - size.h / 2) : 60 + n * 90);
+    const el = stage.current!;
+    const c = at ?? { ...point(el.getBoundingClientRect().left + el.clientWidth / 2, el.getBoundingClientRect().top + el.clientHeight / 2) };
+    const jig = at ? 0 : (n % 5) * 28;
+    const node = newStep(preset, c.x - size.w / 2 + jig, c.y - size.h / 2 + jig);
     setFlow((f) => ({ ...f, nodes: [...f.nodes, node] }));
     setSel({ kind: "node", id: node.id });
   };
@@ -113,9 +167,21 @@ export default function Builder() {
     const dx = p.x - n.x, dy = p.y - n.y;
     const move = (ev: PointerEvent) => {
       const q = point(ev.clientX, ev.clientY);
-      patch(n.id, { x: Math.max(0, Math.round(q.x - dx)), y: Math.max(0, Math.round(q.y - dy)) });
+      patch(n.id, { x: Math.round(q.x - dx), y: Math.round(q.y - dy) });
     };
     const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // Dragging the empty canvas moves the view.
+  const startPan = (e: React.PointerEvent) => {
+    if (e.target !== e.currentTarget || e.button > 1) return;
+    setSel(null);
+    const sx = e.clientX, sy = e.clientY, v0 = viewRef.current;
+    setPanning(true);
+    const move = (ev: PointerEvent) => setView({ ...v0, x: v0.x + ev.clientX - sx, y: v0.y + ev.clientY - sy });
+    const up = () => { setPanning(false); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
@@ -146,7 +212,6 @@ export default function Builder() {
   const connected = useMemo(() => connectedSteps(flow), [flow]);
   const parallel = useMemo(() => new Set(stages.filter((g) => g.length > 1).flat().map((n) => n.id)), [stages]);
   const issues = useMemo(() => problems(flow), [flow]);
-  const size = canvasSize(flow);
   const steps = flow.nodes.filter((n) => n.kind === "step");
   const selected = sel?.kind === "node" ? byId.get(sel.id) : undefined;
   const selectedEdge = sel?.kind === "edge" ? flow.edges.find((e) => e.id === sel.id) : undefined;
@@ -208,11 +273,12 @@ export default function Builder() {
             ))}
           </ul>
           <div className={s.sep} />
-          <button type="button" className="btn sm" onClick={() => setFlow((f) => autoLayout(f))} disabled={empty}>Auto-arrange</button>
+          <button type="button" className="btn sm" onClick={() => { setFlow((f) => autoLayout(f)); setFitTick((n) => n + 1); }} disabled={empty}>Auto-arrange</button>
         </aside>
 
         <div
-          className={s.stage} ref={stage}
+          className={`${s.stage} ${panning ? s.panning : ""}`} ref={stage}
+          style={{ backgroundPosition: `${view.x}px ${view.y}px`, backgroundSize: `${GRID * view.k}px ${GRID * view.k}px` }}
           onDragOver={(e) => { if (e.dataTransfer.types.includes("text/preset")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }}
           onDrop={(e) => {
             const id = e.dataTransfer.getData("text/preset") as PresetId;
@@ -220,10 +286,10 @@ export default function Builder() {
             e.preventDefault();
             addStep(id, point(e.clientX, e.clientY));
           }}
-          onPointerDown={(e) => { if (e.target === e.currentTarget || (e.target as HTMLElement).dataset.bg) setSel(null); }}
+          onPointerDown={startPan}
         >
-          <div className={s.canvas} data-bg style={{ width: size.w, height: size.h }}>
-            <svg className={s.wires} width={size.w} height={size.h} aria-hidden>
+          <div className={s.canvas} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+            <svg className={s.wires} width={1} height={1} aria-hidden>
               {flow.edges.map((e) => {
                 const a = byId.get(e.from), b = byId.get(e.to);
                 if (!a || !b) return null;
@@ -276,11 +342,17 @@ export default function Builder() {
                 <p>Or drag a step in from the left.</p>
                 <div>
                   {templates.map((t) => (
-                    <button key={t.id} type="button" className="btn sm" title={t.hint} onClick={() => { setFlow((f) => ({ ...flowFromStages(t.stages, f.name), goal: f.goal })); setSel(null); }}>{t.label}</button>
+                    <button key={t.id} type="button" className="btn sm" title={t.hint} onClick={() => { setFlow((f) => ({ ...flowFromStages(t.stages, f.name), goal: f.goal })); setSel(null); setFitTick((n) => n + 1); }}>{t.label}</button>
                   ))}
                 </div>
               </div>
             )}
+          </div>
+          <div className={s.zoom} onPointerDown={(e) => e.stopPropagation()}>
+            <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>−</button>
+            <span>{Math.round(view.k * 100)}%</span>
+            <button type="button" aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
+            <button type="button" onClick={() => setFitTick((n) => n + 1)}>Fit</button>
           </div>
         </div>
 
@@ -323,7 +395,7 @@ export default function Builder() {
                   <label>Version
                     <input className="input mono" value={flow.version} onChange={(e) => setFlow({ ...flow, version: e.target.value })} />
                   </label>
-                  <button type="button" className="btn sm" onClick={() => { setFlow(blankFlow()); setSel(null); }}>Clear canvas</button>
+                  <button type="button" className="btn sm" onClick={() => { setFlow(blankFlow()); setSel(null); setFitTick((n) => n + 1); }}>Clear canvas</button>
                 </details>
               </div>
             </>
@@ -355,12 +427,16 @@ function StepForm({ n, onChange, onRemove }: { n: FlowNode; onChange: (c: Partia
         </label>
         <div>
           <small className={s.label}>Tools it can use</small>
-          <div className={s.chips}>
-            {pickable.map((t) => (
-              <button key={t.id} type="button" className={s.chip} aria-pressed={n.tools.includes(t.id)} onClick={() => toggle(t.id)} title={t.provider}>
-                {t.name}
-              </button>
-            ))}
+          <div className={s.tools}>
+            {pickable.map((t) => {
+              const on = n.tools.includes(t.id);
+              return (
+                <button key={t.id} type="button" className={s.tool} aria-pressed={on} onClick={() => toggle(t.id)} title={`${t.name} · ${t.provider}${on ? "" : " (off)"}`}>
+                  <Icon name={t.icon} size={20} />
+                  <span>{t.name}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
         <details>

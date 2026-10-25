@@ -13,8 +13,8 @@ import s from "./Rail.module.css";
 
 const groups: { href: string; label: string; icon: IconName }[][] = [
   [
-    { href: "/dashboard", label: "Live run", icon: "activity" },
     { href: "/runs", label: "Runs", icon: "play" },
+    { href: "/threads", label: "Threads", icon: "message" },
     { href: "/agents", label: "Agents", icon: "bot" },
     { href: "/tools", label: "Tools", icon: "wrench" },
   ],
@@ -47,7 +47,7 @@ export default function Rail() {
   const now = useNow();
   const waiting = usePendingApprovals().approvals.length;
   const running = live ? materialize(live, now).state === "RUNNING" : false;
-  const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
+  const active = (href: string) => path.startsWith(href);
   const label = employee?.display_name || employee?.email || "Signed in";
 
   return (
@@ -59,8 +59,9 @@ export default function Rail() {
           {g.map((n) => (
             <Link key={n.href} href={n.href} className="ibtn" aria-current={active(n.href) ? "page" : undefined} data-tip={n.label} data-tip-side aria-label={n.label}>
               <Icon name={n.icon} size={17} />
-              {n.href === "/dashboard" && running && <i className={`dot live c-run ${s.live}`} />}
-              {n.href === "/runs" && waiting > 0 && <i className={`dot ${s.live} ${s.wait}`} title={`${waiting} waiting for approval`} />}
+              {n.href === "/runs" && waiting > 0
+                ? <i className={`dot ${s.live} ${s.wait}`} title={`${waiting} waiting for approval`} />
+                : n.href === "/runs" && running && <i className={`dot live c-run ${s.live}`} />}
             </Link>
           ))}
         </div>

@@ -20,12 +20,12 @@ The Go module is `github.com/khangdoan514/hacktx-2026/agents`; implementations i
 ## State and action rules
 
 - A run or invocation starts `PENDING`, moves to `RUNNING`, then exactly one of `SUCCEEDED`, `FAILED`, or `CANCELLED`. Terminal states do not change. Start response may be `PENDING` or `RUNNING` depending on scheduling.
-- The root invocation has `ParentID == nil` and depth 0. A child has a parent ID and depth 1. The coordinator derives depth from the parent and never trusts an adapter-supplied depth.
+- The root invocation has `ParentID == nil` and depth 0. A child has a parent ID and a depth one greater than its parent's. The coordinator derives depth from the parent and never trusts an adapter-supplied depth.
 - `ModelAction` must have exactly one payload matching its `Type`: `FINISH` requires valid `Output`, `TOOL` requires `ToolCall`, and `DELEGATE` requires `Delegation`. Reject mismatches as `INVALID_INPUT` before any side effect.
 - `ModelInput` carries the agent's allowlisted `delegates` and `tools` definitions so a provider can shape inputs to their schemas. `ToolGateway.Definitions` exposes the registry; the coordinator filters it per agent.
 - `Run.opencode_session_id` links a run to its executing OpenCode session; empty for runs that predate the OpenCode backend.
 - `RunEvent.source` marks provenance: `nmc3` for coordinator-owned events, `opencode` for events mapped from an OpenCode session. Sequence and ordering rules are unchanged.
-- The coordinator checks delegate allowlists, depth, budgets, and concurrency before dispatch. A depth-1 `DELEGATE` produces `DELEGATION_DEPTH_EXCEEDED`. Only depth 0 can delegate, and only to an allowlisted definition.
+- The coordinator checks delegate allowlists, depth, budgets, and concurrency before dispatch. Depth 0 and depth 1 can delegate, only to an allowlisted definition. A `DELEGATE` from depth 2 (`MaxDelegationDepth` in `internal/agents/runtime`) produces `DELEGATION_DEPTH_EXCEEDED`. The OpenCode backend still enforces one level (`subagent_depth` 1).
 - A `TOOL` action goes through `ToolGateway`. The gateway checks the agent's tool allowlist and the input schema before calling the tool. For v1, registered tools must declare `READ_ONLY`.
 - Each model turn, tool call, and delegate invocation consumes the corresponding run budget once. On timeout or cancellation, propagate `context.Context` and record a terminal outcome.
 - `ActionResult` returns the result of an action to the model adapter on its next turn. A `FINISH` output is validated against the agent's output schema. Never let a model adapter directly execute a tool or agent.

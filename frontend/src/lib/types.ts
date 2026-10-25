@@ -37,6 +37,8 @@ export type Limits = {
 export type SimStep =
   | { tool: string; result: string; ms?: number }
   | { blocked: "tool" | "delegate"; target: string }
+  /** Hand work to a sub-specialist, which runs one level deeper. */
+  | { delegate: string; ms?: number }
   | { think: string; ms?: number };
 
 export type AgentDef = {
@@ -63,6 +65,7 @@ export type ToolDef = {
   id: string;
   name: string;
   mark: string;
+  icon: IconName;
   provider: string;
   sideEffect: "READ_ONLY" | "WRITE";
   timeoutSeconds: number;

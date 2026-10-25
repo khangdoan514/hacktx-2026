@@ -8,20 +8,18 @@ import PageHeader from "@/components/shell/PageHeader";
 import Icon from "@/components/ui/Icon";
 import StatePill from "@/components/ui/StatePill";
 import { clock, compact, usd } from "@/lib/format";
-import { useAllRuns, useStore } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import type { RunView } from "@/lib/types";
 import ExecutionGraph from "./ExecutionGraph";
 import LimitMeters from "./LimitMeters";
 import NewRunDialog from "./NewRunDialog";
 import Output, { OutputBadge } from "./Output";
-import RunList from "./RunList";
 import Timeline from "./Timeline";
 import s from "./RunInspector.module.css";
 
 /** One run, drawn literally: graph, lanes, output, plus the runs around it. */
 export default function RunInspector({ view }: { view: RunView }) {
   const { live, cancelLive } = useStore();
-  const runs = useAllRuns();
   const [dialog, setDialog] = useState(false);
   const def = agentById(view.plan.agent)!;
   const isLive = live?.id === view.plan.id;
@@ -58,16 +56,10 @@ export default function RunInspector({ view }: { view: RunView }) {
         <Timeline view={view} />
       </section>
 
-      <div className={s.lower}>
-        <section className="card rise" style={{ "--d": "120ms" } as React.CSSProperties}>
-          <div className="ch"><h2>Output</h2><OutputBadge view={view} /></div>
-          <Output view={view} />
-        </section>
-        <section className="card rise" style={{ "--d": "160ms" } as React.CSSProperties}>
-          <div className="ch"><h2>Runs</h2><span className="n">{runs.length}</span><Link href="/runs" className="right btn ghost sm">All</Link></div>
-          <RunList runs={runs.slice(0, 6)} current={p.id} />
-        </section>
-      </div>
+      <section className="card rise" style={{ "--d": "120ms" } as React.CSSProperties}>
+        <div className="ch"><h2>Output</h2><OutputBadge view={view} /></div>
+        <Output view={view} />
+      </section>
 
       <NewRunDialog open={dialog} onClose={() => setDialog(false)} agent={p.agent} />
     </>

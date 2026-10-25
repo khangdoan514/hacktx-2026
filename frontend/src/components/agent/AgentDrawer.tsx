@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { agentById, agents } from "@/config/agents";
+import { agentById, agents, depthOf } from "@/config/agents";
 import { toolById } from "@/config/tools";
 import { models } from "@/config/workspace";
 import CodeHint from "@/components/ui/CodeHint";
@@ -45,7 +45,7 @@ export default function AgentDrawer() {
             <span className={s.ico}><Icon name={def.icon} size={20} /></span>
             <div style={{ minWidth: 0 }}>
               <h3>{def.name}</h3>
-              <span className={s.id}>{def.id}@{def.version} · {def.kind} · depth {def.kind === "orchestrator" ? 0 : 1}</span>
+              <span className={s.id}>{def.id}@{def.version} · {def.kind} · depth {depthOf(def.id)}</span>
             </div>
             <button type="button" className="ibtn" onClick={closeAgent} aria-label="Close"><Icon name="x" /></button>
           </div>

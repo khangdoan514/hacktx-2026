@@ -210,6 +210,20 @@
         "output_tokens": 25,
         "cost_usd": 0.001
       }
+    },
+    {
+      "action": {
+        "type": "FINISH",
+        "output": {
+          "source_ids": [],
+          "summary": "The nested delegation reached the depth limit."
+        }
+      },
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 25,
+        "cost_usd": 0.001
+      }
     }
   ]
 }

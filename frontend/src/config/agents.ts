@@ -13,7 +13,7 @@ export const agents: AgentDef[] = [
     instructions: "Split the task into research, generation and critique. Delegate each part to a specialist. Only return ideas a critic has checked, and cite every source.",
     tools: [], delegates: ["market-scout", "idea-generator", "novelty-critic"],
     plan: [["market-scout"], ["idea-generator"], ["novelty-critic"]],
-    limits: { turns: 16, tools: 6, delegations: 3, parallel: 2, seconds: 60 },
+    limits: { turns: 20, tools: 8, delegations: 5, parallel: 2, seconds: 75 },
     input: "{ task: string }", output: "{ ideas: [{ title, why, novelty, source_ids[] }] }",
     sim: { result: "3 ideas" },
   },
@@ -35,8 +35,15 @@ export const agents: AgentDef[] = [
     id: "idea-generator", version: "1.0.0", name: "Idea Generator", icon: "sparkles", kind: "specialist",
     model: "claude-opus-5-5", role: "Writes candidate ideas that avoid what the scout found.",
     instructions: "Use only the market map you were given. Write 12 distinct ideas. You cannot call tools or other agents.",
-    tools: [], delegates: [], limits: specialistLimits, input: "{ task, clusters[] }", output: "{ ideas: [{ title, why }] }",
-    sim: { steps: [{ think: "Drafting ideas", ms: 1600 }, { blocked: "delegate", target: "market-scout" }, { think: "Writing ideas", ms: 1400 }], result: "12 ideas" },
+    tools: [], delegates: ["trend-analyst"], limits: { ...specialistLimits, delegations: 1 }, input: "{ task, clusters[] }", output: "{ ideas: [{ title, why }] }",
+    sim: { steps: [{ think: "Drafting ideas", ms: 1200 }, { delegate: "trend-analyst" }, { think: "Writing ideas", ms: 1400 }], result: "12 ideas" },
+  },
+  {
+    id: "trend-analyst", version: "1.0.0", name: "Trend Analyst", icon: "activity", kind: "specialist",
+    model: "claude-haiku-5-5", role: "Spots where the market is heading so ideas are not already stale.",
+    instructions: "Find the three strongest trends for the task. Do not propose ideas. You cannot delegate any further.",
+    tools: ["serpapi.google_search"], delegates: [], limits: specialistLimits, input: "{ task }", output: "{ trends: [...] }",
+    sim: { steps: [{ tool: "serpapi.google_search", result: "8 results", ms: 1100 }, { blocked: "delegate", target: "market-scout" }], result: "3 trends" },
   },
   {
     id: "novelty-critic", version: "1.0.0", name: "Novelty Critic", icon: "scale", kind: "specialist",
@@ -73,4 +80,9 @@ export const agents: AgentDef[] = [
 ];
 
 export const agentById = (id: string) => agents.find((a) => a.id === id);
+/** How deep an agent sits: 0 for one nobody delegates to, otherwise one below its caller. */
+export const depthOf = (id: string, seen: string[] = []): number => {
+  const caller = agents.find((a) => a.delegates.includes(id) && !seen.includes(a.id));
+  return caller ? 1 + depthOf(caller.id, [...seen, id]) : 0;
+};
 export const entryAgents = agents.filter((a) => a.kind === "orchestrator");
