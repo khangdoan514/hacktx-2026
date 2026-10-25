@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,9 +39,11 @@ func connectionProject(source, owner string) (string, error) {
 	credentials := toolpacks.NewStore(base).ForOwner(owner).Directory()
 	key := sha256.Sum256([]byte(owner + "\x00" + source + "\x00" + string(raw)))
 	dir := filepath.Join(base, "projects", fmt.Sprintf("%x", key))
+	// The host OpenCode service starts these servers, not this process. In
+	// Compose the agent image has no Go, so leave "go" for the host PATH.
 	goPath, err := exec.LookPath("go")
 	if err != nil {
-		return "", fmt.Errorf("workspace tools require Go: %w", err)
+		goPath = "go"
 	}
 	mcp, ok := cfg["mcp"].(map[string]any)
 	if !ok {
@@ -92,6 +95,10 @@ func connectionProject(source, owner string) (string, error) {
 	return dir, nil
 }
 
+// ErrUnownedSession marks a session created before owners were recorded in
+// OpenCode metadata. Callers may accept it only after their own owner check.
+var ErrUnownedSession = errors.New("session has no recorded owner")
+
 func (c *Client) AuthorizeSession(ctx context.Context, sessionID string) error {
 	owner := toolpacks.ContextOwner(ctx)
 	if owner == "" {
@@ -105,7 +112,11 @@ func (c *Client) AuthorizeSession(ctx context.Context, sessionID string) error {
 	if err := c.call(ctx, "GET", "/api/session/"+sessionID, nil, &out); err != nil {
 		return err
 	}
-	if out.Data.Metadata["nmc3_owner"] != owner {
+	got, tagged := out.Data.Metadata["nmc3_owner"]
+	if !tagged {
+		return ErrUnownedSession
+	}
+	if got != owner {
 		return fmt.Errorf("thread does not belong to this employee")
 	}
 	return nil

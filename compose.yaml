@@ -73,7 +73,9 @@ services:
       NMC3_DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
       NMC3_ADDR: 0.0.0.0:8080
       NMC3_WORKDIR: ${NMC3_WORKDIR:-/workspace/agents}
-      NMC3_TOOLS_DIR: ${NMC3_TOOLS_DIR:-.nmc3}
+      # Absolute and under the shared mount: host OpenCode reads the generated
+      # per-employee config, so a path inside the container is not visible.
+      NMC3_TOOLS_DIR: ${NMC3_TOOLS_DIR:-${NMC3_WORKDIR:-/workspace/agents}/.nmc3}
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
       # The host OpenCode process must listen on 0.0.0.0:49374. 127.0.0.1 is
       # not reachable from this container.

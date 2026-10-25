@@ -43,6 +43,7 @@ export default function AgentDrawer() {
               <h3>{def.name}</h3>
               <span className={s.id}>{def.id}@{def.version} · {def.kind} · depth {def.kind === "orchestrator" ? 0 : 1}</span>
             </div>
+            <Link href={`/agents/new?from=${encodeURIComponent(def.id)}`} className="btn sm" onClick={closeAgent}><Icon name="settings" size={13} />Edit</Link>
             <button type="button" className="ibtn" onClick={closeAgent} aria-label="Close"><Icon name="x" /></button>
           </div>
           <div className={s.tabs} role="tablist">
@@ -64,7 +65,7 @@ export default function AgentDrawer() {
 }
 
 function Spec({ def }: { def: AgentDef }) {
-  const { openAgent, agents, agentById } = useStore();
+  const { openAgent, closeAgent, agents, agentById } = useStore();
   const callers = agents.filter((a) => a.delegates.includes(def.id));
   return (
     <>
@@ -94,7 +95,7 @@ function Spec({ def }: { def: AgentDef }) {
         </div>
       </Sec>
       <Sec title="Configure">
-        <p className={s.note}>This is version {def.version} ({def.state}). <Link href={`/agents/new?from=${def.id}`} className="btn sm">Edit in builder</Link></p>
+        <p className={s.note}>This is version {def.version} ({def.state}). <Link href={`/agents/new?from=${encodeURIComponent(def.id)}`} className="btn sm" onClick={closeAgent}>Edit in builder</Link></p>
       </Sec>
     </>
   );
