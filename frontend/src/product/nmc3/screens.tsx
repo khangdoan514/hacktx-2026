@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { writeToken } from "@/product/api";
+import { supabase } from "@/product/supabase";
 import { nmc } from "./client";
 import signIn from "./signin.module.css";
 
@@ -51,17 +51,17 @@ export function SignInScreen() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    try {
-      const session = await nmc<{ access_token: string }>("/api/v1/auth/local-session", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      writeToken(session.access_token);
-      const next = new URLSearchParams(window.location.search).get("next");
-      router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/org");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+    if (!supabase) {
+      setError("Supabase auth is not configured.");
+      return;
     }
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      setError(signInError.message);
+      return;
+    }
+    const next = new URLSearchParams(window.location.search).get("next");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/org");
   }
 
   return (

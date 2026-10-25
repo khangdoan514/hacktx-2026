@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
-import { clearToken, readToken } from "@/product/api";
+import { endSession, restoreSession } from "@/product/supabase";
 
 export type Employee = { email: string; display_name: string };
 
@@ -23,29 +23,32 @@ export default function ConsoleGate({ children }: { children: React.ReactNode })
   const [problem, setProblem] = useState("");
 
   useEffect(() => {
-    const token = readToken();
-    if (!token) {
-      router.replace(signInPath());
-      return;
-    }
     let stop = false;
-    fetch("/api/v1/me", { headers: { Accept: "application/json", Authorization: `Bearer ${token}` } })
-      .then(async (response) => {
+    void (async () => {
+      const token = await restoreSession();
+      if (stop) return;
+      if (!token) {
+        router.replace(signInPath());
+        return;
+      }
+      try {
+        const response = await fetch("/api/v1/me", { headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
         if (stop) return;
-        if (response.status === 401 || response.status === 403) {
-          clearToken();
+        if (response.status === 401) {
+          await endSession();
           router.replace(signInPath());
           return;
         }
         if (!response.ok) {
-          setProblem("The application API is unavailable.");
+          const body = await response.json().catch(() => null) as { message?: string } | null;
+          setProblem(body?.message || "The application API is unavailable.");
           return;
         }
         setEmployee(await response.json() as Employee);
-      })
-      .catch(() => {
+      } catch {
         if (!stop) setProblem("The application API is unavailable.");
-      });
+      }
+    })();
     return () => {
       stop = true;
     };
@@ -53,9 +56,14 @@ export default function ConsoleGate({ children }: { children: React.ReactNode })
 
   if (!employee) {
     return (
-      <p style={{ margin: 0, minHeight: "100vh", padding: 28, color: "var(--ink-3)" }}>
-        {problem || "Checking session…"}
-      </p>
+      <div style={{ margin: 0, minHeight: "100vh", padding: 28, color: "var(--ink-3)" }}>
+        <p>{problem || "Checking session…"}</p>
+        {problem ? (
+          <button className="btn" type="button" style={{ marginTop: 16 }} onClick={() => { void endSession().then(() => router.replace("/sign-in")); }}>
+            Sign out
+          </button>
+        ) : null}
+      </div>
     );
   }
 

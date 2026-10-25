@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { clearToken, readToken } from "./api";
+import { endSession, restoreSession } from "./supabase";
 
 const PUBLIC = [/^\/sign-in$/, /^\/auth\/callback$/, /^\/invitations\/accept$/];
 
@@ -15,12 +15,17 @@ export default function ProductShell({ children }: { children: React.ReactNode }
   const onDashboard = pathname.includes("/dashboards");
 
   useEffect(() => {
-    if (!isPublic && !readToken()) {
-      const next = encodeURIComponent(pathname);
-      router.replace(`/sign-in?next=${next}`);
-      return;
-    }
-    setReady(true);
+    let stop = false;
+    void (async () => {
+      if (!isPublic && !(await restoreSession())) {
+        if (!stop) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+        return;
+      }
+      if (!stop) setReady(true);
+    })();
+    return () => {
+      stop = true;
+    };
   }, [isPublic, pathname, router]);
 
   if (!ready && !isPublic) {
@@ -54,8 +59,7 @@ export default function ProductShell({ children }: { children: React.ReactNode }
               type="button"
               className="text-gray-600"
               onClick={() => {
-                clearToken();
-                router.push("/sign-in");
+                void endSession().then(() => router.push("/sign-in"));
               }}
             >
               Sign out

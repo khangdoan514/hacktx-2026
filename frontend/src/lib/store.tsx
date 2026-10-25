@@ -7,7 +7,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { clearToken } from "@/product/api";
+import { endSession } from "@/product/supabase";
 import { agentById } from "@/config/agents";
 import { budgets, guardrails, scenarios, triggers } from "@/config/workspace";
 import { AgentRequestError, agentApi } from "./api";
@@ -128,8 +128,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }).catch((err: unknown) => {
       if (stop) return;
       if (err instanceof AgentRequestError && err.status === 401) {
-        clearToken();
-        router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+        void endSession().then(() => router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`));
         return;
       } else {
         setHistory(seedHistory(t));

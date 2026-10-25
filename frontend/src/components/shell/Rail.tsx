@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Icon, { type IconName } from "@/components/ui/Icon";
-import { clearToken } from "@/product/api";
+import { endSession } from "@/product/supabase";
 import { useNow, useStore } from "@/lib/store";
 import { materialize } from "@/lib/simulate";
 import { useEmployee } from "./ConsoleGate";
@@ -77,7 +77,7 @@ export default function Rail() {
           <span className={s.moon}><Icon name="moon" size={17} /></span>
           <span className={s.sun}><Icon name="sun" size={17} /></span>
         </button>
-        <button type="button" className="ibtn" onClick={() => { clearToken(); router.replace("/sign-in"); }} aria-label="Sign out" data-tip="Sign out" data-tip-side>
+        <button type="button" className="ibtn" onClick={() => { void endSession().then(() => router.replace("/sign-in")); }} aria-label="Sign out" data-tip="Sign out" data-tip-side>
           <Icon name="log-out" size={17} />
         </button>
         <div className={s.avatar} title={label}>{initials(employee?.display_name ?? "", employee?.email ?? "")}</div>
