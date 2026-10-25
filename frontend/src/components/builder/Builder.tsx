@@ -249,7 +249,7 @@ export default function Builder() {
     <>
       <PageHeader
         crumbs={<><Link href="/agents">Agents</Link><span>/</span><b>{flow.name.trim() || "New agent"}</b></>}
-        title="Build an agent"
+        title={fromId.current ? "Edit agent" : "Build an agent"}
         sub="Drag steps onto the canvas and connect them. Steps that start from the same place run in parallel."
         actions={
           <>

@@ -42,6 +42,7 @@ export default function AgentsPage() {
 function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
   const { openAgent } = useStore();
   return (
+    <div className={s.wrap}>
     <button type="button" className={s.card} onClick={() => openAgent(a.id)}>
       <div className={s.top}>
         <span className={`${s.ico} ${st.running ? s.live : ""}`}><Icon name={a.icon} size={18} /></span>
@@ -52,16 +53,13 @@ function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
         <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
       </div>
       <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
-      <div className={s.chips}>
-        {a.delegates.map((d) => <span key={d} className="tag">{d}</span>)}
-        {a.tools.map((t) => <span key={t} className="tag accent">{t}</span>)}
-        {a.tools.length + a.delegates.length === 0 && <span className="tag">model only</span>}
-      </div>
       <div className={s.foot}>
         <span><b>{st.n}</b> runs</span>
         <span><b>{st.rate}%</b> ok</span>
         <span><b>{st.avg ? secs(st.avg) : "—"}</b> avg</span>
       </div>
     </button>
+    <Link href={`/agents/new?from=${a.id}`} className={`btn sm ${s.edit}`}>Edit</Link>
+    </div>
   );
 }
