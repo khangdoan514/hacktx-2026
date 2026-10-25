@@ -178,3 +178,26 @@ export function useAllRuns(): RunView[] {
   const now = useNow();
   return useMemo(() => runs.map((p) => materialize(p, isTerminal(p.final) ? Infinity : now)), [runs, now]);
 }
+
+/** Every run with its events, so per-agent turns and usage are known. Finished runs are fetched once. */
+export function useRunDetails(): RunPlan[] {
+  const { agents, runs } = useStore();
+  const [cache, setCache] = useState<Record<string, RunPlan>>({});
+  const stamp = runs.map((r) => `${r.id}:${r.final}`).join(",");
+
+  useEffect(() => {
+    let stop = false;
+    void Promise.all(runs.map(async (r) => {
+      const have = cache[r.id];
+      if (have && isTerminal(have.final) && isTerminal(r.final)) return null;
+      return loadRun(r.id, agents).catch(() => null);
+    })).then((loaded) => {
+      if (stop) return;
+      const next = loaded.filter((p): p is RunPlan => !!p);
+      if (next.length) setCache((c) => ({ ...c, ...Object.fromEntries(next.map((p) => [p.id, p])) }));
+    });
+    return () => { stop = true; };
+  }, [stamp, agents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return useMemo(() => runs.map((r) => cache[r.id] ?? r), [runs, cache]);
+}

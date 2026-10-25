@@ -2,27 +2,28 @@
 
 import PageHeader from "@/components/shell/PageHeader";
 import { compact, usd } from "@/lib/format";
-import { useAllRuns, useStore } from "@/lib/store";
+import { useRunDetails, useStore } from "@/lib/store";
 import s from "../table.module.css";
 
-/** Per-run ceilings come from each definition; spend is what finished runs reported. */
+/** Per-run ceilings come from each definition; spend is summed from the model turns each agent reported. */
 export default function BudgetsPage() {
-  const runs = useAllRuns();
+  const runs = useRunDetails();
   const { agents } = useStore();
-  const total = runs.reduce((a, r) => a + r.plan.usage.cost, 0);
-  const tokens = runs.reduce((a, r) => a + r.plan.usage.tokensIn + r.plan.usage.tokensOut, 0);
+  const total = runs.reduce((a, r) => a + r.usage.cost, 0);
+  const tokens = runs.reduce((a, r) => a + r.usage.tokensIn + r.usage.tokensOut, 0);
   const rows = agents.map((a) => {
-    const own = runs.filter((r) => r.plan.agent === a.id);
-    const cost = own.reduce((x, r) => x + r.plan.usage.cost, 0);
-    const tok = own.reduce((x, r) => x + r.plan.usage.tokensIn + r.plan.usage.tokensOut, 0);
-    return { a, n: own.length, cost, tok, avg: own.length ? cost / own.length : 0 };
+    const turns = runs.flatMap((r) => r.turns.filter((t) => t.agent === a.id && t.id !== `${r.id}-usage`));
+    const ran = runs.filter((r) => r.invocations.some((i) => i.agent === a.id)).length;
+    const cost = turns.reduce((x, t) => x + t.cost, 0);
+    const tok = turns.reduce((x, t) => x + t.tokensIn + t.tokensOut, 0);
+    return { a, n: ran, cost, tok, avg: ran ? cost / ran : 0 };
   });
 
   return (
     <>
-      <PageHeader title="Budgets" sub="Each definition caps tokens, cost and time per run; a run that would go over stops with BUDGET_EXCEEDED. Spend is what the service recorded." />
+      <PageHeader title="Budgets" sub="Each definition caps tokens, cost and time per run; a run that would go over stops with BUDGET_EXCEEDED. Spend is summed from the model turns the service reported. It reports usage for the orchestrator’s session, so delegated specialists show no separate spend." />
       <section className="card" style={{ display: "flex", gap: 32, padding: "18px 20px", flexWrap: "wrap" }}>
-        <div><small className="muted mono">Total spend</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{usd(total)}</div></div>
+        <div><small className="muted mono">Total spend (all runs)</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{usd(total)}</div></div>
         <div><small className="muted mono">Tokens</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{compact(tokens)}</div></div>
         <div><small className="muted mono">Runs</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{runs.length}</div></div>
       </section>
