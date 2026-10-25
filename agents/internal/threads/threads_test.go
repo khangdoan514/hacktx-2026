@@ -58,6 +58,48 @@ func msg(kind string, parts ...map[string]any) opencode.Message {
 
 func str(v any) string { s, _ := v.(string); return s }
 
+func TestTranscriptIncludesTopLevelUserText(t *testing.T) {
+	messages := transcript([]opencode.Message{
+		msg("assistant", map[string]any{"type": "text", "text": "OK"}),
+		{ID: "user-1", Type: "user", Text: "Reply with OK only."},
+	})
+	if len(messages) != 2 || messages[0].Role != "user" || messages[0].Text != "Reply with OK only." || messages[1].Text != "OK" {
+		t.Fatalf("unexpected transcript: %+v", messages)
+	}
+}
+
+func TestTranscriptShowsOriginalUserTextWithAttachmentContext(t *testing.T) {
+	context := "What are the values?" + attachmentContextPreamble + "\n\n--- File alpha.txt ---\nsecret file text"
+	for _, message := range []opencode.Message{
+		{ID: "new", Type: "user", Text: context, Metadata: map[string]any{"nmc3_display_text": "What are the values?"}},
+		{ID: "old", Type: "user", Text: context},
+	} {
+		got := transcript([]opencode.Message{message})
+		if len(got) != 1 || got[0].Text != "What are the values?" {
+			t.Fatalf("attachment context leaked into transcript: %+v", got)
+		}
+	}
+}
+
+func TestTranscriptIncludesOpenCodeToolContent(t *testing.T) {
+	message := opencode.Message{ID: "assistant-tool", Type: "assistant"}
+	message.Content = append(message.Content, struct {
+		Type  string         `json:"type"`
+		Text  string         `json:"text"`
+		Name  string         `json:"name"`
+		ID    string         `json:"id"`
+		State map[string]any `json:"state"`
+	}{Type: "tool", Name: "shell", State: map[string]any{
+		"status":  "completed",
+		"input":   map[string]any{"command": "pwd"},
+		"content": []any{map[string]any{"type": "text", "text": "/work"}},
+	}})
+	got := transcript([]opencode.Message{message})
+	if len(got) != 1 || len(got[0].Tools) != 1 || got[0].Tools[0].Output != "/work" {
+		t.Fatalf("tool output missing: %+v", got)
+	}
+}
+
 func TestThreadLifecycle(t *testing.T) {
 	f := &fake{release: make(chan struct{}), prompted: make(chan string, 1)}
 	h := New(f, "/work", "thread", "meta/model")

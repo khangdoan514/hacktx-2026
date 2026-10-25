@@ -37,12 +37,13 @@ func id(prefix string) string {
 func now() time.Time { return time.Now().UTC() }
 
 type Coordinator struct {
-	client       *Client
-	defs         map[string]contracts.AgentDefinition
-	store        contracts.RunStore
-	events       contracts.EventSink
-	workdir      string
-	defaultModel string
+	client            *Client
+	defs              map[string]contracts.AgentDefinition
+	store             contracts.RunStore
+	events            contracts.EventSink
+	workdir           string
+	defaultModel      string
+	definitionsSource contracts.DefinitionSource
 
 	mu       sync.Mutex
 	inflight map[string]*inflightRun
@@ -55,7 +56,7 @@ type inflightRun struct {
 	cancelled bool
 }
 
-func New(definitions []contracts.AgentDefinition, client *Client, store contracts.RunStore, events contracts.EventSink, workdir, defaultModel string) (*Coordinator, error) {
+func New(definitions []contracts.AgentDefinition, client *Client, store contracts.RunStore, events contracts.EventSink, workdir, defaultModel string, sources ...contracts.DefinitionSource) (*Coordinator, error) {
 	if client == nil || store == nil || events == nil {
 		return nil, fmt.Errorf("opencode coordinator is missing a dependency")
 	}
@@ -63,6 +64,9 @@ func New(definitions []contracts.AgentDefinition, client *Client, store contract
 		return nil, fmt.Errorf("opencode coordinator needs a workdir and default model")
 	}
 	c := &Coordinator{client: client, defs: map[string]contracts.AgentDefinition{}, store: store, events: events, workdir: workdir, defaultModel: defaultModel, inflight: map[string]*inflightRun{}}
+	if len(sources) > 0 {
+		c.definitionsSource = sources[0]
+	}
 	for _, d := range definitions {
 		if d.ID == "" || d.Version == "" || d.Name == "" {
 			return nil, fmt.Errorf("invalid definition identity")
@@ -106,7 +110,18 @@ func positive(l contracts.Limits) error {
 }
 
 func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) (contracts.Run, error) {
-	definition, ok := c.defs[req.AgentID+"@"+req.AgentVersion]
+	defs := c.defs
+	if c.definitionsSource != nil {
+		published, err := c.definitionsSource(ctx)
+		if err != nil {
+			return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "published agents could not be loaded"}
+		}
+		defs = make(map[string]contracts.AgentDefinition, len(published))
+		for _, item := range published {
+			defs[item.ID+"@"+item.Version] = item
+		}
+	}
+	definition, ok := defs[req.AgentID+"@"+req.AgentVersion]
 	if !ok {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrNotFound, Message: "agent version not found"}
 	}
@@ -116,6 +131,11 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	model := req.ModelID
 	if model == "" {
 		model = c.defaultModel
+		if definition.PreferredModel != "" {
+			if _, _, modelErr := splitModel(definition.PreferredModel); modelErr == nil {
+				model = definition.PreferredModel
+			}
+		}
 	}
 	if !contracts.ValidModelID(model) {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "invalid model ID"}
@@ -127,12 +147,19 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	if err := Validate(definition.InputSchema, req.Input); err != nil {
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "input does not match agent schema: " + err.Error()}
 	}
-	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", definition.ID, providerID, modelID)
+	profile := definition.ID
+	if _, bundled := c.defs[req.AgentID+"@"+req.AgentVersion]; !bundled {
+		if len(definition.AllowedDelegates) > 0 || len(definition.AllowedTools) > 0 {
+			return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "this published agent needs a configured tool or delegation profile before it can run"}
+		}
+		profile = "builder-agent"
+	}
+	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", profile, providerID, modelID)
 	if err != nil {
 		log.Printf("NMC3 OpenCode CreateSession failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
-	if err := c.client.Prompt(ctx, session.ID, buildPrompt(definition, c.defs, req.Input)); err != nil {
+	if err := c.client.Prompt(ctx, session.ID, buildPrompt(definition, defs, req.Input)); err != nil {
 		log.Printf("NMC3 OpenCode Prompt failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
@@ -173,7 +200,10 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 			sb.WriteString("Use the " + openCodeName + " tool for " + tool + ".\n")
 		}
 	}
-	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. Cite source IDs for every claim. If a tool or delegation is denied, do not retry it through the shell, the network, or another agent.\n")
+	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. If a tool or delegation is denied, do not retry it through the shell, the network, or another agent.\n")
+	if len(definition.AllowedTools) > 0 || len(definition.AllowedDelegates) > 0 {
+		sb.WriteString("Cite source IDs for claims based on tools or delegated research.\n")
+	}
 	sb.WriteString("Reply with ONLY a single JSON object matching this output schema, no other text: " + string(definition.OutputSchema))
 	return sb.String()
 }

@@ -21,6 +21,7 @@ import (
 	defreg "github.com/khangdoan514/hacktx-2026/agents/internal/definitions"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/extensions"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/httpapi"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/objectstore"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/opencode"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/policy"
 	"github.com/khangdoan514/hacktx-2026/agents/internal/store"
@@ -38,6 +39,7 @@ func main() {
 func run() error {
 	var runs contracts.RunStore
 	var events contracts.EventSink
+	var threadStore threads.Store
 	if os.Getenv("NMC3_STORE") == "postgres" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -47,6 +49,7 @@ func run() error {
 		}
 		defer s.Close()
 		runs, events = s, s
+		threadStore = threads.PostgresStore{Pool: s.Pool}
 	} else {
 		// The Supabase project ref is fixed for this deployment so a local
 		// checkout works with only the server-side secret configured.
@@ -58,6 +61,16 @@ func run() error {
 			return err
 		}
 		runs, events = s, s
+		if databaseURL := os.Getenv("NMC3_DATABASE_URL"); databaseURL != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			threadDB, err := store.Open(ctx, databaseURL)
+			if err != nil {
+				return fmt.Errorf("connect to thread Postgres: %w", err)
+			}
+			defer threadDB.Close()
+			threadStore = threads.PostgresStore{Pool: threadDB.Pool}
+		}
 	}
 	// Definitions feed GET /v1/agents and the OpenCode session prompts.
 	definitions := []contracts.AgentDefinition{}
@@ -81,17 +94,28 @@ func run() error {
 	if _, err := os.Stat(filepath.Join(workdir, "opencode.jsonc")); err != nil {
 		return fmt.Errorf("OpenCode config %s: run from agents/ or set NMC3_WORKDIR to that directory", filepath.Join(workdir, "opencode.jsonc"))
 	}
-	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, model)
+	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
+	mux := http.NewServeMux()
+	closePlatform, definitionSource, err := mountPlatform(mux, platformDatabaseURL(), envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"))
 	if err != nil {
 		return err
 	}
-	addr := envDefault("NMC3_ADDR", "127.0.0.1:8080")
-	mux := http.NewServeMux()
-	mux.Handle("/", httpapi.New(coordinator, runs, events, definitions))
+	defer closePlatform()
+	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, model, definitionSource)
+	if err != nil {
+		return err
+	}
+	mux.Handle("/", httpapi.New(coordinator, runs, events, definitions, definitionSource))
 	reg := extensions.NewRegistry()
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})
 	extensions.NewAPI(reg, gw).Mount(mux)
-	threads.New(backend, workdir, "thread", model).Mount(mux)
+	threadAPI := threads.New(backend, workdir, "thread", model, threadStore)
+	blobs, err := objectstore.FromEnv(context.Background())
+	if err != nil {
+		return fmt.Errorf("configure thread object storage: %w", err)
+	}
+	threadAPI.SetBlobStore(blobs)
+	threadAPI.Mount(mux)
 	// Built-in GitHub and Google Drive packs. The tools-mcp server named in
 	// opencode.jsonc reads the same credential directory.
 	toolpacks.NewAPI(
@@ -99,11 +123,6 @@ func run() error {
 		envDefault("NMC3_PUBLIC_URL", "http://127.0.0.1"+portSuffix(addr)),
 		envDefault("NMC3_APP_URL", "http://localhost:3000"),
 	).Mount(mux)
-	closePlatform, err := mountPlatform(mux, platformDatabaseURL(), envDefault("NMC3_DEFINITIONS_FILE", "examples/definitions.json"))
-	if err != nil {
-		return err
-	}
-	defer closePlatform()
 	server := http.Server{Addr: addr, Handler: guardInternal(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("NMC3 API listening on %s (OpenCode backend %s)", addr, opencodeURL)
 	return server.ListenAndServe()
@@ -137,36 +156,49 @@ func platformDatabaseURL() string {
 	return ""
 }
 
-func mountPlatform(mux *http.ServeMux, databaseURL, definitionsFile string) (func(), error) {
+func mountPlatform(mux *http.ServeMux, databaseURL, definitionsFile string) (func(), contracts.DefinitionSource, error) {
 	if databaseURL == "" {
-		return func() {}, nil
+		return func() {}, nil, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	registry, err := defreg.Open(ctx, databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("open definition registry: %w", err)
+		return nil, nil, fmt.Errorf("open definition registry: %w", err)
 	}
 	raw, err := os.ReadFile(definitionsFile)
 	if err != nil {
 		registry.Close()
-		return nil, fmt.Errorf("read %s: %w", definitionsFile, err)
+		return nil, nil, fmt.Errorf("read %s: %w", definitionsFile, err)
 	}
 	if _, err := registry.Import(ctx, "local", raw, defreg.ImportPublish); err != nil {
 		registry.Close()
-		return nil, fmt.Errorf("import definitions: %w", err)
+		return nil, nil, fmt.Errorf("import definitions: %w", err)
 	}
 	defreg.Mount(mux, registry)
 	policyStore, err := policy.OpenPostgres(ctx, databaseURL)
 	if err != nil {
 		registry.Close()
-		return nil, fmt.Errorf("open policy store: %w", err)
+		return nil, nil, fmt.Errorf("open policy store: %w", err)
 	}
 	mux.Handle("/v1/approvals/", policy.Handler(policy.New(policyStore), forwardedEmployee))
+	source := func(ctx context.Context) ([]contracts.AgentDefinition, error) {
+		versions, err := registry.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		published := make([]contracts.AgentDefinition, 0, len(versions))
+		for _, version := range versions {
+			if version.State == defreg.StatePublished {
+				published = append(published, version.Spec.Definition())
+			}
+		}
+		return published, nil
+	}
 	return func() {
 		policyStore.Close()
 		registry.Close()
-	}, nil
+	}, source, nil
 }
 
 // guardInternal rejects callers that did not come through cmd/api when

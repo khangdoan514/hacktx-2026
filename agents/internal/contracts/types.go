@@ -72,6 +72,7 @@ type AgentDefinition struct {
 	AllowedTools     []string   `json:"allowed_tools"`
 	AllowedDelegates []string   `json:"allowed_delegates"`
 	Limits           Limits     `json:"limits"`
+	PreferredModel   string     `json:"-"`
 }
 
 type ToolDefinition struct {

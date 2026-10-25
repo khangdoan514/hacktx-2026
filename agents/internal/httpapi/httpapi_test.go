@@ -83,6 +83,22 @@ func TestListRuns(t *testing.T) {
 	}
 }
 
+func TestPublishedDefinitionSourceFeedsRosterAndRunStart(t *testing.T) {
+	run := contracts.Run{ID: "run-new", State: contracts.StatePending, AgentID: "new-agent", Version: "1.0.0"}
+	source := func(context.Context) ([]contracts.AgentDefinition, error) {
+		return []contracts.AgentDefinition{{ID: "new-agent", Version: "1.0.0", Name: "New agent"}}, nil
+	}
+	h := New(fakeCoordinator{run}, fakeStore{run}, fakeEvents{}, nil, source)
+	if got := request(t, h, "GET", "/v1/agents", nil); got.Code != http.StatusOK || !bytes.Contains(got.Body.Bytes(), []byte(`"new-agent"`)) {
+		t.Fatalf("roster: %d %s", got.Code, got.Body.String())
+	}
+	req := validRequest()
+	req.AgentID = "new-agent"
+	if got := request(t, h, "POST", "/v1/agent-runs", req); got.Code != http.StatusAccepted {
+		t.Fatalf("run start: %d %s", got.Code, got.Body.String())
+	}
+}
+
 func TestVersionedAPI(t *testing.T) {
 	h := testHandler()
 	if got := request(t, h, "POST", "/v1/agent-runs", validRequest()); got.Code != 202 {

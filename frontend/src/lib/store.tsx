@@ -27,6 +27,7 @@ type Store = {
   startRun: (o: { agent: string; task: string; limits?: Limits }) => Promise<string>;
   cancelRun: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
+  refreshAgents: () => Promise<void>;
   drawer: DrawerState;
   openAgent: (agent: string, o?: { run?: string; tab?: "spec" | "activity" | "prompts" }) => void;
   closeAgent: () => void;
@@ -67,6 +68,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (err instanceof AgentRequestError && err.status === 401) expire();
     }
   }, [expire]);
+
+  const refreshAgents = useCallback(async () => {
+    const defs = await loadAgents();
+    agentsRef.current = defs;
+    setAgents(defs);
+  }, []);
 
   useEffect(() => {
     let stop = false;
@@ -111,11 +118,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const agentById = useCallback((id: string) => agents.find((a) => a.id === id), [agents]);
 
   const value = useMemo<Store>(() => ({
-    agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer,
+    agents, agentById, runs, live, plan, startRun, cancelRun, refresh, refreshAgents, drawer,
     openAgent: (agent, o) => { setDrawer({ agent, ...o }); },
     closeAgent: () => setDrawer(null),
     toasts, toast,
-  }), [agents, agentById, runs, live, plan, startRun, cancelRun, refresh, drawer, toasts, toast]);
+  }), [agents, agentById, runs, live, plan, startRun, cancelRun, refresh, refreshAgents, drawer, toasts, toast]);
 
   if (!ready) return null;
   return (

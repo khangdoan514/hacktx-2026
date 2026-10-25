@@ -1,5 +1,6 @@
 .app { display: grid; grid-template-columns: 64px minmax(0, 1fr); min-height: 100vh; }
 .page { max-width: 1480px; width: 100%; margin: 0 auto; padding: 28px 32px 64px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.page:has(> [data-thread-workspace]) { max-width: none; padding: 0; gap: 0; overflow: hidden; }
 @media (max-width: 720px) {
   .app { grid-template-columns: minmax(0, 1fr); padding-bottom: 60px; }
   .page { padding: 18px 16px 40px; }

@@ -25,14 +25,14 @@ export default function AgentsPage() {
 
   return (
     <>
-      <PageHeader title="Agents" sub="Click an agent for its details and history." actions={<Link href="/agents/new" className="btn solid"><Icon name="plus" size={15} />New agent</Link>} />
+      <PageHeader title="Agents" sub="Click an agent for its details and history." actions={<Link href="/agents/new?template=single" className="btn solid"><Icon name="plus" size={15} />New agent</Link>} />
       {agents.length === 0 && <p className="muted">The agent service has no agents.</p>}
       <div className={`${s.grid} rise`}>
         {sorted.map((a) => <AgentCard key={a.id} a={a} st={stats(a.id, runs)} />)}
         <Link href="/agents/new" className={`${s.card} ${s.add}`}>
           <span className={s.addIco}><Icon name="plus" size={18} /></span>
-          <b>Build an agent</b>
-          <p>Drag steps onto a canvas, connect them, and run branches in parallel.</p>
+          <b>Build a workflow</b>
+          <p>Connect several agents in sequence or in parallel.</p>
         </Link>
       </div>
     </>
@@ -42,24 +42,29 @@ export default function AgentsPage() {
 function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
   const { openAgent } = useStore();
   return (
-    <div className={s.wrap}>
-    <button type="button" className={s.card} onClick={() => openAgent(a.id)}>
-      <div className={s.top}>
-        <span className={`${s.ico} ${st.running ? s.live : ""}`}><Icon name={a.icon} size={18} /></span>
-        <div style={{ minWidth: 0 }}>
-          <b>{a.name}</b>
-          <small className="mono">{a.id}@{a.version}</small>
+    <div id={a.id} className={s.card}>
+      <button type="button" className={s.cardOpen} onClick={() => openAgent(a.id)} aria-label={`View ${a.name} details`}>
+        <div className={s.top}>
+          <span className={`${s.ico} ${st.running ? s.live : ""}`}><Icon name={a.icon} size={18} /></span>
+          <div style={{ minWidth: 0 }}>
+            <b>{a.name}</b>
+            <small className="mono">{a.id}@{a.version}</small>
+          </div>
+          <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
         </div>
-        <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
-      </div>
-      <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
+        <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
+        <div className={s.chips}>
+          {a.delegates.map((d) => <span key={d} className="tag">{d}</span>)}
+          {a.tools.map((t) => <span key={t} className="tag accent">{t}</span>)}
+          {a.tools.length + a.delegates.length === 0 && <span className="tag">model only</span>}
+        </div>
+      </button>
       <div className={s.foot}>
         <span><b>{st.n}</b> runs</span>
         <span><b>{st.rate}%</b> ok</span>
         <span><b>{st.avg ? secs(st.avg) : "—"}</b> avg</span>
+        <Link href={`/agents/new?from=${encodeURIComponent(a.id)}`} className="btn sm" aria-label={`Edit ${a.name} in graph`}>Edit graph</Link>
       </div>
-    </button>
-    <Link href={`/agents/new?from=${a.id}`} className={`btn sm ${s.edit}`}>Edit</Link>
     </div>
   );
 }

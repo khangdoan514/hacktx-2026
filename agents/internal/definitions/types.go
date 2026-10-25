@@ -6,9 +6,8 @@
 // agents/examples/definitions.json import without lifecycle fields.
 //
 // This package does not start runs. Handler and Mount serve the lifecycle
-// HTTP API. The current process still loads the example file directly until
-// an integrator calls ResolveAndPinRun at run start and dispatches
-// /v1/definitions to Mount. The package README has that main.go snippet.
+// HTTP API. The agent service reads published definitions at run startup; run
+// pins and policy enforcement are handled by later integration work.
 package definitions
 
 import (
@@ -118,7 +117,13 @@ type Spec struct {
 }
 
 // Definition returns the v1 contract value stored in the spec.
-func (s Spec) Definition() contracts.AgentDefinition { return s.AgentDefinition }
+func (s Spec) Definition() contracts.AgentDefinition {
+	definition := s.AgentDefinition
+	if s.ModelPolicy != nil {
+		definition.PreferredModel = s.ModelPolicy.DefaultModel
+	}
+	return definition
+}
 
 // AllowsModel checks the spec's model policy.
 func (s Spec) AllowsModel(modelID string) error { return s.ModelPolicy.Allows(modelID) }

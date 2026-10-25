@@ -7,7 +7,7 @@ type WireSpec = {
   id: string; version: string; name: string; role?: string; instructions?: string;
   input_schema?: unknown; output_schema?: unknown; allowed_tools?: string[]; allowed_delegates?: string[]; limits?: WireLimits;
 };
-type WireDefinition = { spec: WireSpec; state?: string };
+type WireDefinition = { spec: WireSpec; state?: string; published_at?: string; updated_at?: string };
 
 export const limitsFromWire = (l: WireLimits): Limits => ({
   turns: l.max_model_turns, tools: l.max_tool_calls, delegations: l.max_delegations, parallel: l.max_concurrent_agents, seconds: l.timeout_seconds,
@@ -48,8 +48,15 @@ export async function loadAgents(): Promise<AgentDef[]> {
   const res = await fetch("/agent-api/definitions", { cache: "no-store", headers });
   if (res.ok) {
     const body = (await res.json()) as { definitions?: WireDefinition[] };
-    const published = (body.definitions ?? []).filter((d) => d.state === "published" || d.state === undefined);
-    if (published.length) return published.map((d) => fromSpec(d.spec, d.state ?? "published"));
+    const latest = new Map<string, WireDefinition>();
+    for (const definition of body.definitions ?? []) {
+      if (definition.state !== "published" && definition.state !== undefined) continue;
+      const prior = latest.get(definition.spec.id);
+      if (!prior || (definition.published_at ?? definition.updated_at ?? "") >= (prior.published_at ?? prior.updated_at ?? "")) {
+        latest.set(definition.spec.id, definition);
+      }
+    }
+    if (latest.size) return [...latest.values()].map((d) => fromSpec(d.spec, d.state ?? "published"));
   }
   if (res.status === 401) throw new AgentRequestError("Session expired", 401);
   const { agents } = await agentApi.agents();
