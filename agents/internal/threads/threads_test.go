@@ -3,6 +3,7 @@ package threads
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,3 +151,52 @@ func TestRejectsBadIDs(t *testing.T) {
 		t.Fatalf("bad id: %d", rec.Code)
 	}
 }
+
+type guarded struct {
+	fake
+	authErr error
+}
+
+func (g *guarded) AuthorizeSession(context.Context, string) error { return g.authErr }
+
+type ownerStore struct {
+	Store
+	principal string
+}
+
+func (s ownerStore) Get(_ context.Context, id, _, principal string) (Thread, error) {
+	if principal != s.principal {
+		return Thread{}, errors.New("not found")
+	}
+	return Thread{ID: id, Title: "Legacy"}, nil
+}
+
+func TestLegacyThreadOpensOnlyForStoredOwner(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		authErr error
+		user    string
+		want    int
+	}{
+		{"untagged session, stored owner", opencode.ErrUnownedSession, "cam", http.StatusOK},
+		{"untagged session, other employee", opencode.ErrUnownedSession, "ada", http.StatusNotFound},
+		{"session tagged for someone else", errors.New("thread does not belong to this employee"), "cam", http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := New(&guarded{authErr: tc.authErr}, "/work", "thread", "meta/model", ownerStore{principal: "cam"})
+			req := httptest.NewRequest(http.MethodGet, "/v1/threads/ses_1", nil)
+			req.Header.Set("X-NMC3-User", tc.user)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body)
+			}
+		})
+	}
+}
+
+func (ownerStore) Files(context.Context, string, string, string) ([]Attachment, error) {
+	return nil, nil
+}
+
+func (ownerStore) Save(context.Context, Thread) error { return nil }

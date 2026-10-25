@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -163,7 +164,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if auth, ok := h.backend.(interface {
 		AuthorizeSession(context.Context, string) error
 	}); ok {
-		if err := auth.AuthorizeSession(r.Context(), id); err != nil {
+		if err := auth.AuthorizeSession(r.Context(), id); err != nil && !h.ownsLegacy(r, id, err) {
 			fail(w, http.StatusNotFound, contracts.ErrNotFound, "Thread not found")
 			return
 		}
@@ -190,6 +191,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		fail(w, http.StatusNotFound, contracts.ErrNotFound, "endpoint not found")
 	}
+}
+
+// ownsLegacy accepts a session with no OpenCode owner tag when the thread
+// store, which is scoped by tenant and employee, still lists it for the caller.
+func (h *Handler) ownsLegacy(r *http.Request, id string, err error) bool {
+	if !errors.Is(err, opencode.ErrUnownedSession) || h.store == nil {
+		return false
+	}
+	_, getErr := h.store.Get(r.Context(), id, r.Header.Get("X-NMC3-Tenant"), r.Header.Get("X-NMC3-User"))
+	return getErr == nil
 }
 
 func (h *Handler) archive(w http.ResponseWriter, r *http.Request, id string) {
@@ -344,6 +355,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := h.backend.CreateSession(r.Context(), h.workdir, title, h.agent, provider, modelID)
 	if err != nil {
+		log.Printf("create thread: %v", err)
 		fail(w, http.StatusBadGateway, contracts.ErrInternal, "could not start a thread")
 		return
 	}
