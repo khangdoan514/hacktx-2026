@@ -115,6 +115,7 @@ export default function ToolRegistry() {
   const [draft, setDraft] = useState<Draft>(initial);
   const [tools, setTools] = useState<ToolRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [showRetired, setShowRetired] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
   const refresh = useCallback(async (tenant: string) => {
@@ -173,6 +174,8 @@ export default function ToolRegistry() {
     }
   };
 
+  const shown = tools.filter((t) => showRetired || t.lifecycle !== "retired");
+
   return (
     <>
       {notice && <p className={`${s.note} ${notice.tone === "ok" ? s.ok : s.err}`} role="status">{notice.text}</p>}
@@ -225,9 +228,13 @@ export default function ToolRegistry() {
       <section className={`card ${s.panel}`}>
         <div className="ch">
           <h2>Versions</h2>
-          <span className="n">{tools.length}</span>
+          <span className="n">{shown.length}</span>
+          <label className={s.check} style={{ marginLeft: "auto" }}>
+            <input type="checkbox" checked={showRetired} onChange={(e) => setShowRetired(e.target.checked)} />
+            Show retired
+          </label>
         </div>
-        {tools.length === 0 ? (
+        {shown.length === 0 ? (
           <p className={s.empty}>No tools for this tenant.</p>
         ) : (
           <div className={s.scroll}>
@@ -242,7 +249,7 @@ export default function ToolRegistry() {
                 </tr>
               </thead>
               <tbody>
-                {tools.map((tool) => (
+                {shown.map((tool) => (
                   <tr key={`${tool.id}@${tool.version}`}>
                     <td className="mono">{tool.id}</td>
                     <td className="mono">{tool.version}</td>

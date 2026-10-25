@@ -16,12 +16,14 @@ export default function BudgetsPage() {
     const ran = runs.filter((r) => r.invocations.some((i) => i.agent === a.id)).length;
     const cost = turns.reduce((x, t) => x + t.cost, 0);
     const tok = turns.reduce((x, t) => x + t.tokensIn + t.tokensOut, 0);
-    return { a, n: ran, cost, tok, avg: ran ? cost / ran : 0 };
+    // The service reports usage for the orchestrator's session only; a specialist that only ever ran delegated has none of its own.
+    const reported = turns.length > 0;
+    return { a, n: ran, cost, tok, avg: ran ? cost / ran : 0, reported };
   });
 
   return (
     <>
-      <PageHeader title="Budgets" sub="Each definition caps tokens, cost and time per run; a run that would go over stops with BUDGET_EXCEEDED. Spend is summed from the model turns the service reported. It reports usage for the orchestrator’s session, so delegated specialists show no separate spend." />
+      <PageHeader title="Budgets" sub="Each definition caps tokens, cost and time per run; a run that would go over stops with BUDGET_EXCEEDED. Spend is summed from the model turns the service reported. Delegated specialists are billed inside their parent run, so their rows read “in parent run”." />
       <section className="card" style={{ display: "flex", gap: 32, padding: "18px 20px", flexWrap: "wrap" }}>
         <div><small className="muted mono">Total spend (all runs)</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{usd(total)}</div></div>
         <div><small className="muted mono">Tokens</small><div style={{ fontSize: 28, fontWeight: 300, color: "var(--ink)" }}>{compact(tokens)}</div></div>
@@ -32,13 +34,13 @@ export default function BudgetsPage() {
           <table className={s.table}>
             <thead><tr><th>Agent</th><th className={s.r}>Runs</th><th className={s.r}>Tokens</th><th className={s.r}>Spend</th><th className={s.r}>Avg / run</th><th className={s.r}>Max tokens / run</th><th className={s.r}>Max cost / run</th><th className={s.r}>Timeout</th></tr></thead>
             <tbody>
-              {rows.map(({ a, n, cost, tok, avg }) => (
+              {rows.map(({ a, n, cost, tok, avg, reported }) => (
                 <tr key={a.id}>
                   <td>{a.name} <span className="mono muted">{a.id}@{a.version}</span></td>
                   <td className={`${s.r} mono`}>{n}</td>
-                  <td className={`${s.r} mono`}>{compact(tok)}</td>
-                  <td className={`${s.r} mono`}>{usd(cost)}</td>
-                  <td className={`${s.r} mono`}>{n ? usd(avg) : "—"}</td>
+                  <td className={`${s.r} mono`}>{reported ? compact(tok) : "—"}</td>
+                  <td className={`${s.r} mono`}>{reported ? usd(cost) : n ? "in parent run" : "—"}</td>
+                  <td className={`${s.r} mono`}>{reported && n ? usd(avg) : "—"}</td>
                   <td className={`${s.r} mono`}>{a.maxTokens ? compact(a.maxTokens) : "—"}</td>
                   <td className={`${s.r} mono`}>{a.maxCostUsd ? usd(a.maxCostUsd) : "—"}</td>
                   <td className={`${s.r} mono`}>{a.limits.seconds ? `${a.limits.seconds}s` : "—"}</td>

@@ -9,11 +9,12 @@ import s from "../table.module.css";
 export default function GuardrailsPage() {
   const runs = useAllRuns();
   const { agents } = useStore();
+  const stopped = runs.filter((r) => r.plan.error || r.plan.final === "FAILED").map((r) => r.plan);
   const denied = runs.flatMap((r) => r.calls.filter((c) => c.denied && c.visible).map((c) => ({ run: r.plan.id, call: c })));
 
   return (
     <>
-      <PageHeader title="Guardrails" sub="Tool and delegation allowlists from each definition. Anything not listed is denied and recorded on the run." />
+      <PageHeader title="Guardrails" sub="What each definition allows, and what the service actually denied or stopped on recorded runs." />
       <section className="card">
         <div className={s.scroll}>
           <table className={s.table}>
@@ -39,6 +40,18 @@ export default function GuardrailsPage() {
             {denied.map(({ run, call }) => (
               <li key={call.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
                 <span className="tag err">{call.name}</span> by {call.agent} in <Link href={`/runs/${run}`} className="mono">{run}</Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="card">
+        <div className="ch"><h2>Runs stopped by the service</h2><span className="n">{stopped.length}</span></div>
+        {stopped.length === 0 ? <p className="muted" style={{ padding: 20 }}>No run has been stopped by a limit or a failed check.</p> : (
+          <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
+            {stopped.map((p) => (
+              <li key={p.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <span className="tag err">{p.error ?? "FAILED"}</span> <Link href={`/runs/${p.id}`} className="mono">{p.id}</Link> {p.errorDetail}
               </li>
             ))}
           </ul>
