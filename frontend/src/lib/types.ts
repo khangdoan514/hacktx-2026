@@ -52,8 +52,12 @@ export type AgentDef = {
   output: string;
   /** The definition's default model, when it names one. */
   model?: string;
+  /** Tool calls with fixed arguments that run before the model starts. */
+  context: ContextStep[];
   state: string;
 };
+
+export type ContextStep = { id: string; name: string; tool: string; arguments?: Record<string, string | number> };
 
 // ---------- Timeline produced by the simulator ----------
 

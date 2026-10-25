@@ -594,3 +594,42 @@ func migrationSQL(t *testing.T) string {
 	t.Helper()
 	return string(readRepoFile(t, filepath.Join("db", "migrations", "202610240006_nmc3_definitions.sql")))
 }
+
+func TestContextStepRules(t *testing.T) {
+	ctx := context.Background()
+	reg := mustRegistry(t)
+	spec := specialist("triage", "1.0.0", "Triage")
+	spec.ContextSteps = []contracts.ContextStep{{ID: "issues", Name: "Open issues", Tool: "github.list_issues", Arguments: json.RawMessage(`{"owner":"acme","repo":"{{input.repo}}"}`)}}
+	published, err := reg.Publish(ctx, "ada", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := published.Spec.Definition().ContextSteps; len(got) != 1 || got[0].Tool != "github.list_issues" {
+		t.Fatalf("context steps were not kept: %+v", got)
+	}
+	plain := specialist("plain", "1.0.0", "Plain")
+	if raw, _, _ := Canonical(plain); strings.Contains(string(raw), "context_steps") {
+		t.Fatal("a spec without context steps must keep its canonical form and hash")
+	}
+
+	bad := specialist("bad", "1.0.0", "Bad")
+	bad.ContextSteps = []contracts.ContextStep{
+		{ID: "a", Name: "Missing repo", Tool: "github.list_issues", Arguments: json.RawMessage(`{"owner":"acme","color":"red"}`)},
+		{ID: "a", Name: "Catalog", Tool: "catalog.search"},
+	}
+	_, err = reg.Publish(ctx, "ada", bad)
+	for _, want := range [][2]string{
+		{"context_steps[0].arguments.repo", "required"},
+		{"context_steps[0].arguments.color", "not an argument"},
+		{"context_steps[1].id", "unique"},
+		{"context_steps[1].tool", "tool pack"},
+	} {
+		if !hasField(err, want[0], want[1]) {
+			t.Fatalf("missing %v in %v", want, err)
+		}
+	}
+
+	if _, err := Parse([]byte(`[{"id":"x","version":"1","name":"X","role":"specialist","instructions":"i","input_schema":{"type":"object"},"output_schema":{"type":"object"},"allowed_tools":[],"allowed_delegates":[],"limits":{},"context_steps":[{"id":"s","name":"S","tool":"github.list_issues","extra":1}]}]`)); !hasField(err, "definitions[0].context_steps[0].extra", "unknown field") {
+		t.Fatalf("unknown context step field: %v", err)
+	}
+}

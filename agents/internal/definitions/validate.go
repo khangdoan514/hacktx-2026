@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 	maxInstructionsLen = 100000
 	maxActorLen        = 200
 	maxRunIDLen        = 256
+	maxContextSteps    = 10
 )
 
 func validToken(value string, max int) bool {
@@ -106,7 +108,56 @@ func Validate(spec Spec, refs *Refs, mode RefMode) []FieldError {
 	fields = append(fields, validateModelPolicy(spec.ModelPolicy)...)
 	fields = append(fields, validateRefList("allowed_tools", spec.AllowedTools, spec, refs, mode, false)...)
 	fields = append(fields, validateRefList("allowed_delegates", spec.AllowedDelegates, spec, refs, mode, true)...)
+	fields = append(fields, validateContextSteps(spec.ContextSteps)...)
 	return sortFields(fields)
+}
+
+// validateContextSteps checks each fixed tool call. Only built-in pack tools
+// can run outside a model session, and their arguments are checked against
+// the tool's own properties so a bad call fails at publish, not at run time.
+func validateContextSteps(steps []contracts.ContextStep) []FieldError {
+	fields := make([]FieldError, 0)
+	if len(steps) > maxContextSteps {
+		fields = append(fields, FieldError{Field: "context_steps", Message: fmt.Sprintf("at most %d steps", maxContextSteps)})
+	}
+	seen := map[string]bool{}
+	for i, step := range steps {
+		path := fmt.Sprintf("context_steps[%d]", i)
+		add := func(field, message string) {
+			fields = append(fields, FieldError{Field: path + "." + field, Message: message})
+		}
+		if !validToken(step.ID, maxIDLen) || seen[step.ID] {
+			add("id", "must be a unique id without spaces")
+		}
+		seen[step.ID] = true
+		if !validDisplay(step.Name, maxNameLen) {
+			add("name", "must be 1-200 characters without leading or trailing space")
+		}
+		_, tool, ok := toolpacks.Lookup(step.Tool)
+		if !ok {
+			add("tool", "must be a built-in tool pack tool")
+			continue
+		}
+		args := map[string]json.RawMessage{}
+		if len(bytes.TrimSpace(step.Arguments)) > 0 && string(bytes.TrimSpace(step.Arguments)) != "null" {
+			if json.Unmarshal(step.Arguments, &args) != nil || args == nil {
+				add("arguments", "must be a JSON object")
+				continue
+			}
+		}
+		for name := range args {
+			if _, known := tool.Properties[name]; !known {
+				add("arguments."+name, "is not an argument of "+step.Tool)
+			}
+		}
+		for _, name := range tool.Required {
+			value, ok := args[name]
+			if !ok || string(value) == `""` || string(value) == "null" {
+				add("arguments."+name, "is required")
+			}
+		}
+	}
+	return fields
 }
 
 func validateLimits(limits contracts.Limits) []FieldError {

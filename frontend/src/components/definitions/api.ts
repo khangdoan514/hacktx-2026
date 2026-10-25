@@ -34,6 +34,14 @@ export type Schema = {
   required?: string[];
 };
 
+/** A tool call with fixed arguments that runs before the agent's model starts. */
+export type ContextStep = {
+  id: string;
+  name: string;
+  tool: string;
+  arguments?: Record<string, string | number>;
+};
+
 export type Spec = {
   id: string;
   version: string;
@@ -46,6 +54,7 @@ export type Spec = {
   allowed_delegates: string[];
   limits: Limits;
   model_policy?: { default_model?: string; allowed_models?: string[] };
+  context_steps?: ContextStep[];
 };
 
 export type Version = {

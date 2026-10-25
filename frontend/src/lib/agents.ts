@@ -1,12 +1,13 @@
 import { agentApi, AgentRequestError } from "@/lib/api";
 import { readToken } from "@/product/api";
-import type { AgentDef, Limits } from "@/lib/types";
+import type { AgentDef, ContextStep, Limits } from "@/lib/types";
 
 type WireLimits = { max_delegations: number; max_concurrent_agents: number; max_tool_calls: number; max_model_turns: number; max_tokens: number; max_cost_usd: number; timeout_seconds: number };
 type WireSpec = {
   id: string; version: string; name: string; role?: string; instructions?: string;
   input_schema?: unknown; output_schema?: unknown; allowed_tools?: string[]; allowed_delegates?: string[]; limits?: WireLimits;
   model_policy?: { default_model?: string };
+  context_steps?: ContextStep[];
 };
 type WireDefinition = { spec: WireSpec; state?: string; published_at?: string; updated_at?: string };
 
@@ -65,6 +66,7 @@ function fromSpec(spec: WireSpec, state: string): AgentDef {
     maxCostUsd: spec.limits?.max_cost_usd ?? 0, maxTokens: spec.limits?.max_tokens ?? 0,
     input: spec.input_schema ? JSON.stringify(spec.input_schema) : "", output: spec.output_schema ? JSON.stringify(spec.output_schema) : "",
     model: spec.model_policy?.default_model ?? "",
+    context: spec.context_steps ?? [],
     state,
   };
 }

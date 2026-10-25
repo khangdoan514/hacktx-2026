@@ -3,9 +3,14 @@
 // step with several incoming connections waits for all of them. Publishing turns the
 // graph into one specialist definition per step plus an orchestrator that runs the
 // stages in order (see toSpecs).
+//
+// A "fetch" node is a fixed operation, not an agent: one tool call with arguments
+// chosen here. It runs right before each step it connects into, every time, and its
+// result is handed to that step as context. It is published as that step's
+// context_steps; the step can still call its own tools.
 
 import type { IconName } from "@/components/ui/Icon";
-import type { Schema, Spec } from "@/components/definitions/api";
+import type { ContextStep, Schema, Spec } from "@/components/definitions/api";
 import type { AgentDef } from "@/lib/types";
 
 export type PresetId = "researcher" | "writer" | "reviewer" | "checker" | "summarizer" | "custom";
@@ -53,9 +58,12 @@ export type Source = {
   orig: string;
 };
 
+/** What a fetch node calls. Values may contain {{input.task}}. `id` keeps a loaded context step's id. */
+export type Fetch = { tool: string; args: Record<string, string | number>; id?: string };
+
 export type FlowNode = {
   id: string;
-  kind: "start" | "end" | "step";
+  kind: "start" | "end" | "step" | "fetch";
   preset: PresetId;
   name: string;
   instructions: string;
@@ -66,6 +74,7 @@ export type FlowNode = {
   x: number;
   y: number;
   source?: Source;
+  fetch?: Fetch;
 };
 export type FlowEdge = { id: string; from: string; to: string };
 export type Flow = { name: string; goal: string; version: string; nodes: FlowNode[]; edges: FlowEdge[]; source?: Source };
@@ -74,7 +83,7 @@ export const SIZE = {
   step: { w: 232, h: 76 },
   pill: { w: 124, h: 52 },
 };
-export const sizeOf = (n: FlowNode) => (n.kind === "step" ? SIZE.step : SIZE.pill);
+export const sizeOf = (n: Pick<FlowNode, "kind">) => (n.kind === "step" || n.kind === "fetch" ? SIZE.step : SIZE.pill);
 
 let counter = 0;
 export const uid = (p: string) => `${p}${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -96,6 +105,10 @@ export function newStep(preset: PresetId, x: number, y: number): FlowNode {
     id: uid("s"), kind: "step", preset, name: p.label, instructions: p.instructions,
     model: p.model, tools: [...p.tools], turns: 4, seconds: 30, x, y,
   };
+}
+
+export function newFetch(x: number, y: number, fetch: Fetch = { tool: "", args: {} }, name = "Fetch data"): FlowNode {
+  return { id: uid("f"), kind: "fetch", preset: "custom", name, instructions: "", model: "", tools: [], turns: 0, seconds: 0, x, y, fetch };
 }
 
 /** Ready-made starting points, as a list of stages; steps in one stage run in parallel. */
@@ -126,8 +139,8 @@ export function flowFromStages(stages: PresetId[][], name = ""): Flow {
 
 const bump = (version: string) => version.replace(/(\d+)$/, (n) => String(Number(n) + 1));
 const parse = (json: string): Schema | undefined => { try { return json ? JSON.parse(json) as Schema : undefined; } catch { return undefined; } };
-const editable = (n: Pick<FlowNode, "name" | "instructions" | "model" | "tools" | "turns" | "seconds">) =>
-  JSON.stringify([n.name, n.instructions, n.model, [...n.tools].sort(), n.turns, n.seconds]);
+const editable = (n: Pick<FlowNode, "name" | "instructions" | "model" | "tools" | "turns" | "seconds">, context: ContextStep[]) =>
+  JSON.stringify([n.name, n.instructions, n.model, [...n.tools].sort(), n.turns, n.seconds, context]);
 
 function sourceOf(a: AgentDef): Omit<Source, "orig"> {
   return {
@@ -149,11 +162,13 @@ export function flowFromAgent(def: AgentDef, agentById: (id: string) => AgentDef
   const flow = blankFlow();
   flow.name = def.name;
   flow.version = bump(def.version);
+  const loaded = new Map<string, AgentDef>();
   const make = (a: AgentDef) => {
     const n = newStep("custom", 0, 0);
     Object.assign(n, { name: a.name, instructions: a.instructions, model: a.model ?? "", tools: [...a.tools], turns: a.limits.turns || 4, seconds: a.limits.seconds || 30 });
-    n.source = { ...sourceOf(a), orig: editable(n) };
+    n.source = { ...sourceOf(a), orig: editable(n, a.context ?? []) };
     flow.nodes.push(n);
+    loaded.set(n.id, a);
     return n.id;
   };
   const delegates = def.delegates.map(agentById).filter((a): a is AgentDef => !!a);
@@ -171,11 +186,38 @@ export function flowFromAgent(def: AgentDef, agentById: (id: string) => AgentDef
     prev = ids;
   }
   for (const from of prev) flow.edges.push({ id: uid("e"), from, to: "end" });
+  // Each context step becomes a fetch node between the step and whatever fed it.
+  for (const [stepId, a] of loaded) {
+    const feeds = pred(flow, stepId);
+    for (const c of a.context ?? []) {
+      const f = newFetch(0, 0, { tool: c.tool, args: { ...(c.arguments ?? {}) }, id: c.id }, c.name);
+      flow.nodes.push(f);
+      for (const from of feeds) flow.edges.push({ id: uid("e"), from, to: f.id });
+      flow.edges.push({ id: uid("e"), from: f.id, to: stepId });
+    }
+  }
   return autoLayout(flow);
 }
 
-/** True when a step loaded from an existing agent has not been edited. */
-export const unchanged = (n: FlowNode) => !!n.source && n.source.orig === editable(n);
+/** True when a step loaded from an existing agent has not been edited, its fetches included. */
+export const unchanged = (f: Flow, n: FlowNode) => !!n.source && n.source.orig === editable(n, contextOf(f, n.id));
+
+/** The fetch nodes feeding a step, as the context_steps it publishes with. */
+export function contextOf(f: Flow, stepId: string): ContextStep[] {
+  const ok = connectedSteps(f);
+  const used = new Set<string>();
+  return pred(f, stepId)
+    .map((id) => f.nodes.find((n) => n.id === id))
+    .filter((n): n is FlowNode => !!n && n.kind === "fetch" && ok.has(n.id) && !!n.fetch?.tool)
+    .map((n) => {
+      const base = n.fetch!.id ?? slug(n.name);
+      let id = base;
+      for (let i = 2; used.has(id); i++) id = `${base}-${i}`;
+      used.add(id);
+      const args = Object.fromEntries(Object.entries(n.fetch!.args).filter(([, v]) => v !== ""));
+      return { id, name: n.name.trim() || "Fetch data", tool: n.fetch!.tool, ...(Object.keys(args).length ? { arguments: args } : {}) };
+    });
+}
 
 const succ = (f: Flow, id: string) => f.edges.filter((e) => e.from === id).map((e) => e.to);
 const pred = (f: Flow, id: string) => f.edges.filter((e) => e.to === id).map((e) => e.from);
@@ -187,8 +229,14 @@ function reach(f: Flow, from: string, next: (f: Flow, id: string) => string[]) {
   return seen;
 }
 
-/** Longest distance from Start, so every step lands after everything it waits for. */
-export function levels(f: Flow): Map<string, number> {
+/**
+ * Longest distance from Start, so every step lands after everything it waits for.
+ * For run order a fetch node adds no stage of its own: it runs as part of the step
+ * it feeds. Layout passes `fetchColumns` to give fetch nodes their own column.
+ */
+export function levels(f: Flow, fetchColumns = false): Map<string, number> {
+  const byId = new Map(f.nodes.map((n) => [n.id, n]));
+  const cost = (id: string) => (!fetchColumns && byId.get(id)?.kind === "fetch" ? 0 : 1);
   const memo = new Map<string, number>();
   const go = (id: string, trail: Set<string>): number => {
     if (id === "start") return 0;
@@ -196,7 +244,7 @@ export function levels(f: Flow): Map<string, number> {
     if (trail.has(id)) return 0;
     trail.add(id);
     const ps = pred(f, id);
-    const v = ps.length ? 1 + Math.max(...ps.map((p) => go(p, trail))) : 1;
+    const v = ps.length ? cost(id) + Math.max(...ps.map((p) => go(p, trail))) : 1;
     trail.delete(id);
     memo.set(id, v);
     return v;
@@ -218,11 +266,11 @@ export function stagesOf(f: Flow): FlowNode[][] {
   return [...groups.keys()].sort((a, b) => a - b).map((k) => groups.get(k)!);
 }
 
-/** Steps that can be reached from Start and can reach End. */
+/** Steps and fetch nodes that can be reached from Start and can reach End. */
 export function connectedSteps(f: Flow): Set<string> {
   const fwd = reach(f, "start", succ);
   const back = reach(f, "end", pred);
-  return new Set(f.nodes.filter((n) => n.kind === "step" && fwd.has(n.id) && back.has(n.id)).map((n) => n.id));
+  return new Set(f.nodes.filter((n) => (n.kind === "step" || n.kind === "fetch") && fwd.has(n.id) && back.has(n.id)).map((n) => n.id));
 }
 
 export function wouldCycle(f: Flow, from: string, to: string) {
@@ -233,14 +281,16 @@ export function canConnect(f: Flow, from: string, to: string): string | null {
   if (from === to) return "A step cannot connect to itself.";
   if (to === "start") return "Nothing can feed into Start.";
   if (from === "end") return "Nothing can follow Result.";
+  const kind = (id: string) => f.nodes.find((n) => n.id === id)?.kind;
+  if (kind(from) === "fetch" && kind(to) !== "step") return "Connect Fetch data into the agent step that should get its result.";
   if (f.edges.some((e) => e.from === from && e.to === to)) return "Those are already connected.";
   if (wouldCycle(f, from, to)) return "That would make a loop.";
   return null;
 }
 
 export function autoLayout(f: Flow): Flow {
-  const lv = levels(f);
-  const stepMax = Math.max(0, ...f.nodes.filter((n) => n.kind === "step").map((n) => lv.get(n.id) ?? 1));
+  const lv = levels(f, true);
+  const stepMax = Math.max(0, ...f.nodes.filter((n) => n.kind === "step" || n.kind === "fetch").map((n) => lv.get(n.id) ?? 1));
   const col = (n: FlowNode) => (n.kind === "start" ? 0 : n.kind === "end" ? stepMax + 1 : lv.get(n.id) ?? 1);
   const cols = new Map<number, FlowNode[]>();
   for (const n of f.nodes) cols.set(col(n), [...(cols.get(col(n)) ?? []), n]);
@@ -267,11 +317,17 @@ export function problems(f: Flow): string[] {
   const out: string[] = [];
   if (!f.name.trim()) out.push("Give the agent a name.");
   const steps = f.nodes.filter((n) => n.kind === "step");
+  const fetches = f.nodes.filter((n) => n.kind === "fetch");
   if (steps.length === 0) out.push("Add at least one step.");
   const ok = connectedSteps(f);
-  const loose = steps.filter((n) => !ok.has(n.id));
+  const loose = [...steps, ...fetches].filter((n) => !ok.has(n.id));
   if (steps.length && loose.length) out.push(`${loose.map((n) => n.name || "A step").join(", ")} ${loose.length > 1 ? "are" : "is"} not connected from Start to Result.`);
   for (const n of steps) if (ok.has(n.id) && !n.instructions.trim()) out.push(`${n.name || "A step"} needs instructions.`);
+  for (const n of fetches) {
+    if (!n.name.trim()) out.push("Name each Fetch data node.");
+    else if (ok.has(n.id) && !n.fetch?.tool) out.push(`Pick a tool for ${n.name}.`);
+  }
+  for (const n of steps) if (contextOf(f, n.id).length > 10) out.push(`${n.name} can be fed by at most 10 Fetch data nodes.`);
   if (steps.length && !f.edges.some((e) => e.to === "end")) out.push("Connect a step to Result.");
   return out;
 }
@@ -299,6 +355,7 @@ export function toSpecs(f: Flow): Spec[] {
     const src = n.source;
     // An edited agent keeps its schemas, delegates and budgets; only what the form edits changes.
     const limits = src?.limits ?? { max_delegations: 1, max_concurrent_agents: 1, max_tool_calls: 1, max_model_turns: 1, max_tokens: 4000, max_cost_usd: 1, timeout_seconds: 1 };
+    const context = contextOf(f, n.id);
     return {
       id, version: src?.version ?? (f.version.trim() || "1.0.0"), name, role: src?.role ?? "specialist", instructions: n.instructions,
       input_schema: src?.input ?? schema("task"), output_schema: src?.output ?? schema("result"),
@@ -307,6 +364,7 @@ export function toSpecs(f: Flow): Spec[] {
       // allowlists below contain no delegates or tools.
       limits: { ...limits, max_tool_calls: Math.max(limits.max_tool_calls, n.tools.length ? 3 : 1), max_model_turns: n.turns, timeout_seconds: n.seconds },
       model_policy: n.model ? { default_model: n.model } : undefined,
+      ...(context.length ? { context_steps: context } : {}),
     };
   };
   if (single) return [specialist(steps[0], base, f.name.trim())];

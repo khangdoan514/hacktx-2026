@@ -14,7 +14,11 @@ import (
 var specKeys = map[string]bool{
 	"id": true, "version": true, "name": true, "role": true, "instructions": true,
 	"input_schema": true, "output_schema": true, "allowed_tools": true, "allowed_delegates": true,
-	"limits": true, "model_policy": true,
+	"limits": true, "model_policy": true, "context_steps": true,
+}
+
+var contextStepKeys = map[string]bool{
+	"id": true, "name": true, "tool": true, "arguments": true,
 }
 
 var limitKeys = map[string]bool{
@@ -552,6 +556,9 @@ func decodeSpec(raw []byte) (Spec, []FieldError) {
 	if rawPolicy, ok := obj["model_policy"]; ok {
 		fields = append(fields, decodePolicyTypes(rawPolicy)...)
 	}
+	if rawSteps, ok := obj["context_steps"]; ok {
+		fields = append(fields, decodeContextStepTypes(rawSteps)...)
+	}
 	if len(fields) > 0 {
 		return Spec{}, sortFields(fields)
 	}
@@ -576,6 +583,33 @@ func decodeLimitTypes(raw json.RawMessage) []FieldError {
 		if !isJSONNumber(value) {
 			fields = append(fields, FieldError{Field: "limits." + key, Message: "must be a number"})
 		}
+	}
+	return fields
+}
+
+func decodeContextStepTypes(raw json.RawMessage) []FieldError {
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return []FieldError{{Field: "context_steps", Message: "must be an array of objects"}}
+	}
+	fields := make([]FieldError, 0)
+	for i, obj := range items {
+		path := fmt.Sprintf("context_steps[%d]", i)
+		if obj == nil {
+			fields = append(fields, FieldError{Field: path, Message: "must be an object"})
+			continue
+		}
+		item := make([]FieldError, 0)
+		for key := range obj {
+			if !contextStepKeys[key] {
+				item = append(item, FieldError{Field: key, Message: "unknown field"})
+			}
+		}
+		for _, key := range []string{"id", "name", "tool"} {
+			expectString(obj, key, &item)
+		}
+		expectObject(obj, "arguments", &item)
+		fields = append(fields, prefixFields(path, item)...)
 	}
 	return fields
 }

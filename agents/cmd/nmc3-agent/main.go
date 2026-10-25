@@ -108,6 +108,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Context steps call pack tools directly, with the same credentials the
+	// tools-mcp server reads.
+	coordinator.SetToolCaller(toolpacks.NewRunner(toolpacks.NewStore(envDefault("NMC3_TOOLS_DIR", ".nmc3"))).CallAs)
 	mux.Handle("/", httpapi.New(coordinator, runs, events, definitions, definitionSource))
 	reg := extensions.NewRegistry()
 	gw := extensions.NewGateway(reg, extensions.NewMemoryCredentials(), extensions.Options{})

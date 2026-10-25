@@ -135,6 +135,24 @@ func Find(id string) (Pack, bool) {
 	return Pack{}, false
 }
 
+// Lookup finds the pack tool behind a contract id such as github.list_issues.
+func Lookup(contractID string) (Pack, Tool, bool) {
+	packID, name, ok := strings.Cut(contractID, ".")
+	if !ok {
+		return Pack{}, Tool{}, false
+	}
+	p, ok := Find(packID)
+	if !ok {
+		return Pack{}, Tool{}, false
+	}
+	for _, t := range p.Tools {
+		if t.Name == name {
+			return p, t, true
+		}
+	}
+	return Pack{}, Tool{}, false
+}
+
 // ContractID maps an OpenCode tool name (tools_github_search_code) to the
 // contract id (github.search_code). Other names pass through.
 func ContractID(openCodeName string) string {
@@ -155,18 +173,9 @@ func ContractID(openCodeName string) string {
 // OpenCodeNameFor maps a contract id (github.search_code) to the name OpenCode
 // publishes (tools_github_search_code).
 func OpenCodeNameFor(contractID string) (string, bool) {
-	packID, name, ok := strings.Cut(contractID, ".")
+	p, t, ok := Lookup(contractID)
 	if !ok {
 		return "", false
 	}
-	p, ok := Find(packID)
-	if !ok {
-		return "", false
-	}
-	for _, t := range p.Tools {
-		if t.Name == name {
-			return p.OpenCodeName(t), true
-		}
-	}
-	return "", false
+	return p.OpenCodeName(t), true
 }

@@ -44,6 +44,7 @@ type Coordinator struct {
 	workdir           string
 	defaultModel      string
 	definitionsSource contracts.DefinitionSource
+	callTool          ToolCaller
 
 	mu       sync.Mutex
 	inflight map[string]*inflightRun
@@ -154,21 +155,32 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 		}
 		profile = "builder-agent"
 	}
+	// With context steps, the prompt waits for their results and is sent
+	// from execute, so the run is visible while the tools are called.
+	var pending *pendingPrompt
+	if staged := contextAgents(definition, defs); len(staged) > 0 {
+		if c.callTool == nil {
+			return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInvalidInput, Message: "this agent has context steps, but this service cannot call tools directly"}
+		}
+		pending = &pendingPrompt{defs: defs, agents: staged, owner: toolpacks.ContextOwner(ctx)}
+	}
 	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", profile, providerID, modelID)
 	if err != nil {
 		log.Printf("NMC3 OpenCode CreateSession failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
-	if err := c.client.Prompt(ctx, session.ID, buildPrompt(definition, defs, req.Input)); err != nil {
-		log.Printf("NMC3 OpenCode Prompt failed: %v", err)
-		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
+	if pending == nil {
+		if err := c.client.Prompt(ctx, session.ID, buildPrompt(definition, defs, req.Input, nil)); err != nil {
+			log.Printf("NMC3 OpenCode Prompt failed: %v", err)
+			return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
+		}
 	}
 	t := now()
 	run := contracts.Run{ID: id("run-"), State: contracts.StateRunning, AgentID: definition.ID, Version: definition.Version, ModelID: model, OpenCodeSessionID: session.ID, Input: req.Input, Invocations: []contracts.AgentInvocation{}, ToolInvocations: []contracts.ToolInvocation{}, CreatedAt: t, UpdatedAt: t}
 	if err := c.store.Create(ctx, run); err != nil {
 		return contracts.Run{}, err
 	}
-	go c.execute(run, definition, req.Limits)
+	go c.execute(run, definition, req.Limits, pending)
 	return run, nil
 }
 
@@ -179,10 +191,13 @@ var budgetPollInterval = 200 * time.Millisecond
 // buildPrompt translates the NMC3 definition into session instructions. The
 // output schema travels with the prompt so the model returns a valid final
 // object; the coordinator still validates it before accepting the run.
-func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts.AgentDefinition, input json.RawMessage) string {
+func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts.AgentDefinition, input json.RawMessage, results []gathered) string {
 	var sb strings.Builder
 	sb.WriteString("You are " + definition.Name + " (" + definition.Role + "). " + definition.Instructions + "\n")
 	sb.WriteString("Input (JSON): " + string(input) + "\n")
+	if own := contextSection(results, definition.ID); own != "" {
+		sb.WriteString("Context already gathered for you by fixed tool calls (JSON results; do not call these again):\n" + own)
+	}
 	if len(definition.AllowedTools) == 0 {
 		sb.WriteString("You have no tools. Do not call read, shell, or any other tool. If a call is denied, stop retrying and answer.\n")
 	}
@@ -191,6 +206,9 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 		for _, target := range definition.AllowedDelegates {
 			if child, ok := defs[target+"@"+definition.Version]; ok {
 				sb.WriteString("- agent " + child.ID + " input " + string(child.InputSchema) + "\n")
+				if extra := contextSection(results, child.ID); extra != "" {
+					sb.WriteString("  Include this context, verbatim, in the task you give " + child.ID + ":\n" + extra)
+				}
 			}
 		}
 		sb.WriteString("Do not read the catalog yourself. Ask specialists to use catalog_search and cite only returned vendor ids.\n")
@@ -294,7 +312,7 @@ func fail(err error) *contracts.RunError {
 	return &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session failed"}
 }
 
-func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefinition, limits contracts.Limits) {
+func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefinition, limits contracts.Limits, pending *pendingPrompt) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(limits.TimeoutSeconds)*time.Second)
 	defer cancel()
 	entry := &inflightRun{cancel: cancel, sessionID: run.OpenCodeSessionID}
@@ -313,9 +331,22 @@ func (c *Coordinator) execute(run contracts.Run, definition contracts.AgentDefin
 	run.Invocations = append(run.Invocations, root)
 	c.persist(run)
 	c.emit(run.ID, &root.ID, "AGENT_STARTED", map[string]any{"depth": 0})
-	c.emit(run.ID, &root.ID, "MODEL_STARTED", nil)
-
-	output, usage, invocations, tools, runErr := c.collect(ctx, run, definition, &root, limits)
+	var (
+		output      json.RawMessage
+		usage       contracts.Usage
+		invocations []contracts.AgentInvocation
+		tools       []contracts.ToolInvocation
+		fixed       []contracts.ToolInvocation
+		runErr      error
+	)
+	if pending != nil {
+		fixed, runErr = c.promptWithContext(ctx, run, definition, &root, pending)
+	}
+	if runErr == nil {
+		c.emit(run.ID, &root.ID, "MODEL_STARTED", nil)
+		output, usage, invocations, tools, runErr = c.collect(ctx, run, definition, &root, limits)
+	}
+	tools = append(fixed, tools...)
 	finish := now()
 	c.mu.Lock()
 	cancelled := entry.cancelled

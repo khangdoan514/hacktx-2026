@@ -3,6 +3,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +27,7 @@ type fakeBackend struct {
 	holdWait    bool
 	release     chan struct{}
 	interrupted bool
+	prompts     []string
 }
 
 func (f *fakeBackend) handler() http.Handler {
@@ -54,6 +56,10 @@ func (f *fakeBackend) handler() http.Handler {
 			f.mu.Unlock()
 			_, _ = w.Write([]byte(`{"data":{"id":"ses-test","outcome":"","cost":0,"tokens":{"input":0,"output":0,"reasoning":0}}}`))
 		case strings.HasSuffix(r.URL.Path, "/prompt"):
+			body, _ := io.ReadAll(r.Body)
+			f.mu.Lock()
+			f.prompts = append(f.prompts, string(body))
+			f.mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"data":{"id":"msg-1"}}`))
 		case strings.HasSuffix(r.URL.Path, "/interrupt"):
@@ -468,7 +474,7 @@ func TestBuildPromptNamesCatalogFile(t *testing.T) {
 		Instructions: "Use only authorized actions and cite fictional source IDs.",
 		AllowedTools: []string{"catalog.search"},
 		OutputSchema: json.RawMessage(`{}`),
-	}, map[string]contracts.AgentDefinition{}, json.RawMessage(`{}`))
+	}, map[string]contracts.AgentDefinition{}, json.RawMessage(`{}`), nil)
 	if !strings.Contains(got, "catalog_search") || strings.Contains(got, "fixtures/catalog/vendors.json") || !strings.Contains(got, "Use only authorized actions and cite fictional source IDs.") {
 		t.Fatal(got)
 	}

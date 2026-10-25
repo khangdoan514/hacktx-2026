@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -51,10 +52,40 @@ func IsCallback(path string) bool {
 }
 
 type toolView struct {
-	ID          string `json:"id"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	SideEffect  string    `json:"side_effect"`
+	Arguments   []argView `json:"arguments"`
+}
+
+// argView describes one tool argument so the builder can ask for a fixed value.
+type argView struct {
 	Name        string `json:"name"`
+	Type        string `json:"type"`
 	Description string `json:"description"`
-	SideEffect  string `json:"side_effect"`
+	Required    bool   `json:"required"`
+}
+
+func argViews(t Tool) []argView {
+	out := make([]argView, 0, len(t.Properties))
+	for name, p := range t.Properties {
+		prop, _ := p.(map[string]any)
+		typ, _ := prop["type"].(string)
+		desc, _ := prop["description"].(string)
+		out = append(out, argView{Name: name, Type: typ, Description: desc, Required: slices.Contains(t.Required, name)})
+	}
+	// Required first, then by name, so the form reads the same every time.
+	slices.SortFunc(out, func(a, b argView) int {
+		if a.Required != b.Required {
+			if a.Required {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return out
 }
 
 type packView struct {
@@ -82,7 +113,7 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 			v.Connected, v.Account, v.ConnectedAt, v.Method = true, cred.Account, &t, cred.Kind
 		}
 		for _, t := range p.Tools {
-			v.Tools = append(v.Tools, toolView{ID: p.ToolID(t), Name: t.Name, Description: t.Description, SideEffect: "READ_ONLY"})
+			v.Tools = append(v.Tools, toolView{ID: p.ToolID(t), Name: t.Name, Description: t.Description, SideEffect: "READ_ONLY", Arguments: argViews(t)})
 		}
 		views = append(views, v)
 	}

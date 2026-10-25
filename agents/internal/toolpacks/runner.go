@@ -80,6 +80,18 @@ func (r *Runner) Call(ctx context.Context, packID, tool string, args json.RawMes
 	return r.drive(ctx, cred, tool, a)
 }
 
+// CallAs runs a tool by contract id (github.list_issues) with the owner's
+// personal credentials, as the Tools page connected them.
+func (r *Runner) CallAs(ctx context.Context, owner, toolID string, args json.RawMessage) (any, error) {
+	packID, tool, ok := strings.Cut(toolID, ".")
+	if !ok {
+		return nil, fmt.Errorf("unknown tool %s", toolID)
+	}
+	runner := *r
+	runner.Store = r.Store.ForOwner(owner)
+	return runner.Call(ctx, packID, tool, args)
+}
+
 func (r *Runner) account(ctx context.Context, pack, token string) (string, error) {
 	switch pack {
 	case "github":

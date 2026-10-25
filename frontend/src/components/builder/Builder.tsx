@@ -6,13 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { models, toolTiles as pickable } from "@/lib/catalog";
 import { useStore } from "@/lib/store";
 import { DefinitionAPIError, definitionsApi } from "@/components/definitions/api";
+import { packToolsApi, type PackToolOption } from "@/components/definitions/packTools";
 import PageHeader from "@/components/shell/PageHeader";
 import { useEmployee } from "@/components/shell/ConsoleGate";
 import Icon from "@/components/ui/Icon";
 import {
-  autoLayout, blankFlow, canConnect, connectedSteps, flowFromAgent, flowFromStages, newStep, presetById, presets,
+  autoLayout, blankFlow, canConnect, connectedSteps, contextOf, flowFromAgent, flowFromStages, newFetch, newStep, presetById, presets,
   problems, sizeOf, stagesOf, templates, toSpecs, uid, unchanged,
-  type Flow, type FlowNode, type PresetId,
+  type Fetch, type Flow, type FlowNode, type PresetId,
 } from "@/lib/builder";
 import s from "./Builder.module.css";
 
@@ -44,6 +45,8 @@ export default function Builder() {
   const [fitTick, setFitTick] = useState(0);
   const [panning, setPanning] = useState(false);
   const [ready, setReady] = useState(false);
+  // Pack tools a Fetch data node can call; null until loaded, a string when loading failed.
+  const [packTools, setPackTools] = useState<PackToolOption[] | string | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const flowRef = useRef(flow);
   flowRef.current = flow;
@@ -80,6 +83,10 @@ export default function Builder() {
     setReady(true);
     setFitTick((n) => n + 1);
   }, [agentById, ready]);
+
+  useEffect(() => {
+    packToolsApi.list().then(setPackTools, (err: unknown) => setPackTools(err instanceof Error ? err.message : "Tools could not be loaded."));
+  }, []);
 
   useEffect(() => {
     // Editing an existing agent leaves the new-agent draft alone.
@@ -165,13 +172,14 @@ export default function Builder() {
     return { x: (clientX - r.left - v.x) / v.k, y: (clientY - r.top - v.y) / v.k };
   };
 
-  const addStep = (preset: PresetId, at?: { x: number; y: number }) => {
-    const n = flowRef.current.nodes.filter((x) => x.kind === "step").length;
-    const size = sizeOf({ kind: "step" } as FlowNode);
+  const addStep = (preset: PresetId | "fetch", at?: { x: number; y: number }) => {
+    const n = flowRef.current.nodes.filter((x) => x.kind === "step" || x.kind === "fetch").length;
+    const size = sizeOf({ kind: "step" });
     const el = stage.current!;
     const c = at ?? { ...point(el.getBoundingClientRect().left + el.clientWidth / 2, el.getBoundingClientRect().top + el.clientHeight / 2) };
     const jig = at ? 0 : (n % 5) * 28;
-    const node = newStep(preset, c.x - size.w / 2 + jig, c.y - size.h / 2 + jig);
+    const x = c.x - size.w / 2 + jig, y = c.y - size.h / 2 + jig;
+    const node = preset === "fetch" ? newFetch(x, y) : newStep(preset, x, y);
     setFlow((f) => ({ ...f, nodes: [...f.nodes, node] }));
     setSel({ kind: "node", id: node.id });
   };
@@ -241,7 +249,7 @@ export default function Builder() {
     try {
       const specs = toSpecs(flow);
       // Steps loaded from an agent and left untouched keep their current version.
-      const keep = new Set(flow.nodes.filter(unchanged).map((n) => n.source!.id));
+      const keep = new Set(flow.nodes.filter((n) => unchanged(flow, n)).map((n) => n.source!.id));
       for (const spec of specs) {
         if (keep.has(spec.id) && spec !== specs[specs.length - 1]) continue;
         if (publish) await definitionsApi.publish(actor, spec);
@@ -298,6 +306,18 @@ export default function Builder() {
             ))}
           </ul>
           <div className={s.sep} />
+          <p className={s.tip}>Fixed operations run the same way every time, before the step they connect into.</p>
+          <ul>
+            <li>
+              <button type="button" className={`${s.preset} ${s.fixed}`} draggable
+                onDragStart={(e) => { e.dataTransfer.setData("text/preset", "fetch"); e.dataTransfer.effectAllowed = "copy"; }}
+                onClick={() => addStep("fetch")}>
+                <span className={s.pico}><Icon name="zap" size={16} /></span>
+                <span><b>Fetch data</b><small>Call a tool, pass the result on</small></span>
+              </button>
+            </li>
+          </ul>
+          <div className={s.sep} />
           <button type="button" className="btn sm" onClick={() => { setFlow((f) => autoLayout(f)); setFitTick((n) => n + 1); }} disabled={empty}>Auto-arrange</button>
         </aside>
 
@@ -306,7 +326,7 @@ export default function Builder() {
           style={{ backgroundPosition: `${view.x}px ${view.y}px`, backgroundSize: `${GRID * view.k}px ${GRID * view.k}px` }}
           onDragOver={(e) => { if (e.dataTransfer.types.includes("text/preset")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }}
           onDrop={(e) => {
-            const id = e.dataTransfer.getData("text/preset") as PresetId;
+            const id = e.dataTransfer.getData("text/preset") as PresetId | "fetch";
             if (!id) return;
             e.preventDefault();
             addStep(id, point(e.clientX, e.clientY));
@@ -337,7 +357,7 @@ export default function Builder() {
               const z = sizeOf(n);
               const on = sel?.kind === "node" && sel.id === n.id;
               const style = { left: n.x, top: n.y, width: z.w, height: z.h };
-              if (n.kind !== "step") {
+              if (n.kind === "start" || n.kind === "end") {
                 return (
                   <div key={n.id} className={`${s.pill} ${on ? s.on : ""}`} style={style} onPointerDown={(e) => startMove(e, n)}>
                     {n.kind === "end" && <i data-port="in" className={`${s.port} ${s.in}`} />}
@@ -346,15 +366,27 @@ export default function Builder() {
                   </div>
                 );
               }
-              const p = presetById(n.preset);
               const loose = !connected.has(n.id);
+              if (n.kind === "fetch") {
+                return (
+                  <div key={n.id} className={`${s.node} ${s.fixed} ${on ? s.on : ""} ${loose ? s.loose : ""}`} style={style} onPointerDown={(e) => startMove(e, n)}>
+                    <i data-port="in" className={`${s.port} ${s.in}`} />
+                    <span className={s.ico}><Icon name="zap" size={18} /></span>
+                    <b>{n.name || "Fetch data"}</b>
+                    <span className={s.sub}>{loose ? "Connect into a step" : n.fetch?.tool || "Pick a tool"}</span>
+                    <i data-port="out" className={`${s.port} ${s.out}`} onPointerDown={(e) => startLink(e, n)} title="Drag to the step that gets this data" />
+                  </div>
+                );
+              }
+              const p = presetById(n.preset);
+              const fed = contextOf(flow, n.id).length;
               return (
                 <div key={n.id} className={`${s.node} ${on ? s.on : ""} ${loose ? s.loose : ""}`} style={style} onPointerDown={(e) => startMove(e, n)}>
                   <i data-port="in" className={`${s.port} ${s.in}`} />
                   <span className={s.ico}><Icon name={p.icon} size={18} /></span>
                   <b>{n.name || "Untitled step"}</b>
                   <span className={s.sub}>
-                    {loose ? "Not connected" : parallel.has(n.id) ? "Runs in parallel" : n.model ? models[n.model]?.label ?? n.model : "Service default"}
+                    {loose ? "Not connected" : parallel.has(n.id) ? "Runs in parallel" : fed ? `Starts with ${fed} fetched input${fed > 1 ? "s" : ""}` : n.model ? models[n.model]?.label ?? n.model : "Service default"}
                   </span>
                   <i data-port="out" className={`${s.port} ${s.out}`} onPointerDown={(e) => startLink(e, n)} title="Drag to the next step" />
                 </div>
@@ -382,7 +414,11 @@ export default function Builder() {
         </div>
 
         <aside className={`card ${s.inspector}`} aria-label="Details">
-          {selected && selected.kind === "step" ? (
+          {selected && selected.kind === "fetch" ? (
+            <FetchForm key={selected.id} n={selected} tools={packTools}
+              feeds={flow.edges.filter((e) => e.from === selected.id).map((e) => byId.get(e.to)?.name ?? "").filter(Boolean)}
+              onChange={(c) => patch(selected.id, c)} onRemove={() => remove({ kind: "node", id: selected.id })} />
+          ) : selected && selected.kind === "step" ? (
             <StepForm key={selected.id} n={selected} agentName={steps.length === 1 ? flow.name : undefined} onAgentNameChange={(name) => setFlow((f) => ({ ...f, name, nodes: f.nodes.map((n) => n.id === selected.id ? { ...n, name: name || "Agent" } : n) }))} onChange={(c) => patch(selected.id, c)} onRemove={() => remove({ kind: "node", id: selected.id })} />
           ) : selectedEdge ? (
             <>
@@ -409,7 +445,10 @@ export default function Builder() {
                   {stages.length === 0 ? <p className={s.muted}>Nothing connected yet.</p> : (
                     <ol className={s.order}>
                       {stages.map((g, i) => (
-                        <li key={i}>{g.map((n) => n.name).join(" + ")}{g.length > 1 && <span className="tag accent">parallel</span>}</li>
+                        <li key={i}>
+                          {g.map((n) => n.name).join(" + ")}{g.length > 1 && <span className="tag accent">parallel</span>}
+                          {g.some((n) => contextOf(flow, n.id).length > 0) && <small className={s.fetched}>after fetching {g.flatMap((n) => contextOf(flow, n.id).map((c) => c.name)).join(", ")}</small>}
+                        </li>
                       ))}
                     </ol>
                   )}
@@ -458,6 +497,7 @@ function StepForm({ n, agentName, onAgentNameChange, onChange, onRemove }: { n: 
         </label>
         <div>
           <small className={s.label}>Tools it can use</small>
+          <p className={s.muted}>The model decides when to call these. To always fetch something first, connect a Fetch data node into this step.</p>
           <div className={s.tools}>
             {pickable.map((t) => {
               const on = n.tools.includes(t.id);
@@ -486,6 +526,72 @@ function StepForm({ n, agentName, onAgentNameChange, onChange, onRemove }: { n: 
             <input className="input mono" type="number" min={1} value={n.seconds} onChange={(e) => onChange({ seconds: Math.max(1, +e.target.value || 1) })} />
           </label>
         </details>
+      </div>
+    </>
+  );
+}
+
+function FetchForm({ n, tools, feeds, onChange, onRemove }: { n: FlowNode; tools: PackToolOption[] | string | null; feeds: string[]; onChange: (c: Partial<FlowNode>) => void; onRemove: () => void }) {
+  const fetch: Fetch = n.fetch ?? { tool: "", args: {} };
+  const set = (next: Partial<Fetch>) => onChange({ fetch: { ...fetch, ...next } });
+  const list = Array.isArray(tools) ? tools : [];
+  const tool = list.find((t) => t.id === fetch.tool);
+  const packs = [...new Set(list.map((t) => t.pack))];
+  // Text the person typed for a JSON argument editor, used when the tool list is unavailable.
+  const [raw, setRaw] = useState(() => JSON.stringify(fetch.args, null, 2));
+  return (
+    <>
+      <div className="ch"><h2>{n.name || "Fetch data"}</h2><div className="right"><button type="button" className="btn ghost sm" onClick={onRemove}>Delete</button></div></div>
+      <div className={s.form}>
+        <p className={s.muted}>Runs before the step it connects into, every time, with exactly these arguments. No model decides whether to call it. The result is given to that step as context, and the step can still use its own tools.</p>
+        <label>Name
+          <input className="input" value={n.name} placeholder="e.g. Open issues" onChange={(e) => onChange({ name: e.target.value })} />
+        </label>
+        {typeof tools === "string" || tools === null ? (
+          <>
+            {typeof tools === "string" && <p className={s.warn}>{tools}</p>}
+            <label>Tool id
+              <input className="input mono" value={fetch.tool} placeholder="github.list_issues" onChange={(e) => set({ tool: e.target.value.trim() })} />
+            </label>
+            <label>Arguments (JSON)
+              <textarea className="input mono" rows={4} value={raw} onChange={(e) => {
+                setRaw(e.target.value);
+                try { set({ args: JSON.parse(e.target.value) as Fetch["args"] }); } catch { /* keep the last valid arguments while typing */ }
+              }} />
+            </label>
+          </>
+        ) : (
+          <>
+            <label>Tool
+              <select className="input" value={fetch.tool} onChange={(e) => set({ tool: e.target.value, args: {} })}>
+                <option value="">Pick a tool</option>
+                {packs.map((pack) => (
+                  <optgroup key={pack} label={pack}>
+                    {list.filter((t) => t.pack === pack).map((t) => <option key={t.id} value={t.id}>{t.description}{t.connected ? "" : " (not connected)"}</option>)}
+                  </optgroup>
+                ))}
+                {fetch.tool && !tool && <option value={fetch.tool}>{fetch.tool}</option>}
+              </select>
+            </label>
+            {tool && !tool.connected && <p className={s.warn}>{tool.pack} is not connected for you yet. <Link href="/tools">Connect it</Link>, or runs will stop at this step.</p>}
+            {tool?.arguments.map((a) => (
+              <label key={a.name}>{a.name}{a.required ? "" : <small> (optional)</small>}
+                <input className="input mono" value={fetch.args[a.name] ?? ""} placeholder={a.description}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const args = { ...fetch.args, [a.name]: a.type === "integer" && /^\d+$/.test(v) ? Number(v) : v };
+                    if (v === "") delete args[a.name];
+                    set({ args });
+                  }} />
+              </label>
+            ))}
+            {tool && tool.arguments.length > 0 && <p className={s.muted}>Use <code>{"{{input.task}}"}</code> in a value to insert the run&apos;s task.</p>}
+          </>
+        )}
+        <div>
+          <small className={s.label}>Gives its result to</small>
+          {feeds.length ? <p>{feeds.join(", ")}</p> : <p className={s.warn}>Drag from this node&apos;s right edge to an agent step.</p>}
+        </div>
       </div>
     </>
   );

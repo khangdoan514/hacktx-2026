@@ -72,7 +72,21 @@ type AgentDefinition struct {
 	AllowedTools     []string   `json:"allowed_tools"`
 	AllowedDelegates []string   `json:"allowed_delegates"`
 	Limits           Limits     `json:"limits"`
-	PreferredModel   string     `json:"-"`
+	// ContextSteps run before the model starts, in order, with fixed
+	// arguments. Their results are added to the prompt as context. They are
+	// separate from AllowedTools, which the model chooses to call itself.
+	ContextSteps   []ContextStep `json:"context_steps,omitempty"`
+	PreferredModel string        `json:"-"`
+}
+
+// ContextStep is one deterministic tool call chosen when the agent was
+// built. String arguments may contain {{input.<field>}}, which is replaced
+// with that top-level field of the run input.
+type ContextStep struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 type ToolDefinition struct {

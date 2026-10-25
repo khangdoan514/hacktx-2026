@@ -199,6 +199,10 @@ func TestAPIConnectListAndOAuthState(t *testing.T) {
 	if strings.Contains(w.Body.String(), "ghp_goodtoken") || !strings.Contains(w.Body.String(), `"account":"octo"`) {
 		t.Fatalf("list leaks or misses: %s", w.Body)
 	}
+	// The builder asks for fixed argument values from this list, required first.
+	if !strings.Contains(w.Body.String(), `"id":"github.list_issues","name":"list_issues","description":"List issues in a repository","side_effect":"READ_ONLY","arguments":[{"name":"owner","type":"string","description":"Repository owner","required":true},{"name":"repo"`) {
+		t.Fatalf("list misses tool arguments: %s", w.Body)
+	}
 	if w := do("POST", "/v1/tool-packs/gdrive/connect", `{"token":"ya29.whatever"}`); w.Code != 400 {
 		t.Fatalf("drive must be OAuth only, status=%d", w.Code)
 	}
