@@ -57,6 +57,11 @@ func TestAllowAgentUsesEmployeeRoles(t *testing.T) {
 	if err := allowAgent(requester, http.MethodPost, "/agent-api/agent-runs"); err == nil {
 		t.Fatal("requester started a run")
 	}
+	for _, path := range []string{"/agent-api/tool-packs/gdrive/oauth/start", "/agent-api/tool-packs/gdrive/disconnect", "/agent-api/tool-packs/gdrive/test", "/agent-api/tool-packs/github/connect"} {
+		if err := allowAgent(requester, http.MethodPost, path); err != nil {
+			t.Fatalf("requester cannot manage personal connection %s: %v", path, err)
+		}
+	}
 	if err := allowAgent(engineer, http.MethodPost, "/agent-api/agent-runs"); err != nil {
 		t.Fatal(err)
 	}

@@ -160,16 +160,18 @@
       ]
     },
     // Free-form chat (the console's Threads page). No pre-compiled prompt.
-    // It can read the project and query the catalog, and nothing else: no
-    // shell, edit, web, or subagents. Widen this list to give threads more.
+    // Uses read-only connected-account tools and catalog search. No direct
+    // filesystem reads, shell, edits, web, or subagents.
     "thread": {
       "description": "Open-ended thread",
       "mode": "primary",
       "steps": 20,
-      "system": "You are a helpful assistant. Answer directly and say when you used a tool.",
+      "system": "You are a helpful assistant. Use tools_gdrive_search_files/list_folder/read_file for the connected Google Drive and tools_github_* for the connected GitHub account. Cite returned source URLs. If a tool says the account is not connected, ask the user to connect it on Tools. Answer directly and say when you used a tool.",
       "permissions": [
         { "action": "*", "resource": "*", "effect": "deny" },
-        { "action": "read", "resource": "*", "effect": "allow" },
+        { "action": "read", "resource": "*", "effect": "deny" },
+        { "action": "tools_github_*", "resource": "*", "effect": "allow" },
+        { "action": "tools_gdrive_*", "resource": "*", "effect": "allow" },
         { "action": "catalog_*", "resource": "*", "effect": "deny" },
         { "action": "catalog_search", "resource": "*", "effect": "allow" },
         { "action": "shell", "resource": "*", "effect": "deny" },

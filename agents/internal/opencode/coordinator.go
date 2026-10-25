@@ -163,7 +163,7 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 				sb.WriteString("- agent " + child.ID + " input " + string(child.InputSchema) + "\n")
 			}
 		}
-		sb.WriteString("Do not read the catalog yourself. Specialists read catalog/vendors.json and must cite only its vendor ids.\n")
+		sb.WriteString("Do not read the catalog yourself. Ask specialists to use catalog_search and cite only returned vendor ids.\n")
 	}
 	if listed(definition.AllowedTools, "catalog.search") {
 		sb.WriteString("Search the fictional catalog with the catalog_search tool. Do not read catalog files.\n")

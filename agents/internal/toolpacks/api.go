@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -21,34 +21,33 @@ type API struct {
 	// lives, for the post-consent redirect.
 	PublicURL string
 	AppURL    string
-
-	mu     sync.Mutex
-	states map[string]pending
-}
-
-type pending struct {
-	pack    string
-	expires time.Time
 }
 
 func NewAPI(runner *Runner, publicURL, appURL string) *API {
-	return &API{Runner: runner, PublicURL: strings.TrimRight(publicURL, "/"), AppURL: strings.TrimRight(appURL, "/"), states: map[string]pending{}}
+	return &API{Runner: runner, PublicURL: strings.TrimRight(publicURL, "/"), AppURL: strings.TrimRight(appURL, "/")}
 }
 
 // Mount registers /v1/tool-packs and the OAuth callback. The callback must be
 // reachable without the console's bearer token (it is a browser redirect from
 // the provider); the state value ties it to a start request.
 func (a *API) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/tool-packs", a.list)
-	mux.HandleFunc("POST /v1/tool-packs/{id}/connect", a.connect)
-	mux.HandleFunc("POST /v1/tool-packs/{id}/oauth/start", a.oauthStart)
-	mux.HandleFunc("POST /v1/tool-packs/{id}/disconnect", a.disconnect)
+	mux.HandleFunc("GET /v1/tool-packs", a.signedIn(a.list))
+	mux.HandleFunc("POST /v1/tool-packs/{id}/connect", a.signedIn(a.connect))
+	mux.HandleFunc("POST /v1/tool-packs/{id}/oauth/start", a.signedIn(a.oauthStart))
+	mux.HandleFunc("POST /v1/tool-packs/{id}/disconnect", a.signedIn(a.disconnect))
+	mux.HandleFunc("POST /v1/tool-packs/{id}/test", a.signedIn(a.testConnection))
+	mux.HandleFunc("GET /oauth/{id}/authorize", a.oauthAuthorize)
 	mux.HandleFunc("GET /oauth/{id}/callback", a.oauthCallback)
 }
 
 // IsCallback reports whether a request path is the unauthenticated redirect.
 func IsCallback(path string) bool {
-	return strings.HasPrefix(path, "/oauth/") && strings.HasSuffix(path, "/callback")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "oauth" {
+		return false
+	}
+	_, known := Find(parts[1])
+	return known && (parts[2] == "callback" || parts[2] == "authorize")
 }
 
 type toolView struct {
@@ -72,12 +71,13 @@ type packView struct {
 	Tools          []toolView `json:"tools"`
 }
 
-func (a *API) list(w http.ResponseWriter, _ *http.Request) {
+func (a *API) list(w http.ResponseWriter, r *http.Request) {
+	runner := a.personal(r)
 	views := make([]packView, 0)
 	for _, p := range Packs() {
 		prov, _ := ProviderFor(p.ID)
 		v := packView{ID: p.ID, Name: p.Name, Description: p.Description, TokenAccepted: p.TokenHint != "", TokenHint: p.TokenHint, OAuthAvailable: prov.Configured(), Tools: []toolView{}}
-		if cred, ok := a.Runner.Store.Get(p.ID); ok {
+		if cred, ok := runner.Store.Get(p.ID); ok {
 			t := cred.ConnectedAt
 			v.Connected, v.Account, v.ConnectedAt, v.Method = true, cred.Account, &t, cred.Kind
 		}
@@ -119,7 +119,7 @@ func (a *API) connect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the token was rejected: "+err.Error())
 		return
 	}
-	if err := a.Runner.Store.Put(pack.ID, Credential{Kind: "token", AccessToken: token, Account: account}); err != nil {
+	if err := a.personal(r).Store.Put(pack.ID, Credential{Kind: "token", AccessToken: token, Account: account}); err != nil {
 		writeError(w, http.StatusInternalServerError, "the connection could not be saved")
 		return
 	}
@@ -138,15 +138,11 @@ func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := randomState()
-	a.mu.Lock()
-	for k, v := range a.states { // drop expired starts
-		if time.Now().After(v.expires) {
-			delete(a.states, k)
-		}
+	if err := a.saveState(state, pending{Pack: id, Owner: Owner(r), Browser: randomState(), Expires: time.Now().Add(10 * time.Minute)}); err != nil {
+		writeError(w, http.StatusInternalServerError, "Sign-in could not be started.")
+		return
 	}
-	a.states[state] = pending{pack: id, expires: time.Now().Add(10 * time.Minute)}
-	a.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]string{"url": prov.AuthorizeURL(a.redirectURI(id), state)})
+	writeJSON(w, http.StatusOK, map[string]string{"url": a.PublicURL + "/oauth/" + id + "/authorize?state=" + state})
 }
 
 func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
@@ -155,14 +151,23 @@ func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		target := a.AppURL + "/tools?" + url.Values{"pack": {id}, "result": {result}}.Encode()
 		http.Redirect(w, r, target, http.StatusSeeOther)
 	}
-	a.mu.Lock()
-	p, ok := a.states[r.URL.Query().Get("state")]
-	delete(a.states, r.URL.Query().Get("state")) // single use
-	a.mu.Unlock()
-	if !ok || p.pack != id || time.Now().After(p.expires) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	state := r.URL.Query().Get("state")
+	p, stateErr := a.readState(state, id)
+	cookie, cookieErr := r.Cookie("nmc3_oauth_" + state)
+	if stateErr != nil || cookieErr != nil || cookie.Value != p.Browser {
 		back("invalid_state")
 		return
 	}
+	// Claim atomically so callback replay cannot exchange another code.
+	claimed := a.statePath(state) + ".claimed"
+	if os.Rename(a.statePath(state), claimed) != nil {
+		back("invalid_state")
+		return
+	}
+	defer os.Remove(claimed)
+	http.SetCookie(w, &http.Cookie{Name: "nmc3_oauth_" + state, Value: "", Path: "/oauth/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Secure: strings.HasPrefix(a.PublicURL, "https://")})
 	code := r.URL.Query().Get("code")
 	prov, known := ProviderFor(id)
 	if r.URL.Query().Get("error") != "" || code == "" || !known {
@@ -185,7 +190,7 @@ func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		back("verify_failed")
 		return
 	}
-	if err := a.Runner.Store.Put(id, cred); err != nil {
+	if err := a.Runner.Store.ForOwner(p.Owner).Put(id, cred); err != nil {
 		back("save_failed")
 		return
 	}
@@ -197,7 +202,7 @@ func (a *API) disconnect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown tool pack")
 		return
 	}
-	if err := a.Runner.Store.Delete(r.PathValue("id")); err != nil {
+	if err := a.personal(r).Store.Delete(r.PathValue("id")); err != nil {
 		writeError(w, http.StatusInternalServerError, "the connection could not be removed")
 		return
 	}

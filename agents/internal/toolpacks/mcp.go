@@ -1,7 +1,6 @@
 package toolpacks
 
-// Serve speaks the same legacy MCP stdio transport as internal/catalogmcp
-// (Content-Length framing). It lists every pack tool even when a pack is not
+// Serve speaks newline-delimited MCP stdio (also accepting legacy input frames). It lists every pack tool even when a pack is not
 // connected yet: OpenCode lists tools once at startup, and a call to an
 // unconnected pack returns a tool error telling the user to connect it.
 
@@ -129,6 +128,9 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 			return nil, err
 		}
 		line = strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			return []byte(line), nil
+		}
 		if line == "" {
 			break
 		}
@@ -159,6 +161,6 @@ func writeResult(w io.Writer, id json.RawMessage, result any, rpcErr *rpcError) 
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s", len(body), body)
+	_, err = fmt.Fprintf(w, "%s\n", body)
 	return err
 }

@@ -75,6 +75,15 @@ func allowAgent(actor platform.Actor, method, path string) error {
 	if method == http.MethodGet || method == http.MethodHead {
 		return nil
 	}
+	// Every employee may manage their own connections; execution permissions
+	// remain governed by the existing role checks.
+	if method == http.MethodPost && strings.HasPrefix(path, "/agent-api/tool-packs/") {
+		rest := strings.TrimPrefix(path, "/agent-api/tool-packs/")
+		parts := strings.Split(rest, "/")
+		if len(parts) == 2 && (parts[1] == "connect" || parts[1] == "disconnect" || parts[1] == "test") || len(parts) == 3 && parts[1] == "oauth" && parts[2] == "start" {
+			return nil
+		}
+	}
 	if strings.Contains(path, "/approvals/") && strings.HasSuffix(path, "/decision") {
 		return organization.Require(actor, "release_approver", "administrator", "security_reviewer")
 	}

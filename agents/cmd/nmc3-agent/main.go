@@ -77,7 +77,10 @@ func run() error {
 	// The session directory must be this module so OpenCode loads
 	// opencode.jsonc (deny-by-default agents and the catalog MCP server).
 	// A temp directory would fall through to the unrestricted built-in agent.
-	workdir := envDefault("NMC3_WORKDIR", ".")
+	workdir, err := filepath.Abs(envDefault("NMC3_WORKDIR", "."))
+	if err != nil {
+		return fmt.Errorf("resolve OpenCode working directory: %w", err)
+	}
 	if _, err := os.Stat(filepath.Join(workdir, "opencode.jsonc")); err != nil {
 		return fmt.Errorf("OpenCode config %s: run from agents/ or set NMC3_WORKDIR to that directory", filepath.Join(workdir, "opencode.jsonc"))
 	}
@@ -189,7 +192,7 @@ func guardInternal(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(toolpacks.WithOwner(r.Context(), toolpacks.Owner(r))))
 	})
 }
 

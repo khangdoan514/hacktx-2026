@@ -99,6 +99,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
+	if auth, ok := h.backend.(interface {
+		AuthorizeSession(context.Context, string) error
+	}); ok {
+		if err := auth.AuthorizeSession(r.Context(), id); err != nil {
+			fail(w, http.StatusNotFound, contracts.ErrNotFound, "Thread not found")
+			return
+		}
+	}
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
 		h.get(w, r, id)
