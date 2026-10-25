@@ -71,8 +71,18 @@ export function planFromRun(run: AgentRun, agents: AgentDef[], events?: RunEvent
       const data = (e.data ?? {}) as { tool_id?: string; code?: string; depth?: number; action?: string; usage?: { input_tokens?: number; output_tokens?: number; cost_usd?: number } };
       const agent = (e.invocation_id && agentOf.get(e.invocation_id)) || run.agent_id;
       if (EVENT_TYPES.has(e.type as EventType)) {
-        const detail = data.tool_id && data.code ? `${data.tool_id} · ${data.code}` : data.tool_id ?? data.code ?? (data.depth !== undefined ? `depth ${data.depth}` : undefined);
-        ops.push({ at, k: "event", type: e.type as EventType, agent, detail });
+        let type = e.type as EventType;
+        let code = data.code;
+        // Runs recorded before the service typed this denial store INTERNAL. The contract
+        // says specialists (depth 1) cannot delegate, so a failed subagent call from one is
+        // a depth-limit denial; this applies the same rule the service now records.
+        const depth = invocations.find((i) => i.id === e.invocation_id)?.depth ?? 0;
+        if (type === "TOOL_FAILED" && data.tool_id === "subagent" && depth >= 1 && (!code || code === "INTERNAL")) {
+          type = "DELEGATION_REJECTED";
+          code = "DELEGATION_DEPTH_EXCEEDED";
+        }
+        const detail = data.tool_id && code ? `${data.tool_id} · ${code}` : data.tool_id ?? code ?? (data.depth !== undefined ? `depth ${data.depth}` : undefined);
+        ops.push({ at, k: "event", type, agent, detail });
       } else if (e.type === "MODEL_SUCCEEDED" && data.usage) {
         const owner = invocations.find((i) => i.id === e.invocation_id);
         const n = turns.filter((t) => t.agent === agent).length + 1;
