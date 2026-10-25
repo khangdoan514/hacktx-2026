@@ -7,10 +7,13 @@ export default function ToolsPage() {
     <>
       <PageHeader
         title="Tools"
-        sub="Connect built-in tools, or register a draft tool and publish a version. Endpoints must be IP addresses, and a published version stays pinned for runs already in flight."
+        sub="Connect your accounts to give workspace agents access to your documents, repositories, Notion pages, and Slack conversations."
       />
       <ToolPacks />
-      <ToolRegistry />
+      <details style={{ marginTop: 24 }}>
+        <summary style={{ cursor: "pointer", marginBottom: 16 }}>Advanced: custom tools</summary>
+        <ToolRegistry />
+      </details>
     </>
   );
 }

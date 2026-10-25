@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 const serviceUser = "opencode"
@@ -187,10 +189,21 @@ type Message struct {
 }
 
 func (c *Client) CreateSession(ctx context.Context, directory, title, agent, providerID, modelID string) (Session, error) {
+	owner := toolpacks.ContextOwner(ctx)
+	if owner != "" {
+		var err error
+		directory, err = connectionProject(directory, owner)
+		if err != nil {
+			return Session{}, err
+		}
+	}
 	var out sessionEnvelope
 	body := map[string]any{
 		"location": map[string]string{"directory": directory},
 		"title":    title,
+	}
+	if owner != "" {
+		body["metadata"] = map[string]string{"nmc3_owner": owner}
 	}
 	// The agent id selects the opencode.jsonc profile (instructions and
 	// deny-by-default permissions). An empty id leaves OpenCode's default,

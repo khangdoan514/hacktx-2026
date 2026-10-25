@@ -1,6 +1,6 @@
 package catalogmcp
 
-// Serve speaks the legacy MCP stdio transport (Content-Length framing) and
+// Serve speaks newline-delimited MCP stdio (also accepting legacy input frames) and
 // exposes one tool, search. OpenCode publishes that tool as catalog_search
 // when the server name is catalog and Code Mode is off.
 
@@ -147,6 +147,9 @@ func readFrame(r *bufio.Reader) ([]byte, error) {
 			return nil, err
 		}
 		line = strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			return []byte(line), nil
+		}
 		if line == "" {
 			break
 		}
@@ -182,6 +185,6 @@ func writeResult(w io.Writer, id json.RawMessage, result any, rpcErr *rpcError) 
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s", len(body), body)
+	_, err = fmt.Fprintf(w, "%s\n", body)
 	return err
 }

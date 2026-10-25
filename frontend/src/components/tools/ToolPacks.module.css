@@ -1,7 +1,7 @@
 .panel { min-width: 0; }
 .lead { margin: 0; padding: 12px 20px 0; color: var(--ink-3); font-size: 13px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; padding: 16px 20px 20px; }
-.pack { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 14px; padding: 16px 20px 20px; }
+.pack { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .pack header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pack h3 { margin: 0; font-size: 15px; }
 .pack p { margin: 0; color: var(--ink-2); font-size: 13px; }
@@ -17,3 +17,5 @@
 .note { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; font-size: 13px; }
 .ok { background: var(--ok-soft); color: var(--ok); }
 .err { background: var(--err-soft); color: var(--err); }
+
+.empty { padding: 16px 20px; display: flex; align-items: center; gap: 12px; }

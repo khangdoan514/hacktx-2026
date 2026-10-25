@@ -183,7 +183,10 @@ func TestAPIConnectListAndOAuthState(t *testing.T) {
 
 	do := func(method, path, body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		mux.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("X-NMC3-User", "user-a")
+		req.Header.Set("X-NMC3-Tenant", "org")
+		mux.ServeHTTP(w, req)
 		return w
 	}
 	if w := do("POST", "/v1/tool-packs/github/connect", `{"token":"ghp_badtoken1"}`); w.Code != 400 {
@@ -202,14 +205,14 @@ func TestAPIConnectListAndOAuthState(t *testing.T) {
 	w = do("POST", "/v1/tool-packs/github/oauth/start", "")
 	var started struct{ URL string }
 	_ = json.Unmarshal(w.Body.Bytes(), &started)
-	if w.Code != 200 || !strings.Contains(started.URL, "client_id=id") || strings.Contains(started.URL, "secret") {
+	if w.Code != 200 || !strings.Contains(started.URL, "/oauth/github/authorize?state=") || strings.Contains(started.URL, "secret") {
 		t.Fatalf("start: %d %s", w.Code, w.Body)
 	}
 	if w := do("GET", "/oauth/github/callback?code=c&state=forged", ""); !strings.Contains(w.Header().Get("Location"), "result=invalid_state") {
 		t.Fatalf("forged state accepted: %v", w.Header())
 	}
 	do("POST", "/v1/tool-packs/github/disconnect", "")
-	if _, ok := r.Store.Get("github"); ok {
+	if _, ok := r.Store.ForOwner("org:user-a").Get("github"); ok {
 		t.Fatal("still connected")
 	}
 }
@@ -242,7 +245,7 @@ func TestServeSpeaksMCP(t *testing.T) {
 		t.Fatalf("want 4 replies (the notification gets none), got %d", len(replies))
 	}
 	tools := replies[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 9 {
+	if len(tools) != 19 {
 		t.Fatalf("tools=%d", len(tools))
 	}
 	if replies[2]["result"].(map[string]any)["isError"] != false {

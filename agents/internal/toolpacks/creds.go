@@ -1,11 +1,14 @@
 package toolpacks
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -20,6 +23,7 @@ type Credential struct {
 	ClientSecret string    `json:"client_secret,omitempty"`
 	Account      string    `json:"account,omitempty"`
 	ConnectedAt  time.Time `json:"connected_at"`
+	PublicClient bool      `json:"public_client,omitempty"`
 }
 
 // Store is a small JSON file shared by the API process and the MCP server,
@@ -31,6 +35,14 @@ type Store struct {
 
 // NewStore keeps credentials in dir/credentials.json.
 func NewStore(dir string) *Store { return &Store{path: filepath.Join(dir, "credentials.json")} }
+
+func (s *Store) Directory() string { return filepath.Dir(s.path) }
+
+// ForOwner never falls back to the legacy shared credentials.
+func (s *Store) ForOwner(owner string) *Store {
+	sum := sha256.Sum256([]byte(owner))
+	return NewStore(filepath.Join(filepath.Dir(s.path), "users", fmt.Sprintf("%x", sum)))
+}
 
 func (s *Store) load() (map[string]Credential, error) {
 	items := map[string]Credential{}
@@ -76,6 +88,11 @@ func (s *Store) Get(pack string) (Credential, bool) {
 func (s *Store) Put(pack string, c Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	items, err := s.load()
 	if err != nil {
 		return err
@@ -90,10 +107,31 @@ func (s *Store) Put(pack string, c Credential) error {
 func (s *Store) Delete(pack string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	items, err := s.load()
 	if err != nil {
 		return err
 	}
 	delete(items, pack)
 	return s.save(items)
+}
+
+// API and MCP processes may refresh or disconnect the same account concurrently.
+func (s *Store) lockFile() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }, nil
 }

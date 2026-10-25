@@ -191,12 +191,17 @@ func TestThreadToolsRequireApprovalForOperations(t *testing.T) {
 	checks := []struct{ action, resource, want string }{
 		{"read", "README.md", "allow"},
 		{"read", ".env", "deny"},
+		{"read", "/app/agents/.nmc3/users/employee/credentials.json", "deny"},
+		{"read", "/app/agents/.nmc3/oauth-states/attempt.json", "deny"},
+		{"read", "/home/employee/.config/opencode/service.json", "deny"},
 		{"glob", "*.go", "allow"},
 		{"grep", "API_KEY", "ask"},
 		{"shell", "pwd", "ask"},
 		{"edit", "README.md", "ask"},
 		{"catalog_search", "*", "allow"},
 		{"tools_github_get_file", "*", "allow"},
+		{"tools_notion_get_page", "*", "allow"},
+		{"tools_slack_get_thread", "*", "allow"},
 		{"websearch", "OpenCode", "allow"},
 		{"subagent", "general", "deny"},
 	}
