@@ -15,6 +15,7 @@ import {
   type SchemaDraft,
   type Version,
 } from "./api";
+import { packToolsApi, type PackToolOption } from "./packTools";
 import s from "./editor.module.css";
 
 const limitFields: { key: keyof DefinitionForm["limits"]; label: string; step?: string }[] = [
@@ -198,7 +199,10 @@ export default function Editor() {
                 </label>
                 <FieldErrorLine fields={messages(fields, "instructions")} />
               </div>
-              <Field label="Tools" value={form.tools} error={messages(fields, "allowed_tools")} onChange={(tools) => setForm({ ...form, tools })} placeholder="catalog.search" />
+              <div className={s.field}>
+                <Field label="Tools" value={form.tools} error={messages(fields, "allowed_tools")} onChange={(tools) => setForm({ ...form, tools })} placeholder="catalog.search" />
+                <PackToolPicker value={form.tools} onChange={(tools) => setForm({ ...form, tools })} />
+              </div>
               <Field label="Delegates" value={form.delegates} error={messages(fields, "allowed_delegates")} onChange={(delegates) => setForm({ ...form, delegates })} placeholder="same version, comma-separated" />
             </div>
 
@@ -328,4 +332,37 @@ function tagClass(state: Version["state"]) {
   if (state === "retired") return "tag warn";
   if (state === "testing") return "tag accent";
   return "tag";
+}
+
+// Built-in pack tools as one-click chips. A tool whose pack is not connected
+// is dimmed: it can be listed, but calls will report "not connected".
+function PackToolPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [options, setOptions] = useState<PackToolOption[]>([]);
+  useEffect(() => {
+    packToolsApi.list().then(setOptions).catch(() => setOptions([]));
+  }, []);
+  if (options.length === 0) return null;
+  const selected = new Set(value.split(",").map((part) => part.trim()).filter(Boolean));
+  const toggle = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange([...next].join(", "));
+  };
+  return (
+    <div className={s.chips} role="group" aria-label="Built-in tools">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          className={`${s.chip} ${selected.has(option.id) ? s.chipOn : ""} ${option.connected ? "" : s.chipOff}`}
+          aria-pressed={selected.has(option.id)}
+          title={option.connected ? option.description : `${option.description} (${option.pack} is not connected)`}
+          onClick={() => toggle(option.id)}
+        >
+          {option.id}
+        </button>
+      ))}
+    </div>
+  );
 }

@@ -27,3 +27,8 @@
 @media (max-width: 900px) {
   .layout, .grid, .schemas { grid-template-columns: 1fr; }
 }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { font: 500 11px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink-2); cursor: pointer; }
+.chipOn { background: var(--accent-soft, var(--ok-soft)); border-color: var(--accent, var(--ok)); color: var(--ink-1, inherit); }
+.chipOff { opacity: 0.55; }

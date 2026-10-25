@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
+	"github.com/khangdoan514/hacktx-2026/agents/internal/toolpacks"
 )
 
 func id(prefix string) string {
@@ -167,6 +168,11 @@ func buildPrompt(definition contracts.AgentDefinition, defs map[string]contracts
 	if listed(definition.AllowedTools, "catalog.search") {
 		sb.WriteString("Search the fictional catalog with the catalog_search tool. Do not read catalog files.\n")
 	}
+	for _, tool := range definition.AllowedTools {
+		if openCodeName, ok := toolpacks.OpenCodeNameFor(tool); ok {
+			sb.WriteString("Use the " + openCodeName + " tool for " + tool + ".\n")
+		}
+	}
 	sb.WriteString("Rules: do not write, edit, or delete any files; read-only analysis. Cite source IDs for every claim. If a tool or delegation is denied, do not retry it through the shell, the network, or another agent.\n")
 	sb.WriteString("Reply with ONLY a single JSON object matching this output schema, no other text: " + string(definition.OutputSchema))
 	return sb.String()
@@ -178,7 +184,7 @@ func canonicalToolID(name string) string {
 	if name == "catalog_search" {
 		return "catalog.search"
 	}
-	return name
+	return toolpacks.ContractID(name)
 }
 
 func listed(items []string, want string) bool {
