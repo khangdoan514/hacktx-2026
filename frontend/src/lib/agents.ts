@@ -20,6 +20,33 @@ export const limitsToWire = (l: Limits, base?: Partial<WireLimits>): WireLimits 
 
 const NO_LIMITS: Limits = { turns: 0, tools: 0, delegations: 0, parallel: 0, seconds: 0 };
 
+function versionParts(version: string): number[] {
+  return version.split(".").map((part) => Number(part) || 0);
+}
+
+function newerVersion(left: string, right: string): boolean {
+  const a = versionParts(left);
+  const b = versionParts(right);
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+/** One card per agent. A republish keeps the older version for past runs. */
+function latestVersions(definitions: WireDefinition[]): WireDefinition[] {
+  const byID = new Map<string, WireDefinition>();
+  for (const definition of definitions) {
+    const id = definition.spec?.id;
+    if (!id) continue;
+    const current = byID.get(id);
+    if (!current || newerVersion(definition.spec.version, current.spec.version)) byID.set(id, definition);
+  }
+  return [...byID.values()];
+}
+
 function fromSpec(spec: WireSpec, state: string): AgentDef {
   const kind = spec.role === "orchestrator" || (spec.allowed_delegates?.length ?? 0) > 0 ? "orchestrator" : "specialist";
   return {
@@ -49,7 +76,8 @@ export async function loadAgents(): Promise<AgentDef[]> {
   if (res.ok) {
     const body = (await res.json()) as { definitions?: WireDefinition[] };
     const published = (body.definitions ?? []).filter((d) => d.state === "published" || d.state === undefined);
-    if (published.length) return published.map((d) => fromSpec(d.spec, d.state ?? "published"));
+    const latest = latestVersions(published);
+    if (latest.length) return latest.map((d) => fromSpec(d.spec, d.state ?? "published"));
   }
   if (res.status === 401) throw new AgentRequestError("Session expired", 401);
   const { agents } = await agentApi.agents();

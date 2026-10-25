@@ -62,6 +62,7 @@ services:
       OPENCODE_SERVICE_FILE: /run/opencode/service.json
       OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-}
       NMC3_WORKDIR: ${NMC3_WORKDIR:-${PWD}/agents}
+      NMC3_DEFINITIONS_FILE: ${NMC3_WORKDIR:-${PWD}/agents}/examples/definitions.json
     volumes:
       - ${NMC3_WORKDIR:-${PWD}/agents}:${NMC3_WORKDIR:-${PWD}/agents}:ro
       - ${OPENCODE_SERVICE_FILE_HOST:-${HOME}/.config/opencode/service.json}:/run/opencode/service.json:ro
