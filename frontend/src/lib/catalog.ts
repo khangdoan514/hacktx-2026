@@ -15,7 +15,7 @@ export const toolTiles: ToolTile[] = [
 ];
 
 export const models: Record<string, { label: string }> = {
-  "claude-opus-5-5": { label: "Claude Opus 5.5" },
-  "claude-sonnet-5-5": { label: "Claude Sonnet 5.5" },
-  "claude-haiku-5-5": { label: "Claude Haiku 5.5" },
+  "meta/muse-spark-1.3-contributor": { label: "Muse Spark 1.3 Contributor" },
+  "meta/muse-wonder-1.0": { label: "Muse Wonder" },
+  "opencode/flint-40b-free": { label: "Flint 40B Free" },
 };

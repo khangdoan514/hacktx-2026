@@ -15,8 +15,11 @@ import (
 
 // New returns the versioned agent API. The coordinator owns execution; this
 // handler only validates the wire request and exposes persisted inspection data.
-func New(coordinator contracts.Coordinator, runs contracts.RunStore, events contracts.EventSink, definitions []contracts.AgentDefinition) http.Handler {
+func New(coordinator contracts.Coordinator, runs contracts.RunStore, events contracts.EventSink, definitions []contracts.AgentDefinition, sources ...contracts.DefinitionSource) http.Handler {
 	h := &handler{coordinator: coordinator, runs: runs, events: events, agents: make(map[string]contracts.AgentDefinition)}
+	if len(sources) > 0 {
+		h.source = sources[0]
+	}
 	for _, d := range definitions {
 		h.agents[d.ID+"@"+d.Version] = d
 	}
@@ -28,12 +31,13 @@ type handler struct {
 	runs        contracts.RunStore
 	events      contracts.EventSink
 	agents      map[string]contracts.AgentDefinition
+	source      contracts.DefinitionSource
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.URL.Path == "/v1/agents" && r.Method == http.MethodGet {
-		h.listAgents(w)
+		h.listAgents(w, r)
 		return
 	}
 	if r.URL.Path == "/v1/agent-runs" && r.Method == http.MethodPost {
@@ -109,7 +113,12 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, contracts.ErrInvalidInput, "invalid model ID")
 		return
 	}
-	if _, ok := h.agents[req.AgentID+"@"+req.AgentVersion]; !ok {
+	agents, err := h.definitions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, contracts.ErrInternal, "published agents could not be loaded")
+		return
+	}
+	if _, ok := agents[req.AgentID+"@"+req.AgentVersion]; !ok {
 		writeError(w, http.StatusNotFound, contracts.ErrNotFound, "agent version not found")
 		return
 	}
@@ -189,9 +198,29 @@ func (h *handler) listEvents(w http.ResponseWriter, r *http.Request, id string) 
 	writeJSON(w, http.StatusOK, contracts.EventsResponse{RunID: id, Events: events})
 }
 
-func (h *handler) listAgents(w http.ResponseWriter) {
-	agents := make([]contracts.AgentSummary, 0, len(h.agents))
-	for _, d := range h.agents {
+func (h *handler) definitions(ctx context.Context) (map[string]contracts.AgentDefinition, error) {
+	if h.source == nil {
+		return h.agents, nil
+	}
+	published, err := h.source(ctx)
+	if err != nil {
+		return nil, err
+	}
+	agents := make(map[string]contracts.AgentDefinition, len(published))
+	for _, definition := range published {
+		agents[definition.ID+"@"+definition.Version] = definition
+	}
+	return agents, nil
+}
+
+func (h *handler) listAgents(w http.ResponseWriter, r *http.Request) {
+	definitions, err := h.definitions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, contracts.ErrInternal, "published agents could not be loaded")
+		return
+	}
+	agents := make([]contracts.AgentSummary, 0, len(definitions))
+	for _, d := range definitions {
 		agents = append(agents, contracts.AgentSummary{ID: d.ID, Version: d.Version, Name: d.Name})
 	}
 	// Stable output supports clients and tests.

@@ -21,17 +21,17 @@ export type Preset = {
 };
 
 export const presets: Preset[] = [
-  { id: "researcher", label: "Researcher", hint: "Finds sources and facts", icon: "compass", model: "claude-sonnet-5-5", tools: ["serpapi.google_search"],
+  { id: "researcher", label: "Researcher", hint: "Finds sources and facts", icon: "compass", model: "", tools: ["serpapi.google_search"],
     instructions: "Search for what is relevant to the task. Return the key findings and where each came from." },
-  { id: "writer", label: "Writer", hint: "Drafts from what it is given", icon: "sparkles", model: "claude-opus-5-5", tools: [],
+  { id: "writer", label: "Writer", hint: "Drafts from what it is given", icon: "sparkles", model: "", tools: [],
     instructions: "Write a clear draft using only the material you were given. Do not invent facts." },
-  { id: "reviewer", label: "Reviewer", hint: "Checks work and flags problems", icon: "scale", model: "claude-sonnet-5-5", tools: [],
+  { id: "reviewer", label: "Reviewer", hint: "Checks work and flags problems", icon: "scale", model: "", tools: [],
     instructions: "Review the work you were given. List what is wrong or missing, then return a corrected version." },
-  { id: "checker", label: "Fact-checker", hint: "Verifies claims against research", icon: "search", model: "claude-sonnet-5-5", tools: ["serpapi.google_scholar"],
+  { id: "checker", label: "Fact-checker", hint: "Verifies claims against research", icon: "search", model: "", tools: ["serpapi.google_scholar"],
     instructions: "Check each claim against published sources. Keep the ones that hold up and say why you dropped the rest." },
-  { id: "summarizer", label: "Summarizer", hint: "Condenses results", icon: "message", model: "claude-haiku-5-5", tools: [],
+  { id: "summarizer", label: "Summarizer", hint: "Condenses results", icon: "message", model: "", tools: [],
     instructions: "Summarize the material you were given in a few short points." },
-  { id: "custom", label: "Custom step", hint: "Start blank and describe it", icon: "bot", model: "claude-sonnet-5-5", tools: [],
+  { id: "custom", label: "Custom step", hint: "Start blank and describe it", icon: "bot", model: "", tools: [],
     instructions: "" },
 ];
 
@@ -83,6 +83,7 @@ export function newStep(preset: PresetId, x: number, y: number): FlowNode {
 
 /** Ready-made starting points, as a list of stages; steps in one stage run in parallel. */
 export const templates: { id: string; label: string; hint: string; stages: PresetId[][] }[] = [
+  { id: "single", label: "Single agent", hint: "One agent that handles the task directly", stages: [["custom"]] },
   { id: "review", label: "Draft and review", hint: "Write, then check it", stages: [["writer"], ["reviewer"]] },
   { id: "research", label: "Research, write, review", hint: "Three steps in a row", stages: [["researcher"], ["writer"], ["reviewer"]] },
   { id: "parallel", label: "Parallel research", hint: "Two researchers, then one writer", stages: [["researcher", "researcher"], ["writer"]] },
@@ -249,7 +250,9 @@ export function toSpecs(f: Flow): Spec[] {
     id, version: f.version.trim() || "1.0.0", name, role, instructions: n.instructions,
     input_schema: schema("task"), output_schema: schema("result"),
     allowed_tools: n.tools, allowed_delegates: [],
-    limits: { max_delegations: 0, max_concurrent_agents: 1, max_tool_calls: n.tools.length ? 3 : 0, max_model_turns: n.turns, max_tokens: 4000, max_cost_usd: 1, timeout_seconds: n.seconds },
+    // The definition API requires positive budget caps even when the
+    // allowlists below contain no delegates or tools.
+    limits: { max_delegations: 1, max_concurrent_agents: 1, max_tool_calls: n.tools.length ? 3 : 1, max_model_turns: n.turns, max_tokens: 4000, max_cost_usd: 1, timeout_seconds: n.seconds },
     model_policy: n.model ? { default_model: n.model } : undefined,
   });
   const steps = stages.flat();
@@ -264,7 +267,7 @@ export function toSpecs(f: Flow): Spec[] {
     limits: {
       max_delegations: steps.length,
       max_concurrent_agents: Math.max(...stages.map((g) => g.length)),
-      max_tool_calls: 0,
+      max_tool_calls: 1,
       max_model_turns: 4 + steps.length * 2,
       max_tokens: 4000 * steps.length,
       max_cost_usd: steps.length,

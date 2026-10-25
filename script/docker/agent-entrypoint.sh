@@ -22,7 +22,8 @@ for migration in \
   db/migrations/202610240005_nmc3_durable.sql \
   db/migrations/202610240006_nmc3_definitions.sql \
   db/migrations/202610240009_nmc3_policy_pg.sql \
-  db/migrations/202610240010_nmc3_context.sql
+  db/migrations/202610240010_nmc3_context.sql \
+  db/migrations/202610250001_nmc3_threads.sql
 do
   psql "$url" -v ON_ERROR_STOP=1 -f "$migration"
 done

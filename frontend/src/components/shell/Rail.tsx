@@ -7,6 +7,7 @@ import Logo from "@/components/brand/Logo";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import { endSession } from "@/product/supabase";
 import { isTerminal } from "@/lib/live";
+import { canUseThreads } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { usePendingApprovals } from "@/components/approvals/usePendingApprovals";
 import { useEmployee } from "./ConsoleGate";
@@ -66,7 +67,7 @@ export default function Rail() {
       {groups.map((g, i) => (
         <div key={i} className={s.group}>
           {i > 0 && <span className={s.sep} />}
-          {g.map((n) => (
+          {g.filter((n) => n.href !== "/threads" || canUseThreads(employee?.roles)).map((n) => (
             <Link key={n.href} href={n.href} className="ibtn" aria-current={active(n.href) ? "page" : undefined} data-tip={n.label} data-tip-side aria-label={n.label}>
               <Icon name={n.icon} size={17} />
               {n.href === "/dashboard" && waiting > 0

@@ -275,6 +275,32 @@ func TestSuccessfulRunMapsSession(t *testing.T) {
 	}
 }
 
+func TestPublishedSingleAgentRunsWithRestrictedProfile(t *testing.T) {
+	backend := &fakeBackend{outcome: "succeeded", messages: []Message{assistantMessage(map[string]any{"type": "text", "text": `{"ok":true}`})}}
+	server := httptest.NewServer(backend.handler())
+	defer server.Close()
+	client, err := NewClient(server.URL, "secret", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := newMemory()
+	source := func(context.Context) ([]contracts.AgentDefinition, error) {
+		return []contracts.AgentDefinition{{ID: "published-single", Version: "1.0.0", Name: "Published single", Role: "specialist", Instructions: "Reply with JSON.", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`), Limits: openLimits(), PreferredModel: "openai/gpt-4o-mini"}}, nil
+	}
+	c, err := New(testDefs(), client, mem, mem, t.TempDir(), "meta/muse-spark-1.3-contributor", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := c.Start(context.Background(), contracts.StartRunRequest{AgentID: "published-single", AgentVersion: "1.0.0", Input: json.RawMessage(`{}`), Limits: openLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitRun(t, mem, started.ID)
+	if finished.State != contracts.StateSucceeded || backend.agent != "builder-agent" || backend.model["providerID"] != "openai" || backend.model["id"] != "gpt-4o-mini" {
+		t.Fatalf("run=%+v profile=%q model=%v", finished, backend.agent, backend.model)
+	}
+}
+
 func TestCatalogReadBelongsToSpecialist(t *testing.T) {
 	backend := &fakeBackend{outcome: "succeeded"}
 	read := assistantMessage(map[string]any{"type": "tool", "name": "catalog_search", "state": map[string]any{"status": "completed"}})

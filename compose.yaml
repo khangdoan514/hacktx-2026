@@ -18,6 +18,25 @@ services:
     ports:
       - "127.0.0.1:54330:5432"
 
+  minio:
+    # Upstream MinIO community images are no longer publicly available.
+    # PGSTY Silo is a maintained, S3-compatible MinIO fork.
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-nmc3-local}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-nmc3-local-secret}
+    volumes:
+      - objectdata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
   api:
     build:
       context: .
@@ -47,13 +66,28 @@ services:
       DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
       NMC3_DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3_agent?sslmode=disable
       NMC3_ADDR: 0.0.0.0:8080
+      NMC3_WORKDIR: ${NMC3_WORKDIR:-/workspace/agents}
+      NMC3_TOOLS_DIR: ${NMC3_TOOLS_DIR:-.nmc3}
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      OPENCODE_SERVICE_PASSWORD: ${OPENCODE_SERVICE_PASSWORD:-docker-opencode}
-      OPENCODE_URL: ${OPENCODE_URL:-http://host.docker.internal:49374}
+      OPENCODE_SERVICE_FILE: /run/opencode/service.json
+      OPENCODE_URL: ${OPENCODE_DOCKER_URL:-http://host.docker.internal:49374}
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-nmc3-local}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-nmc3-local-secret}
+      S3_BUCKET: ${S3_BUCKET:-nmc3-threads}
+      S3_USE_SSL: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Read the current OpenCode service registration, which can rotate.
+      - ${HOME}/.config/opencode/service.json:/run/opencode/service.json:ro
+      # OpenCode runs on the host and resolves this absolute directory there.
+      # Mounting at the same path lets the agent container validate and use it.
+      - ${PROJECT_ROOT:-/workspace}:${PROJECT_ROOT:-/workspace}
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   web:
@@ -73,3 +107,4 @@ services:
 
 volumes:
   pgdata:
+  objectdata:
