@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/khangdoan514/hacktx-2026/agents/internal/contracts"
@@ -64,11 +65,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	workdir := envDefault("NMC3_WORKDIR", os.TempDir()+"/nmc3-opencode")
-	model := envDefault("OPENCODE_MODEL", "opencode/beam-free")
-	catalog := envDefault("NMC3_CATALOG", "fixtures/catalog/vendors.json")
-	if err := opencode.PrepareProject(workdir, catalog, definitions, model); err != nil {
-		return err
+	model := envDefault("OPENCODE_MODEL", "meta/muse-spark-1.3-contributor")
+	// The session directory must be this module so OpenCode loads
+	// opencode.jsonc (deny-by-default agents and the catalog MCP server).
+	// A temp directory would fall through to the unrestricted built-in agent.
+	workdir := envDefault("NMC3_WORKDIR", ".")
+	if _, err := os.Stat(filepath.Join(workdir, "opencode.jsonc")); err != nil {
+		return fmt.Errorf("OpenCode config %s: run from agents/ or set NMC3_WORKDIR to that directory", filepath.Join(workdir, "opencode.jsonc"))
 	}
 	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, model)
 	if err != nil {

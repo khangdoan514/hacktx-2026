@@ -4,7 +4,7 @@
     "version": "1.0.0",
     "name": "Vendor comparison orchestrator",
     "role": "orchestrator",
-    "instructions": "Compare vendors using only catalog/vendors.json. Delegate the lookup and the price score, then recommend one vendor id from that file.",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -55,7 +55,7 @@
     "allowed_tools": [],
     "allowed_delegates": [
       "catalog-specialist",
-      "pricing-specialist"
+      "accessibility-specialist"
     ],
     "limits": {
       "max_delegations": 2,
@@ -72,7 +72,7 @@
     "version": "1.0.0",
     "name": "Catalog specialist",
     "role": "specialist",
-    "instructions": "Read catalog/vendors.json and return the vendor ids that match the criteria and budget.",
+    "instructions": "Use only authorized actions and cite fictional source IDs.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -110,41 +110,6 @@
     "allowed_tools": [
       "catalog.search"
     ],
-    "allowed_delegates": [],
-    "limits": {
-      "max_delegations": 2,
-      "max_concurrent_agents": 2,
-      "max_tool_calls": 4,
-      "max_model_turns": 8,
-      "max_tokens": 12000,
-      "max_cost_usd": 2,
-      "timeout_seconds": 60
-    }
-  },
-  {
-    "id": "pricing-specialist",
-    "version": "1.0.0",
-    "name": "Pricing specialist",
-    "role": "specialist",
-    "instructions": "Score the vendors in catalog/vendors.json on price against the budget. Cite only ids from that file.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "criteria": { "type": "array", "items": { "type": "string" } },
-        "budget_usd": { "type": "number" }
-      },
-      "additionalProperties": false
-    },
-    "output_schema": {
-      "type": "object",
-      "properties": {
-        "source_ids": { "type": "array", "items": { "type": "string" } },
-        "summary": { "type": "string" }
-      },
-      "required": ["source_ids", "summary"],
-      "additionalProperties": false
-    },
-    "allowed_tools": ["catalog.search"],
     "allowed_delegates": [],
     "limits": {
       "max_delegations": 2,

@@ -20,32 +20,43 @@ This directory is the home of the **general-purpose Go agent and orchestration s
 
 ## Current status
 
-The custom Go execution engine (runtime, model adapters, tool gateway) was
-removed in favor of OpenCode; the implementation remains in git history. See
-[the OpenCode adoption plan](docs/opencode-adoption.md). The Go service
-translates the versioned `/v1` API to the local OpenCode service, validates
-requests and structured results against NMC3 schemas, and persists runs and
-ordered events to Supabase. From `agents/`, run `go run ./cmd/nmc3-agent`.
-It listens on `127.0.0.1:8080` by default. The FastAPI scaffold is not in the
-agent request path.
+The agents service has one execution path: OpenCode. `cmd/nmc3-agent` creates
+an OpenCode session, validates NMC3 schemas, and persists runs and ordered
+events. There is no coordinator flag and no agents-side deterministic model
+adapter. The custom engine (`internal/runtime/`, `internal/model/`,
+`internal/tools/`) remains only in git history. See
+[the OpenCode adoption plan](docs/opencode-adoption.md). From `agents/`, run
+`go run ./cmd/nmc3-agent`. It listens on `127.0.0.1:8080` by default. The
+FastAPI scaffold is not in the agent request path.
+
+Contract tests in `internal/opencode/coordinator_test.go` use a scripted fake
+OpenCode backend. They do not call the network, a provider, or a database.
+The product application's scripted adapter (`internal/agents/dummy`, script
+`examples/deterministic-actions.json`) is a separate path and is not this
+service.
+
+The first pass is not fully complete. This machine's CLI is `opencode
+v2.1.4`. A live policy check against that binary has not been run.
+`db/migrations/202610240003_nmc3_event_source.sql` is applied on the hosted
+database.
 
 ## Local setup
 
-From the repository root, `./script/dev.sh` runs `agents/script/setup.sh` and then starts this service. Setup creates the database `hacktx_nmc3_agent` (override with `NMC3_AGENT_DB` / `AGENT_DATABASE_URL`), applies the three SQL files below, installs OpenCode when the `opencode` command is missing, and starts its background service. Use that database rather than the business API database: both use a schema named `nmc3`, and the tables are not the same.
+From the repository root, `./script/dev.sh` runs `agents/script/setup.sh` and then starts this service. Setup creates the database `hacktx_nmc3_agent` (override with `NMC3_AGENT_DB` / `AGENT_DATABASE_URL`) and applies the three SQL files below. Use that database rather than the business API database: both use a schema named `nmc3`, and the tables are not the same.
 
-1. Apply [the agent schema migration](db/migrations/202610240001_nmc3_pass1.sql), [the service API migration](db/migrations/202610240002_nmc3_data_api.sql), and [the event-source migration](db/migrations/202610240003_nmc3_event_source.sql) to the selected database. The tables remain in the private `nmc3` schema. Hosted Supabase calls restricted RPCs through the Data API. Local setup applies the same files with `psql`.
-2. For hosted Supabase, set `SUPABASE_URL` and the server-only `SUPABASE_SECRET_KEY` in your local environment and leave `NMC3_STORE` unset. Never put the secret in `NEXT_PUBLIC_` variables or commit it. For this repository's local Postgres, set `NMC3_STORE=postgres` and `DATABASE_URL` to `hacktx_nmc3_agent`. The service also needs the local OpenCode service: `OPENCODE_URL` (default `http://127.0.0.1:49374`) and its service password via `OPENCODE_SERVICE_PASSWORD` or the default registration file `~/.config/opencode/service.json`. From `agents/`, run `go run ./cmd/nmc3-agent`. It listens on `127.0.0.1:8080` by default.
-3. For deterministic local runs, use the scripted test harness (`go test ./internal/opencode/`); it replays fixture sessions with no network or credentials. Definitions are loaded from `examples/definitions.json`. The sample request is `examples/vendor-comparison.json`.
-4. On startup the service writes an OpenCode project into the session directory: `opencode.jsonc` plus `catalog/vendors.json`. The orchestrator may call only its allowlisted specialists. Specialists may read that catalog and cannot delegate. Shell, edit, and web tools are denied. The model comes from `OPENCODE_MODEL` (default `opencode/beam-free`) or per-run `model_id`. OpenCode's free models currently reject this HTTP service with `FreeTierError`; sign a provider in with `opencode auth login` before expecting a live run. OpenCode records session usage and cost.
-5. From `frontend/`, `AGENT_API_URL` defaults to `http://127.0.0.1:8080`. Run `npm ci` and `npm run dev`, then open `/runs`. The website proxies `/agent-api/*` to this Go API.
+1. Apply [the agent schema migration](db/migrations/202610240001_nmc3_pass1.sql), [the service API migration](db/migrations/202610240002_nmc3_data_api.sql), and [the event-source migration](db/migrations/202610240003_nmc3_event_source.sql) to the selected Supabase project. The tables remain in the private `nmc3` schema; the Go service calls restricted RPCs through Supabase's Data API.
+2. Set `SUPABASE_URL` and the server-only `SUPABASE_SECRET_KEY` in your local environment. Never put the secret in `NEXT_PUBLIC_` variables or commit it. The service also needs the local OpenCode service: `OPENCODE_URL` (default `http://127.0.0.1:49374`) and its service password via `OPENCODE_SERVICE_PASSWORD` or the default registration file `~/.config/opencode/service.json`. From `agents/`, run `go run ./cmd/nmc3-agent`. It listens on `127.0.0.1:8080` by default and uses that directory as the OpenCode session location so `opencode.jsonc` is loaded. That file denies every action, allows only the named subagents, and exposes the fictional catalog through the local `catalog_search` MCP tool (`go run ./cmd/catalog-mcp`). Direct Postgres remains available only with `NMC3_STORE=postgres` and `DATABASE_URL`.
+3. Contract tests do not need a running API, OpenCode, provider credentials, or a database. From `agents/`, `go test ./internal/opencode/` uses the scripted fake backend. Definitions for the service are loaded from `examples/definitions.json`. The sample live request is `examples/vendor-comparison.json`.
+4. For live runs, the model comes from `OPENCODE_MODEL` (default `meta/muse-spark-1.3-contributor`, $0.10/$0.20 per million tokens) or per-run `model_id`. Any OpenRouter ID (OSS, GPT, Claude) may be supplied; the full option list is `examples/openrouter-models.json`. OpenCode records session usage and cost. The endpoint is the local OpenCode service, not OpenRouter directly.
+5. From `frontend/`, `AGENT_API_URL` defaults to `http://127.0.0.1:8080`. Run `npm ci` and `npm run dev`, then open `/runs`. The website proxies `/agent-api/*` to the Go API.
 
-Run `go test ./...` in `agents/`, and `npm run lint && npm run build` in `frontend/`. The deterministic adapter needs no provider credentials but still uses Supabase's Postgres database through the Go service. Optional direct Postgres tests use `NMC3_TEST_DATABASE_URL`.
+Run `go test ./...` in `agents/`, and `npm run lint && npm run build` in `frontend/`. Postgres tests skip without `NMC3_TEST_DATABASE_URL`. The scripted OpenCode tests need no provider credentials and no database. Live runs need the local OpenCode service and Supabase, or `NMC3_STORE=postgres` with `DATABASE_URL`.
 
-Pass 1 persists completed run history and ordered events. An in-flight run interrupted by an API restart is **not** automatically resumed; automatic recovery belongs to Pass 3. This local API has no production authentication or tenant isolation and should use fictional data only.
+Pass 1 persists completed run history and ordered events. An in-flight run interrupted by an API restart is **not** automatically resumed; automatic recovery belongs to Pass 3. Submitted limits must be positive. The wait deadline is enforced (`TIMEOUT` when `timeout_seconds` elapses). Token and cost on the run are copied from OpenCode session usage; crossing `max_tokens` or `max_cost_usd` does not stop the run. Turn, tool-call, delegation, and concurrency limits are not stop conditions in this service. This local API has no production authentication or tenant isolation and should use fictional data only.
 
 ## Guiding rules
 
 - A depth-0 orchestrator may invoke authorized depth-1 specialists. Specialists cannot invoke other agents.
 - Every agent invocation has explicit input, output, tool permissions, limits, and trace identity.
-- The runtime, rather than a model prompt, enforces delegation and tool permissions.
-- Checked-in fictional data and a deterministic adapter make the first pass testable; the configured provider path supplies live agent behavior.
+- `opencode.jsonc` enforces delegation and tool permissions. `experimental.subagent_depth` is 1, so a specialist cannot launch another agent. Specialists search the catalog with `catalog_search` and cannot read the fixture file, the shell, or `.env`. The Go service records a denied delegation or tool as a failure and does not create a child.
+- Checked-in fictional data and the scripted fake OpenCode backend make contract tests repeatable. Live agent behavior comes from the local OpenCode service.
