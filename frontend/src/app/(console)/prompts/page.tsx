@@ -13,7 +13,7 @@ export default function PromptsPage() {
       <PageHeader title="Prompts" sub="The instructions each agent receives. Change them by publishing a new definition version." actions={<Link href="/definitions" className="btn">Open definitions</Link>} />
       {agents.length === 0 && <p className="muted">The agent service has no agents.</p>}
       {agents.map((a) => {
-        const last = runs.flatMap((r) => r.turns.filter((t) => t.agent === a.id).map((t) => ({ run: r.id, t }))).sort((x, y) => y.t.at - x.t.at)[0];
+        const last = runs.flatMap((r) => r.turns.filter((t) => t.agent === a.id && t.id !== `${r.id}-usage`).map((t) => ({ run: r.id, t, when: r.createdAt + t.at }))).sort((x, y) => y.when - x.when)[0];
         return (
         <section key={a.id} className="card rise">
           <div className="ch">
