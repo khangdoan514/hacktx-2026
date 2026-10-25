@@ -73,7 +73,7 @@ func (s *Server) bearerIdentity(r *http.Request) (platform.Identity, error) {
 
 func allowAgent(actor platform.Actor, method, path string) error {
 	if path == "/agent-api/threads" || strings.HasPrefix(path, "/agent-api/threads/") {
-		return organization.Require(actor, "ai_engineer", "operator", "administrator")
+		return organization.Require(actor, "requester", "ai_engineer", "operator", "administrator")
 	}
 	if method == http.MethodGet || method == http.MethodHead {
 		return nil

@@ -57,11 +57,11 @@ func TestAllowAgentUsesEmployeeRoles(t *testing.T) {
 	if err := allowAgent(requester, http.MethodPost, "/agent-api/agent-runs"); err == nil {
 		t.Fatal("requester started a run")
 	}
-	if err := allowAgent(requester, http.MethodGet, "/agent-api/threads"); err == nil {
-		t.Fatal("requester read threads")
+	if err := allowAgent(requester, http.MethodGet, "/agent-api/threads"); err != nil {
+		t.Fatal("requester cannot read threads")
 	}
-	if err := allowAgent(requester, http.MethodPost, "/agent-api/threads/thread-id/messages"); err == nil {
-		t.Fatal("requester sent a thread message")
+	if err := allowAgent(requester, http.MethodPost, "/agent-api/threads/thread-id/messages"); err != nil {
+		t.Fatal("requester cannot send a thread message")
 	}
 	if err := allowAgent(engineer, http.MethodGet, "/agent-api/threads"); err != nil {
 		t.Fatal(err)
