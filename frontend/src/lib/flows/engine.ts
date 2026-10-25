@@ -56,7 +56,8 @@ export interface Decision {
   agent: string;
   what: string;
   outcome: string;
-  conf: number;
+  /** Absent for decisions that come from real run events. */
+  conf?: number;
   why?: string;
   needsYou?: boolean;
   resolved?: boolean;

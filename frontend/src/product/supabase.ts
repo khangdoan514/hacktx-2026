@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { clearToken, writeToken } from "./api";
+import { clearToken, readToken, writeToken } from "./api";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -20,7 +20,9 @@ if (supabase && typeof window !== "undefined") {
 }
 
 export async function restoreSession(): Promise<string | null> {
-  if (!supabase) return null;
+  // Without Supabase configured (local auth), reuse the token from /auth/local-session.
+  // The API still verifies it on every request.
+  if (!supabase) return readToken();
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token ?? null;
   remember(token);

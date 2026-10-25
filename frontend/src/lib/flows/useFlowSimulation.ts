@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { agentApi, AgentRequestError, type AgentRun } from "@/lib/api";
+import { agentApi, AgentRequestError, type AgentRun, type RunEvent } from "@/lib/api";
 import { FlowSim, STAGES, TICK_MS, type Decision, type Lane, type FlowSnapshot } from "./engine";
 import { SCENARIOS } from "./scenarios";
 
@@ -12,12 +12,40 @@ export interface FlowState extends FlowSnapshot {
   runs: AgentRun[];
   /** Backend runs that are not finished. */
   active: number;
+  refresh: () => Promise<void>;
   approve: (code?: string) => void;
   anotherRound: (code?: string) => void;
 }
 
 const LIVE_POLL_MS = 4000;
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "CANCELLED"]);
+
+const EVENT_TEXT: Record<string, [string, string]> = {
+  RUN_STARTED: ["Started the flow", "Start"],
+  AGENT_STARTED: ["Started an agent", "Delegate"],
+  AGENT_SUCCEEDED: ["Agent finished its part", "Done"],
+  AGENT_FAILED: ["Agent stopped with an error", "Failed"],
+  TOOL_SUCCEEDED: ["Used a tool", "Tool"],
+  TOOL_FAILED: ["A tool call was refused or failed", "Blocked"],
+  RUN_SUCCEEDED: ["Delivered the result", "Deliver"],
+  RUN_FAILED: ["The flow failed", "Failed"],
+  RUN_CANCELLED: ["The flow was cancelled", "Cancelled"],
+};
+
+/** Real run events as timeline rows. Noisy model events are left out. */
+export function decisionsFromEvents(run: AgentRun, laneIndex: number, events: RunEvent[]): Decision[] {
+  const code = `R-${run.id.replace(/^run-/, "").slice(0, 4)}`;
+  return events.filter((e) => EVENT_TEXT[e.type]).map((e) => {
+    const [what, outcome] = EVENT_TEXT[e.type];
+    const data = (e.data ?? {}) as { agent_id?: string; tool_id?: string; code?: string };
+    const agent = data.agent_id ?? run.invocations?.find((i) => i.id === e.invocation_id)?.agent_id ?? run.agent_id;
+    const detail = data.tool_id ?? data.code;
+    return {
+      id: Date.parse(e.timestamp) + e.sequence / 1000, at: Date.parse(e.timestamp) || Date.now(),
+      code, color: (laneIndex % 3) + 1, agent, what: detail ? `${what}: ${detail}` : what, outcome,
+    };
+  });
+}
 
 /** Draws a persisted run on the same lane shape as the simulation. */
 export function laneFromRun(run: AgentRun, i: number): Lane {
@@ -53,27 +81,31 @@ export function useFlowSimulation(onToast?: (message: string) => void): FlowStat
 
   const [snapshot, setSnapshot] = useState<FlowSnapshot>(() => sim.snapshot());
   const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [liveDecisions, setLiveDecisions] = useState<Decision[]>([]);
   const liveRef = useRef(false);
 
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const body = await agentApi.list();
-        if (!alive) return;
-        const list = body.runs ?? [];
-        liveRef.current = list.length > 0;
-        setRuns(list);
-      } catch (err) {
-        if (!alive || (err instanceof AgentRequestError && err.status === 401)) return;
-        liveRef.current = false;
-        setRuns([]);
-      }
-    };
-    void poll();
-    const id = window.setInterval(poll, LIVE_POLL_MS);
-    return () => { alive = false; window.clearInterval(id); };
+  const poll = useCallback(async () => {
+    try {
+      const body = await agentApi.list();
+      const list = body.runs ?? [];
+      liveRef.current = list.length > 0;
+      setRuns(list);
+      const feeds = await Promise.all(list.slice(0, 3).map(async (run, i) => {
+        try { return decisionsFromEvents(run, i, (await agentApi.events(run.id)).events); } catch { return []; }
+      }));
+      setLiveDecisions(feeds.flat().sort((a, b) => b.at - a.at).slice(0, 60));
+    } catch (err) {
+      if (err instanceof AgentRequestError && err.status === 401) return;
+      liveRef.current = false;
+      setRuns([]);
+    }
   }, []);
+
+  useEffect(() => {
+    const first = window.setTimeout(() => { void poll(); }, 0);
+    const id = window.setInterval(poll, LIVE_POLL_MS);
+    return () => { window.clearTimeout(first); window.clearInterval(id); };
+  }, [poll]);
 
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -90,7 +122,7 @@ export function useFlowSimulation(onToast?: (message: string) => void): FlowStat
 
   const live = runs.length > 0;
   const lanes = live ? runs.slice(0, 3).map(laneFromRun) : snapshot.lanes;
-  const decisions: Decision[] = live ? [] : snapshot.decisions;
+  const decisions: Decision[] = live ? liveDecisions : snapshot.decisions;
   return {
     source: live ? "live" : "sim",
     runs,
@@ -99,6 +131,7 @@ export function useFlowSimulation(onToast?: (message: string) => void): FlowStat
     decisions,
     waiting: live ? 0 : snapshot.waiting,
     delivered: live ? runs.filter((r) => r.state === "SUCCEEDED").length : snapshot.delivered,
+    refresh: poll,
     approve,
     anotherRound,
   };

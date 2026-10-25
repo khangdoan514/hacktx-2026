@@ -128,9 +128,11 @@ func (c *Coordinator) Start(ctx context.Context, req contracts.StartRunRequest) 
 	}
 	session, err := c.client.CreateSession(ctx, c.workdir, definition.Name+" run", definition.ID, providerID, modelID)
 	if err != nil {
+		log.Printf("NMC3 OpenCode CreateSession failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
 	if err := c.client.Prompt(ctx, session.ID, buildPrompt(definition, c.defs, req.Input)); err != nil {
+		log.Printf("NMC3 OpenCode Prompt failed: %v", err)
 		return contracts.Run{}, &contracts.RunError{Code: contracts.ErrInternal, Message: "agent session could not start"}
 	}
 	t := now()

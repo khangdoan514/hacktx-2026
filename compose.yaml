@@ -31,7 +31,7 @@ services:
       ADDR: ":8000"
       STORAGE_DIR: /app/var/storage
       NMC3_INTERNAL_TOKEN: ${NMC3_INTERNAL_TOKEN:-local-internal}
-      AGENT_API_URL: http://agent:8080
+      AGENT_API_URL: ${AGENT_API_URL:-http://agent:8080}
     depends_on:
       postgres:
         condition: service_healthy
