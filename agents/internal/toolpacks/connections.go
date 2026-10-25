@@ -2,6 +2,8 @@ package toolpacks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -50,10 +52,11 @@ func (a *API) signedIn(next http.HandlerFunc) http.HandlerFunc {
 }
 
 type pending struct {
-	Pack    string    `json:"pack"`
-	Owner   string    `json:"owner"`
-	Browser string    `json:"browser"`
-	Expires time.Time `json:"expires"`
+	Pack     string    `json:"pack"`
+	Owner    string    `json:"owner"`
+	Browser  string    `json:"browser"`
+	Expires  time.Time `json:"expires"`
+	Verifier string    `json:"verifier,omitempty"`
 }
 
 var statePattern = regexp.MustCompile(`^[a-f0-9]{48}$`)
@@ -112,6 +115,15 @@ func (a *API) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "nmc3_oauth_" + state, Value: p.Browser, Path: "/oauth/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(a.origin(id), "https://"), MaxAge: 600})
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	if prov.PKCE {
+		if p.Verifier == "" {
+			http.Error(w, "This sign-in link expired. Start again from Tools.", http.StatusBadRequest)
+			return
+		}
+		challenge := sha256.Sum256([]byte(p.Verifier))
+		prov.Extra.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
+		prov.Extra.Set("code_challenge_method", "S256")
+	}
 	http.Redirect(w, r, prov.AuthorizeURL(a.redirectURI(id), state), http.StatusSeeOther)
 }
 

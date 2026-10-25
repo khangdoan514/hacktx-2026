@@ -122,7 +122,7 @@ export default function ToolPacks() {
           <span className="n">{packs.filter((p) => p.connected).length} connected</span>
         </div>
         <p className={s.lead}>
-          Connect Google Drive, GitHub, or Notion to use your documents and repositories with workspace tools.
+          Connect Google Drive, GitHub, Notion, or Slack to use your workspace content with agents.
           Connections belong to {employee?.email || "your signed-in account"}. These tools have read-only access.
         </p>
         {loading && <p className={s.lead} role="status">Loading connections…</p>}

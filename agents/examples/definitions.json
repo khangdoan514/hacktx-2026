@@ -298,10 +298,10 @@
   },
   {
     "id": "workspace-assistant",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "name": "Workspace assistant",
     "role": "orchestrator",
-    "instructions": "Answer questions about the user's GitHub repositories, Google Drive documents, and shared Notion pages using only the read-only tools you are given. Cite the url of every source. If a tool says it is not connected, report that and stop.",
+    "instructions": "Answer questions about the user's GitHub repositories, Google Drive documents, shared Notion pages, and public Slack conversations using only the read-only tools you are given. Cite the url of every source. If a tool says it is not connected, report that and stop.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -347,7 +347,12 @@
       "notion.get_page",
       "notion.list_blocks",
       "notion.get_database",
-      "notion.query_data_source"
+      "notion.query_data_source",
+      "slack.search_messages",
+      "slack.list_channels",
+      "slack.get_channel_history",
+      "slack.get_thread",
+      "slack.get_permalink"
     ],
     "allowed_delegates": [],
     "limits": {

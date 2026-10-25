@@ -1,6 +1,6 @@
 # Connecting personal accounts
 
-Employees sign in to NMC3 first, open **Tools**, and choose **Connect Google Drive**, **Connect Notion**, or **Connect with token** under GitHub. Provider account linking is separate from the Supabase login used to access NMC3. The server's OAuth client credentials identify this application; each employee authorizes their own account.
+Employees sign in to NMC3 first, open **Tools**, and choose **Connect Google Drive**, **Connect Notion**, **Connect Slack**, or **Connect with token** under GitHub. Provider account linking is separate from the Supabase login used to access NMC3. The server's OAuth client credentials identify this application; each employee authorizes their own account.
 
 After consent, Tools shows the account email or workspace name and offers **Test connection**, **Reconnect**, and **Disconnect**. The test verifies account access without reading documents. Disconnect removes the app's local credentials; provider-side revocation remains available from the provider's account settings.
 
@@ -21,6 +21,46 @@ The initial pack has five read-only actions: `notion.search`, `notion.get_page`,
 Use a new **Thread** after connecting, or select **Workspace assistant 1.1.0**, which adds the Notion tool allowlist. Previously published Workspace assistant 1.0.0 is unchanged in the registry. If results are empty or Notion returns 404, check the selected page access and the integration's Read content capability. A 403 may also indicate missing capabilities. The API never returns upstream error bodies that could contain private information.
 
 References: [Notion OAuth](https://developers.notion.com/guides/get-started/authorization), [title search](https://developers.notion.com/reference/post-search), and [data-source queries](https://developers.notion.com/reference/query-a-data-source).
+
+## Slack setup
+
+In the Slack app's **OAuth & Permissions** settings, add these **User Token Scopes** for the default public-channel integration:
+
+```text
+channels:read
+channels:history
+search:read.public
+```
+
+The app requests a personal user token, not a bot token. No posting, editing, channel membership changes, private-channel search, or direct-message scopes are requested by default.
+
+For local development, enable **PKCE** in the Slack app and register this exact redirect URL:
+
+```text
+http://localhost:8080/oauth/slack/callback
+```
+
+Slack documents enabling PKCE as a one-way change that marks an app as a public client; it cannot be disabled without Slack support. If that is unsuitable for an existing app, use a separate development Slack app, or deploy the backend behind HTTPS and choose the standard server flow instead. The app does not change Slack dashboard settings automatically. See [Slack's PKCE requirements](https://docs.slack.dev/authentication/using-pkce/).
+
+Local configuration in ignored `agents/.env`:
+
+```text
+SLACK_CLIENT_ID=<your client id>
+SLACK_CLIENT_SECRET=<your client secret>
+SLACK_PUBLIC_URL=http://localhost:8080
+SLACK_OAUTH_PKCE=true
+SLACK_USER_SCOPES=channels:read,channels:history,search:read.public
+```
+
+For the standard server flow, set `SLACK_OAUTH_PKCE=false`, set `SLACK_PUBLIC_URL` to the backend's HTTPS origin, and register that origin plus `/oauth/slack/callback`. Local HTTP without PKCE is refused at sign-in start. Each OAuth attempt persists a unique PKCE verifier with the employee's state; only the SHA-256 challenge goes to Slack in the authorization URL. The localhost PKCE exchange omits the client secret.
+
+After restarting the API, use **Tools → Connect Slack**, authorize your workspace, and return to **Test connection**. Workspace installation policy may require an administrator's approval. The callback saves only the `authed_user` token, and rejects bot-only authorizations. Refresh and expiry are handled, including replacement of rotating refresh tokens. The account test calls `auth.test` without reading messages.
+
+The five read-only actions are `slack.search_messages`, `slack.list_channels`, `slack.get_channel_history`, `slack.get_thread`, and `slack.get_permalink`. Search uses `assistant.search.context`, restricted to public-channel messages. Returned search results have source permalinks. History/thread results can be cited by calling `get_permalink` with the channel ID and timestamp. Search is limited to 20 results per call; history and thread reads to 15, with explicit pagination. Rate-limit errors return a retry instruction without automatic request loops. No Slack content is read just by connecting.
+
+Search depends on Slack's Real-time Search availability and the app's AI/search permissions. Basic channel tools are separate from search; they still require their granted scopes. This implementation does not silently fall back to legacy `search:read` APIs or ask for additional scopes on a failed read. See [Slack Real-time Search](https://docs.slack.dev/apis/web-api/real-time-search-api/) and [Slack OAuth](https://docs.slack.dev/authentication/installing-with-oauth/).
+
+Start a new Thread after connecting or use **Workspace assistant 1.2.0**, which adds Slack to its tool allowlist. The previously published 1.0.0 and 1.1.0 definitions remain in the registry unchanged. Live message access is unverified until the employee completes real Slack consent.
 
 ## Google Cloud setup
 

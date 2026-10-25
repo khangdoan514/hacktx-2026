@@ -23,6 +23,7 @@ type Credential struct {
 	ClientSecret string    `json:"client_secret,omitempty"`
 	Account      string    `json:"account,omitempty"`
 	ConnectedAt  time.Time `json:"connected_at"`
+	PublicClient bool      `json:"public_client,omitempty"`
 }
 
 // Store is a small JSON file shared by the API process and the MCP server,

@@ -112,6 +112,16 @@ func Packs() []Pack {
 				{Name: "query_data_source", Description: "Read rows of an authorized Notion data source with bounded pagination", Properties: map[string]any{"data_source_id": str("Notion data source UUID from search or get_database"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}, Required: []string{"data_source_id"}},
 			},
 		},
+		{
+			ID: "slack", Name: "Slack", Description: "Search public messages, browse public channels, read threads, and get source links as your Slack account. Read-only.",
+			Tools: []Tool{
+				{Name: "search_messages", Description: "Search public Slack messages with the Real-time Search API and return source permalinks", Properties: map[string]any{"query": str("Keywords or question, optionally with Slack search filters"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}, Required: []string{"query"}},
+				{Name: "list_channels", Description: "List public Slack channels visible to the connected account", Properties: map[string]any{"limit": limitProp, "cursor": str("next_cursor from the previous response")}},
+				{Name: "get_channel_history", Description: "Read recent channel messages; use get_permalink to cite a message", Properties: map[string]any{"channel_id": str("Slack channel ID, for example C0123456789"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}, Required: []string{"channel_id"}},
+				{Name: "get_thread", Description: "Read a thread using its parent message timestamp; use get_permalink for citations", Properties: map[string]any{"channel_id": str("Slack channel ID"), "ts": str("Parent message timestamp, for example 1700000000.000001"), "limit": limitProp, "cursor": str("next_cursor from the previous response")}, Required: []string{"channel_id", "ts"}},
+				{Name: "get_permalink", Description: "Get a permanent source URL for a Slack message", Properties: map[string]any{"channel_id": str("Slack channel ID"), "ts": str("Message timestamp")}, Required: []string{"channel_id", "ts"}},
+			},
+		},
 	}
 }
 

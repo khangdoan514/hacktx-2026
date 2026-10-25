@@ -138,7 +138,18 @@ func (a *API) oauthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := randomState()
-	if err := a.saveState(state, pending{Pack: id, Owner: Owner(r), Browser: randomState(), Expires: time.Now().Add(10 * time.Minute)}); err != nil {
+	attempt := pending{Pack: id, Owner: Owner(r), Browser: randomState(), Expires: time.Now().Add(10 * time.Minute)}
+	if prov.PKCE {
+		attempt.Verifier = randomState()
+	}
+	if id == "slack" {
+		u, err := url.Parse(a.origin(id))
+		if err != nil || (u.Scheme != "https" && !(prov.PKCE && u.Scheme == "http" && u.Hostname() == "localhost")) {
+			writeError(w, http.StatusConflict, "Slack requires HTTPS, or localhost with PKCE enabled in the Slack app.")
+			return
+		}
+	}
+	if err := a.saveState(state, attempt); err != nil {
 		writeError(w, http.StatusInternalServerError, "Sign-in could not be started.")
 		return
 	}
@@ -176,7 +187,7 @@ func (a *API) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	cred, err := prov.Exchange(ctx, a.Runner.Client, code, a.redirectURI(id))
+	cred, err := prov.ExchangeWithVerifier(ctx, a.Runner.Client, code, a.redirectURI(id), p.Verifier)
 	if err != nil {
 		back("exchange_failed")
 		return
@@ -206,8 +217,8 @@ func (a *API) disconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) origin(id string) string {
-	if id == "notion" {
-		if configured := strings.TrimRight(os.Getenv("NOTION_PUBLIC_URL"), "/"); configured != "" {
+	if id == "notion" || id == "slack" {
+		if configured := strings.TrimRight(os.Getenv(strings.ToUpper(id)+"_PUBLIC_URL"), "/"); configured != "" {
 			return configured
 		}
 		u, err := url.Parse(a.PublicURL)
