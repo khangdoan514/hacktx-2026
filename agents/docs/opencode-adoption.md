@@ -1,14 +1,18 @@
 # OpenCode adoption plan: stop rebuilding the agent runtime
 
-**Status:** in progress, October 2026. The custom engine is deleted as of this
-revision (`internal/runtime/`, `internal/model/`, `internal/tools/` removed;
-recoverable from git history). The Go service serves history only until the
-OpenCode backend lands. This plan re-homes NMC3 agent execution on
-OpenCode V2 (verified locally: `opencode v2.0.26`, HTTP API, `@opencode/client`)
-instead of extending the hand-built Go coordinator. It does not change the
+**Status:** Phase 3 cleanup done, October 2026. Agent execution is one
+OpenCode path. The custom engine (`internal/runtime/`, `internal/model/`,
+`internal/tools/`) and any coordinator flag are gone; both remain only in
+git history. There is no agents-side deterministic model adapter. Contract
+tests use the scripted fake OpenCode backend in
+`internal/opencode/coordinator_test.go`. This plan does not change the
 product direction in [product-spec.md](product-spec.md) or the Pass 1
 acceptance list in [first-pass.md](first-pass.md); it changes which code
-executes runs.
+executes runs. The first pass is not fully complete. Phase 0 was checked
+against OpenCode V2 (`opencode v2.0.26`). This machine's CLI is `opencode
+v2.1.4`. A live permission check against that binary has not been run.
+`db/migrations/202610240003_nmc3_event_source.sql` is applied on the hosted
+database.
 
 ## Why
 
@@ -69,8 +73,11 @@ tool execution, and credentials.
 3. `StartRunRequest.model_id` maps to OpenCode's `provider/model` format
    (already compatible: `openai/gpt-4o-mini`, `anthropic/claude-haiku-5.5`,
    `meta/muse-spark-1.3-contributor`).
-4. The deterministic adapter is replaced by a scripted harness at the
-   translation layer for contract tests (no live calls, no secrets).
+4. Contract tests use the scripted fake OpenCode backend in
+   `internal/opencode/coordinator_test.go` (no live calls, no secrets, no
+   database). That harness is not a database-backed deterministic adapter.
+   The product application's scripted adapter (`internal/agents/dummy`,
+   script `examples/deterministic-actions.json`) is a separate path.
 
 ## Phase 0 result (completed 2026-10-24, opencode v2.0.26)
 
@@ -97,8 +104,54 @@ Verified live: vendor run SUCCEEDED on `meta/muse-spark-1.3-contributor`
 `/agent-api` flow SUCCEEDED. Fixes found live: newest-first message order,
 30s client timeout killing long waits, 60s fixture limit too short for model
 runs. Pending: apply `db/migrations/202610240003_nmc3_event_source.sql`
-(source column currently omitted on read); depth-escalation and permission
-hardening move to Phase 2.
+(source column currently omitted on read).
+
+## Phase 2 result
+
+`agents/opencode.jsonc` is the execution policy. Global and per-agent
+permissions deny every action, then allow only the orchestrator's named
+subagents. Built-in `build`, `plan`, `general`, and `explore` are denied, so
+a session cannot escalate by switching agent. `experimental.subagent_depth`
+is 1. Sessions are created with the NMC3 agent id and the `agents/` directory,
+so OpenCode loads that file.
+
+The fictional catalog is the local MCP server `cmd/catalog-mcp` (`catalog_search`,
+Code Mode off). `catalog-specialist` and `accessibility-specialist` may call
+that tool. They may not read `fixtures/catalog/vendors.json`, and no agent may
+list or read MCP resources. The Go service maps `catalog_search` back to the
+contract id `catalog.search` and records any other tool as `TOOL_NOT_ALLOWED`.
+Denied delegations are `AGENT_NOT_ALLOWED` or `DELEGATION_DEPTH_EXCEEDED` and
+do not create a child. `go test` evaluates the same last-match rules OpenCode
+documents. This machine's CLI is `opencode v2.1.4`. A live check against
+that binary has not been run.
+
+## Phase 3 result (completed 2026-10-24)
+
+One OpenCode execution path remains. `cmd/nmc3-agent` always constructs
+`internal/opencode.Coordinator`. There was no coordinator flag left to
+remove, and `internal/runtime/`, `internal/model/`, and `internal/tools/`
+were already deleted in Phase 2. Those packages were not restored.
+
+There is no agents-side deterministic model adapter to archive.
+`internal/model/` left with Phase 2. Contract tests are the scripted fake
+OpenCode backend in `internal/opencode/coordinator_test.go`: in-process, no
+network, no provider credentials, and no database. That harness is not a
+database-backed deterministic adapter.
+
+`internal/agents/dummy` and `agents/examples/deterministic-actions.json`
+stay. They are the product application's scripted adapter
+(`internal/productapi/wire.go`), not a second engine for this service.
+
+Submitted run limits must be positive. The wait deadline
+(`limits.timeout_seconds`) cancels the OpenCode wait and records `TIMEOUT`.
+Token and cost figures on a run are copied from OpenCode session usage.
+This service does not stop a run for `max_tokens`, `max_cost_usd`, turn
+count, tool-call count, or delegation count.
+
+`README.md`, `first-pass.md`, and this plan describe that shape. This
+machine's CLI is `opencode v2.1.4`. A live permission check against that
+binary has not been run. The event-source migration is applied on the
+hosted database. The first pass is not claimed complete.
 
 ## Migration phases
 
@@ -107,11 +160,11 @@ through `opencode api` manually: create session, prompt, read messages/stats,
 confirm usage numbers and subagent behavior. Verifies the API surface before
 we commit to it.
 
-**Phase 1 — Provenance layer.** Go service gains an OpenCode REST client;
-`Start` creates a session and persists the mapping; a subscriber streams
-OpenCode events into Supabase `run_events`. Old coordinator stays behind a
-flag. Acceptance: deterministic scripted run works through both paths with
-identical `/v1` shapes.
+**Phase 1 — Provenance layer (completed).** Go service gained an OpenCode
+REST client; `Start` creates a session and persists the mapping; events are
+written to Supabase `run_events`. The Phase 1 note kept the old coordinator
+behind a flag. That flag is gone; see the Phase 3 result. Contract tests
+use the scripted fake OpenCode backend only.
 
 **Phase 2 — Cutover.** Agent definitions move to `opencode.jsonc`; catalog
 becomes MCP; permissions encode the allowlists; validation layer checks
@@ -121,9 +174,9 @@ structured outputs. Delete `internal/runtime/`, `internal/model/`,
 data, limits, provider failure, restart inspection) passes against OpenCode
 execution.
 
-**Phase 3 — Cleanup.** Remove the coordinator flag, archive the deterministic
-adapter, update `README.md`, `first-pass.md` status, and this plan with the
-final shape.
+**Phase 3 — Cleanup (completed).** See the Phase 3 result. The coordinator
+flag and the agents-side deterministic adapter were already absent. Docs
+now match the single OpenCode path. The product dummy adapter stays.
 
 ## Gaps to verify in Phase 0 (not assumed)
 
@@ -136,14 +189,17 @@ final shape.
   deny-by-default permissions.
 - Usage mapping: confirm session stats expose input/output tokens and cost
   per model so `Run.usage` stays truthful.
-- Deterministic tests: OpenCode sessions are live model calls; contract and
-  regression tests need the scripted harness, never the network.
+- Deterministic tests: OpenCode sessions are live model calls. Contract
+  tests use the scripted fake OpenCode backend, never the network and never
+  a database-backed model adapter.
 - Restart semantics: unchanged from Pass 1 — completed runs stay inspectable
   in Supabase; interrupted runs are not auto-resumed (Pass 3).
 
 ## Revert plan
 
-Until Phase 2 completes, the Go coordinator remains on a flag and all
-contract tests run against both backends. If OpenCode cannot meet a Pass 1
-scenario, the custom path is still the fallback and this plan is revised
-instead of the product.
+The custom coordinator is not a flag and not an in-tree fallback. Restoring
+it means recovering `internal/runtime/`, `internal/model/`, and
+`internal/tools/` from git history and revising this plan. The product
+application's scripted adapter is a separate path and is not that fallback.
+If OpenCode cannot meet a Pass 1 scenario, revise this plan; do not treat
+the dummy adapter as the agents execution engine.

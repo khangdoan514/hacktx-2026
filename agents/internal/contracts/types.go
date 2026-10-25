@@ -136,20 +136,20 @@ type Run struct {
 	State   State  `json:"state"`
 	AgentID string `json:"agent_id"`
 	Version string `json:"agent_version"`
-	// ModelID records the resolved model for inspection; empty means the
-	// deterministic adapter or service default applied.
+	// ModelID records the resolved model for inspection: the request override,
+	// or the service default (OPENCODE_MODEL) when the request omits one.
 	ModelID string `json:"model_id,omitempty"`
 	// OpenCodeSessionID links the run to the executing OpenCode session.
 	// Empty for runs that predate the OpenCode backend.
-	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
-	Input           json.RawMessage   `json:"input"`
-	Output          json.RawMessage   `json:"output,omitempty"`
-	Error           *RunError         `json:"error,omitempty"`
-	Usage           Usage             `json:"usage"`
-	Invocations     []AgentInvocation `json:"invocations"`
-	ToolInvocations []ToolInvocation  `json:"tool_invocations"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	OpenCodeSessionID string            `json:"opencode_session_id,omitempty"`
+	Input             json.RawMessage   `json:"input"`
+	Output            json.RawMessage   `json:"output,omitempty"`
+	Error             *RunError         `json:"error,omitempty"`
+	Usage             Usage             `json:"usage"`
+	Invocations       []AgentInvocation `json:"invocations"`
+	ToolInvocations   []ToolInvocation  `json:"tool_invocations"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
 }
 
 // ValidModelID accepts OpenRouter-style "provider/name" IDs (with an optional

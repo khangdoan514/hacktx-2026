@@ -3,14 +3,14 @@ package contracts
 import "encoding/json"
 
 type StartRunRequest struct {
-	AgentID      string          `json:"agent_id"`
-	AgentVersion string          `json:"agent_version"`
+	AgentID      string `json:"agent_id"`
+	AgentVersion string `json:"agent_version"`
 	// ModelID is an optional per-run OpenRouter model override. When empty,
-	// the service default (OPENROUTER_MODEL) applies. When set it must pass
+	// the service default (OPENCODE_MODEL) applies. When set it must pass
 	// ValidModelID; unknown providers fail at the provider, not the gateway.
-	ModelID      string          `json:"model_id,omitempty"`
-	Input        json.RawMessage `json:"input"`
-	Limits       Limits          `json:"limits"`
+	ModelID string          `json:"model_id,omitempty"`
+	Input   json.RawMessage `json:"input"`
+	Limits  Limits          `json:"limits"`
 }
 
 type StartRunResponse struct {
