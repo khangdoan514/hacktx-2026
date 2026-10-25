@@ -26,6 +26,9 @@ services:
       ENVIRONMENT: local
       DATABASE_URL: postgres://nmc3:nmc3-local@postgres:5432/hacktx_nmc3?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-replace-with-a-long-random-string}
+      JWT_ISSUER: ${JWT_ISSUER:-https://vocvwmiypifqnncxhfpj.supabase.co/auth/v1}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-authenticated}
+      JWT_JWKS_URL: ${JWT_JWKS_URL:-https://vocvwmiypifqnncxhfpj.supabase.co/auth/v1/.well-known/jwks.json}
       ALLOW_LOCAL_AUTH: "true"
       AGENT_EXECUTION_MODE: dummy
       ADDR: ":8000"
@@ -70,6 +73,7 @@ services:
       - api
     ports:
       - "3010:3000"
+      - "3000:3000"
 
 volumes:
   pgdata:

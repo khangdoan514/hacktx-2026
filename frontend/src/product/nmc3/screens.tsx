@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import Logo from "@/components/brand/Logo";
 import PageHeader from "@/components/shell/PageHeader";
+import { writeToken } from "@/product/api";
 import { supabase } from "@/product/supabase";
 import { nmc } from "./client";
 import org from "./org.module.css";
@@ -60,11 +61,27 @@ export function SignInScreen() {
     }
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
+      // Supabase rejects some seeded addresses, including ali-analytics@nmc2.test.
+      // The local employee password still signs those people in.
+      const local = await fetch("/api/v1/auth/local-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (local.ok) {
+        const body = (await local.json()) as { access_token?: string };
+        if (body.access_token) {
+          writeToken(body.access_token);
+          const next = new URLSearchParams(window.location.search).get("next");
+          router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
+          return;
+        }
+      }
       setError(signInError.message);
       return;
     }
     const next = new URLSearchParams(window.location.search).get("next");
-    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/runs");
+    router.push(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
   }
 
   return (
