@@ -1,0 +1,10 @@
+.git
+**/.env
+**/.env.local
+**/node_modules
+frontend/.next
+**/*_test.go
+ml
+supabase/.temp
+*.md
+!README.md
