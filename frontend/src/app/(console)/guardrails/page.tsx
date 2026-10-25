@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import PageHeader from "@/components/shell/PageHeader";
-import { useAllRuns, useStore } from "@/lib/store";
+import { useRunDetails, useStore } from "@/lib/store";
 import s from "../table.module.css";
 
 /** What each definition allows. The service denies everything else, and records the denials. */
 export default function GuardrailsPage() {
-  const runs = useAllRuns();
+  const runs = useRunDetails();
   const { agents } = useStore();
-  const stopped = runs.filter((r) => r.plan.error || r.plan.final === "FAILED").map((r) => r.plan);
-  const denied = runs.flatMap((r) => r.calls.filter((c) => c.denied && c.visible).map((c) => ({ run: r.plan.id, call: c })));
+  const stopped = runs.filter((r) => r.error || r.final === "FAILED");
+  // Denials are recorded two ways: a failed tool invocation, and TOOL_FAILED / DELEGATION_REJECTED events.
+  const denied = runs.flatMap((r) => [
+    ...r.calls.filter((c) => c.denied).map((c) => ({ key: c.id, run: r.id, what: c.name, agent: c.agent, code: "denied" })),
+    ...r.ops.flatMap((o) => (o.k === "event" && (o.type === "TOOL_FAILED" || o.type === "DELEGATION_REJECTED")
+      ? [{ key: `${r.id}-${o.at}-${o.type}`, run: r.id, what: o.detail ?? o.type, agent: o.agent, code: o.type }] : [])),
+  ]);
 
   return (
     <>
@@ -37,9 +42,9 @@ export default function GuardrailsPage() {
         <div className="ch"><h2>Denied actions</h2><span className="n">{denied.length}</span></div>
         {denied.length === 0 ? <p className="muted" style={{ padding: 20 }}>No run has had a tool call denied.</p> : (
           <ul style={{ listStyle: "none", margin: 0, padding: "8px 20px 16px" }}>
-            {denied.map(({ run, call }) => (
-              <li key={call.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
-                <span className="tag err">{call.name}</span> by {call.agent} in <Link href={`/live-run/${run}`} className="mono">{run}</Link>
+            {denied.map((d) => (
+              <li key={d.key} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <span className="tag err">{d.what}</span> {d.code} · {d.agent} in <Link href={`/live-run/${d.run}`} className="mono">{d.run}</Link>
               </li>
             ))}
           </ul>
