@@ -7,6 +7,7 @@ import Icon, { type IconName } from "@/components/ui/Icon";
 import { endSession } from "@/product/supabase";
 import { useNow, useStore } from "@/lib/store";
 import { materialize } from "@/lib/simulate";
+import { usePendingApprovals } from "@/components/approvals/usePendingApprovals";
 import { useEmployee } from "./ConsoleGate";
 import s from "./Rail.module.css";
 
@@ -15,19 +16,7 @@ const groups: { href: string; label: string; icon: IconName }[][] = [
     { href: "/dashboard", label: "Live run", icon: "activity" },
     { href: "/runs", label: "Runs", icon: "play" },
     { href: "/agents", label: "Agents", icon: "bot" },
-  ],
-  [
-    { href: "/evaluate", label: "Evaluate", icon: "flask" },
-    { href: "/triggers", label: "Triggers", icon: "zap" },
-    { href: "/budgets", label: "Budgets", icon: "gauge" },
-    { href: "/guardrails", label: "Guardrails", icon: "shield" },
-    { href: "/prompts", label: "Prompts", icon: "message" },
-  ],
-  [
-    { href: "/definitions", label: "Definitions", icon: "scroll-text" },
     { href: "/tools", label: "Tools", icon: "wrench" },
-    { href: "/approvals", label: "Approvals", icon: "badge-check" },
-    { href: "/org", label: "Organization", icon: "building" },
   ],
 ];
 
@@ -56,6 +45,7 @@ export default function Rail() {
   const employee = useEmployee();
   const { live } = useStore();
   const now = useNow();
+  const waiting = usePendingApprovals().approvals.length;
   const running = live ? materialize(live, now).state === "RUNNING" : false;
   const active = (href: string) => (href === "/dashboard" ? path === "/dashboard" : path.startsWith(href));
   const label = employee?.display_name || employee?.email || "Signed in";
@@ -70,6 +60,7 @@ export default function Rail() {
             <Link key={n.href} href={n.href} className="ibtn" aria-current={active(n.href) ? "page" : undefined} data-tip={n.label} data-tip-side aria-label={n.label}>
               <Icon name={n.icon} size={17} />
               {n.href === "/dashboard" && running && <i className={`dot live c-run ${s.live}`} />}
+              {n.href === "/runs" && waiting > 0 && <i className={`dot ${s.live} ${s.wait}`} title={`${waiting} waiting for approval`} />}
             </Link>
           ))}
         </div>
@@ -79,6 +70,9 @@ export default function Rail() {
           <span className={s.moon}><Icon name="moon" size={17} /></span>
           <span className={s.sun}><Icon name="sun" size={17} /></span>
         </button>
+        <Link href="/settings" className="ibtn" aria-current={path.startsWith("/settings") ? "page" : undefined} aria-label="Settings" data-tip="Settings" data-tip-side>
+          <Icon name="settings" size={17} />
+        </Link>
         <button type="button" className="ibtn" onClick={() => { void endSession().then(() => router.replace("/sign-in")); }} aria-label="Sign out" data-tip="Sign out" data-tip-side>
           <Icon name="log-out" size={17} />
         </button>

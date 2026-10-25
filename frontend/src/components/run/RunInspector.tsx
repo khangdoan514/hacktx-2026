@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { agentById } from "@/config/agents";
+import RunApprovals from "@/components/approvals/ApprovalInbox";
 import PageHeader from "@/components/shell/PageHeader";
 import Icon from "@/components/ui/Icon";
 import StatePill from "@/components/ui/StatePill";
@@ -44,6 +45,8 @@ export default function RunInspector({ view }: { view: RunView }) {
           </>
         }
       />
+
+      <RunApprovals runId={p.id} />
 
       <section className="card rise" style={{ "--d": "60ms" } as React.CSSProperties}>
         <div className="ch">

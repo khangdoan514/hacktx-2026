@@ -103,7 +103,7 @@ function Spec({ def }: { def: AgentDef }) {
       </Sec>
       <Sec title="Configure">
         <div className={s.cfg}>
-          <span className="mono muted">src/config/agents.ts</span>
+          <Link href={`/agents/new?from=${def.id}`} className="btn sm">Open in builder</Link>
           <CodeHint code={{
             cli: `nmc3 agents get ${def.id}\nnmc3 agents edit ${def.id} --model ${def.model}\nnmc3 agents publish ${def.id} --version ${bump(def.version)}`,
             sdk: `await nmc3.agents.update("${def.id}", {\n  model: "${def.model}",\n  tools: ${JSON.stringify(def.tools)},\n  limits: ${JSON.stringify(def.limits)},\n});`,

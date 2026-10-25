@@ -1,6 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    // Pages folded into the agent, run and settings views keep working for old links.
+    return [
+      { source: "/definitions", destination: "/agents/new", permanent: false },
+      { source: "/org", destination: "/settings", permanent: false },
+      { source: "/approvals", destination: "/runs", permanent: false },
+      { source: "/guardrails", destination: "/agents", permanent: false },
+      { source: "/prompts", destination: "/agents", permanent: false },
+      { source: "/budgets", destination: "/agents", permanent: false },
+    ];
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
     return [

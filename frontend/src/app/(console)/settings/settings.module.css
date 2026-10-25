@@ -1,0 +1,9 @@
+.kv { margin: 0; padding: 4px 20px; }
+.kv div { display: flex; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.kv div:last-child { border-bottom: 0; }
+.kv dt { width: 90px; color: var(--ink-3); }
+.kv dd { margin: 0; color: var(--ink); }
+.foot { padding: 14px 20px; border-top: 1px solid var(--line); }
+.org { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 0 20px; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.err { margin: 0; padding: 14px 20px; color: var(--err); font-size: 13px; }
