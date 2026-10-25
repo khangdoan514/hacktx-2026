@@ -68,7 +68,7 @@ func run() error {
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		return fmt.Errorf("create session workdir: %w", err)
 	}
-	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, envDefault("OPENCODE_MODEL", "meta/muse-spark-1.3-contributor"))
+	coordinator, err := opencode.New(definitions, backend, runs, events, workdir, envDefault("OPENCODE_MODEL", "opencode/beam-free"))
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-api_url="${AGENT_API_URL:-http://localhost:8080}"
+api_url="${AGENT_API_URL:-http://127.0.0.1:8080}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 response="$(curl -fsS -H 'Content-Type: application/json' --data-binary "@$script_dir/../examples/vendor-comparison.json" "$api_url/v1/agent-runs")"
 run_id="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')"

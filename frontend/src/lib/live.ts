@@ -60,6 +60,7 @@ export function planFromRun(run: AgentRun): RunPlan {
       ops.push({ at: end, k: "event", type: done === "SUCCEEDED" ? "AGENT_SUCCEEDED" : done === "CANCELLED" ? "RUN_CANCELLED" : "AGENT_FAILED", agent: invocation.agent_id, detail: invocation.error?.code });
     }
   });
+  const reported = run.usage ?? { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
   (run.tool_invocations ?? []).forEach((tool, index) => {
     const owner = invocations.find((invocation) => invocation.id === tool.agent_invocation_id)?.agent_id ?? agent;
     const at = Math.round(span * 0.45) + index * 200;
@@ -69,9 +70,19 @@ export function planFromRun(run: AgentRun): RunPlan {
     ops.push({ at, k: "use", key: "tools", delta: 1 });
     turns.push({
       id: `${run.id}-t${index + 1}`, agent: owner, n: index + 1, at, ms: 300,
-      system: "", input: taskOf(run.input), output: "", tokensIn: 0, tokensOut: 0, cost: 0,
+      system: "", input: taskOf(run.input), output: "",
+      tokensIn: index === 0 ? reported.input_tokens : 0,
+      tokensOut: index === 0 ? reported.output_tokens : 0,
+      cost: index === 0 ? reported.cost_usd : 0,
     });
   });
+  if (turns.length === 0 && (reported.input_tokens || reported.output_tokens || reported.cost_usd)) {
+    turns.push({
+      id: `${run.id}-usage`, agent, n: 1, at: span, ms: duration,
+      system: "", input: taskOf(run.input), output: "",
+      tokensIn: reported.input_tokens, tokensOut: reported.output_tokens, cost: reported.cost_usd,
+    });
+  }
   if (terminal) {
     const type = run.state === "SUCCEEDED" ? "RUN_SUCCEEDED" : run.state === "CANCELLED" ? "RUN_CANCELLED" : "RUN_FAILED";
     ops.push({ at: span, k: "event", type, agent, detail: run.error?.code });

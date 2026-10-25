@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -37,6 +38,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/v1/agent-runs" && r.Method == http.MethodPost {
 		h.start(w, r)
+		return
+	}
+	if r.URL.Path == "/v1/agent-runs" && r.Method == http.MethodGet {
+		h.listRuns(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/v1/agent-runs/") && r.Method == http.MethodGet {
@@ -95,6 +100,26 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 
 func positiveLimits(l contracts.Limits) bool {
 	return l.MaxDelegations > 0 && l.MaxConcurrentAgents > 0 && l.MaxToolCalls > 0 && l.MaxModelTurns > 0 && l.MaxTokens > 0 && l.MaxCostUSD > 0 && !math.IsNaN(l.MaxCostUSD) && !math.IsInf(l.MaxCostUSD, 0) && l.TimeoutSeconds > 0
+}
+
+func (h *handler) listRuns(w http.ResponseWriter, r *http.Request) {
+	type lister interface {
+		ListRuns(ctx context.Context, limit int) ([]contracts.Run, error)
+	}
+	store, ok := h.runs.(lister)
+	if !ok {
+		writeJSON(w, http.StatusOK, contracts.RunsResponse{Runs: []contracts.Run{}})
+		return
+	}
+	runs, err := store.ListRuns(r.Context(), 40)
+	if err != nil {
+		writeRunError(w, err)
+		return
+	}
+	if runs == nil {
+		runs = []contracts.Run{}
+	}
+	writeJSON(w, http.StatusOK, contracts.RunsResponse{Runs: runs})
 }
 
 func (h *handler) getRun(w http.ResponseWriter, r *http.Request, id string) {

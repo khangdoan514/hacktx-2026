@@ -3,19 +3,21 @@
 ```
 browser ──► Next.js
               │
-              ├── (dashboard) existing shell, proxied /api/health and /agent-api
+              ├── console /agent-api ──► agents/cmd/nmc3-agent (:8080)
+              │                            ├── its own Postgres database (schema nmc3)
+              │                            └── local OpenCode service (:49374)
               └── NMC2 product routes at /sign-in, /org, and /requests
                     │
-                    └── employee JWT ──► Go API (cmd/api)
+                    └── employee JWT ──► Go API (cmd/api :8000)
                                            │
                                            ├── Postgres schema app
-                                           ├── Postgres schema nmc3
+                                           ├── Postgres schema nmc3 (business runs and worker queue)
                                            ├── private document bytes
                                            └── cmd/worker leases agent runs
 ```
 
-- Business commands are under `/api/v1`. Agent inspection is under `/v1/agent-runs`, `/v1/agent-runs/{id}/events`, and `/v1/agents`. Both require the same employee session. `GET /api/health` does not.
-- Next.js proxies `/api/*` to the Go API and `/v1/*` to the same API. The dashboard's `/agent-api/*` proxy is unchanged.
+- Business commands are under `/api/v1`. The business API also serves `/v1/agent-runs` for its dummy worker. The console uses the dedicated agent API for `/v1/agents`, `/v1/agent-runs`, run detail, and events. `GET /api/health` does not require a session.
+- Next.js proxies `/api/*` to the business API and `/agent-api/*` to `AGENT_API_URL` (default `http://127.0.0.1:8080`).
 - The API verifies a Supabase RS256 or ES256 token against the configured issuer, audience, and JWKS. Local HS256 is available only when `ENVIRONMENT` is `local` or `test`, and never with the secret `dev-only-change-me`.
 - Each employee transaction runs as `app_runtime` (`NOLOGIN`, `NOBYPASSRLS`) with transaction-local `app.user_id` and `app.user_email`. The role does not own the tables.
 - Schema `app` holds the NMC2 organization, requests, specifications, approvals, handovers, catalog releases, and files. Schema `nmc3` holds runs, events, and the worker queue. Older business tables remain in place.

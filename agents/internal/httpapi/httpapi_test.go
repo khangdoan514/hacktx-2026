@@ -60,6 +60,29 @@ func request(t *testing.T, h http.Handler, method, path string, body any) *httpt
 func validRequest() contracts.StartRunRequest {
 	return contracts.StartRunRequest{AgentID: "a", AgentVersion: "1.0.0", Input: json.RawMessage(`{"task":"x"}`), Limits: contracts.Limits{MaxDelegations: 2, MaxConcurrentAgents: 2, MaxToolCalls: 2, MaxModelTurns: 4, MaxTokens: 100, MaxCostUSD: 1, TimeoutSeconds: 10}}
 }
+
+type listingStore struct {
+	fakeStore
+	runs []contracts.Run
+}
+
+func (s listingStore) ListRuns(context.Context, int) ([]contracts.Run, error) {
+	return s.runs, nil
+}
+
+func TestListRuns(t *testing.T) {
+	run := contracts.Run{ID: "run-1", State: contracts.StateSucceeded, AgentID: "a", Version: "1.0.0", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	h := New(fakeCoordinator{run}, listingStore{fakeStore: fakeStore{run: run}, runs: []contracts.Run{run}}, fakeEvents{}, []contracts.AgentDefinition{{ID: "a", Version: "1.0.0", Name: "A"}})
+	got := request(t, h, "GET", "/v1/agent-runs", nil)
+	if got.Code != 200 || !bytes.Contains(got.Body.Bytes(), []byte(`"id":"run-1"`)) {
+		t.Fatalf("list %d %s", got.Code, got.Body.String())
+	}
+	plain := testHandler()
+	if got := request(t, plain, "GET", "/v1/agent-runs", nil); got.Code != 200 || !bytes.Contains(got.Body.Bytes(), []byte(`"runs":[]`)) {
+		t.Fatalf("empty list %d %s", got.Code, got.Body.String())
+	}
+}
+
 func TestVersionedAPI(t *testing.T) {
 	h := testHandler()
 	if got := request(t, h, "POST", "/v1/agent-runs", validRequest()); got.Code != 202 {
