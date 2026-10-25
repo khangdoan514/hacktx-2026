@@ -42,26 +42,29 @@ export default function AgentsPage() {
 function AgentCard({ a, st }: { a: AgentDef; st: ReturnType<typeof stats> }) {
   const { openAgent } = useStore();
   return (
-    <button type="button" id={a.id} className={s.card} onClick={() => openAgent(a.id)}>
-      <div className={s.top}>
-        <span className={`${s.ico} ${st.running ? s.live : ""}`}><Icon name={a.icon} size={18} /></span>
-        <div style={{ minWidth: 0 }}>
-          <b>{a.name}</b>
-          <small className="mono">{a.id}@{a.version}</small>
+    <div id={a.id} className={s.card}>
+      <button type="button" className={s.cardOpen} onClick={() => openAgent(a.id)} aria-label={`View ${a.name} details`}>
+        <div className={s.top}>
+          <span className={`${s.ico} ${st.running ? s.live : ""}`}><Icon name={a.icon} size={18} /></span>
+          <div style={{ minWidth: 0 }}>
+            <b>{a.name}</b>
+            <small className="mono">{a.id}@{a.version}</small>
+          </div>
+          <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
         </div>
-        <span className={`tag ${a.kind === "orchestrator" ? "accent" : ""}`}>{a.kind === "orchestrator" ? "multi-step" : "single step"}</span>
-      </div>
-      <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
-      <div className={s.chips}>
-        {a.delegates.map((d) => <span key={d} className="tag">{d}</span>)}
-        {a.tools.map((t) => <span key={t} className="tag accent">{t}</span>)}
-        {a.tools.length + a.delegates.length === 0 && <span className="tag">model only</span>}
-      </div>
+        <p className={s.role}>{a.instructions || "No instructions recorded."}</p>
+        <div className={s.chips}>
+          {a.delegates.map((d) => <span key={d} className="tag">{d}</span>)}
+          {a.tools.map((t) => <span key={t} className="tag accent">{t}</span>)}
+          {a.tools.length + a.delegates.length === 0 && <span className="tag">model only</span>}
+        </div>
+      </button>
       <div className={s.foot}>
         <span><b>{st.n}</b> runs</span>
         <span><b>{st.rate}%</b> ok</span>
         <span><b>{st.avg ? secs(st.avg) : "—"}</b> avg</span>
+        <Link href={`/agents/new?from=${encodeURIComponent(a.id)}`} className="btn sm" aria-label={`Edit ${a.name} in graph`}>Edit graph</Link>
       </div>
-    </button>
+    </div>
   );
 }
